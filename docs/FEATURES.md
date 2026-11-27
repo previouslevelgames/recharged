@@ -88,7 +88,7 @@ back its shape, **Page Up** and **Page Down** raise and lower the 3D resolution,
 **Alt+Enter** (Option+Return on a Mac) switches between fullscreen and a
 window, and **F1** (or HOME on a controller) opens the **Recharged Game Menu** over the
 blurred game, in the game's own look (point at it with a Wii Remote, as at the game's menus): on **ONLINE** your set, the friends online,
-the players available, a RANKED match from anywhere in the menus and the
+a quick match against whoever the server finds, a RANKED match from anywhere in the menus and the
 leaderboards; on **OPTIONS** the gameplay options (**F2** opens them there) and
 the display, sound, controller and advanced settings, which change while the
 game runs (the launcher keeps only what the game needs before it starts). In an online match

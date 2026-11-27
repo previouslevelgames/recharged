@@ -451,7 +451,9 @@ void DrawOnline(const PageModel& model, PageState& state, List& list, PageAction
         actions.wii_online = true;
 }
 
-// PLAY: against a friend, a random opponent, or RANKED; each with how it stands.
+// PLAY: against a friend, a quick match against whoever the server finds, or
+// RANKED; each with how it stands. How many others are available is not
+// shown.
 void DrawPlay(const PageModel& model, List& list, PageActions& actions)
 {
     const auto& online = model.overlay.online;
@@ -462,8 +464,6 @@ void DrawPlay(const PageModel& model, List& list, PageActions& actions)
             friends = texts::Count("menus.play.online_count", count);
         if (online.search.active) random = T("menus.play.searching");
         else if (!online.me.available && online.me.can_set_available) random = T("menus.you.do_not_disturb");
-        else if (online.available_count && *online.available_count > 0)
-            random = texts::Count("menus.play.available_count", *online.available_count);
     }
     const char* ranked = model.overlay.ranked.going ? T("menus.play.on_the_way") : nullptr;
     if (list.Plate(T("menus.play.friends"), nullptr, true, friends.c_str())) actions.open = PageId::Friends;

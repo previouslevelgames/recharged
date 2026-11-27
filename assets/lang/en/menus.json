@@ -198,12 +198,10 @@
   "play": {
     "title": "QUICK PLAY",
     "friends": "FRIENDS",
-    "random": "RANDOM OPPONENT",
+    "random": "QUICK MATCH",
     "ranked": "RANKED",
     "online_count_one": "{{count}} online",
     "online_count_other": "{{count}} online",
-    "available_count_one": "{{count}} available",
-    "available_count_other": "{{count}} available",
     "searching": "Searching…",
     "on_the_way": "On the way…"
   },
@@ -213,7 +211,7 @@
     "no_recent": "Nobody yet: the players you play a set against show here."
   },
   "random": {
-    "title": "RANDOM OPPONENT",
+    "title": "QUICK MATCH",
     "find": "FIND AN OPPONENT",
     "search_time": "{{seconds}} s  ·  {{asked}} asked"
   },
@@ -243,7 +241,7 @@
   "you": {
     "no_profile_title": "No player profile",
     "no_profile": "Make one on the launcher's Player profile page: then friends, challenges, sets and the leaderboards are here.",
-    "open": "Open to random games",
+    "open": "Open to quick matches",
     "do_not_disturb": "Do not disturb",
     "your_set": "YOUR SET",
     "accept": "ACCEPT",
@@ -266,7 +264,7 @@
   },
   "setup": {
     "title_challenge": "CHALLENGE",
-    "title_random": "RANDOM OPPONENT",
+    "title_random": "QUICK MATCH",
     "send_challenge": "SEND CHALLENGE",
     "stop_searching": "STOP SEARCHING",
     "find_now": "FIND AN OPPONENT NOW!",
@@ -416,7 +414,7 @@
   "prompt": {
     "title": "CHALLENGE",
     "challenge": "CHALLENGE",
-    "random_challenge": "RANDOM CHALLENGE",
+    "random_challenge": "QUICK MATCH",
     "rematch": "REMATCH",
     "challenges_you": "{{name}} challenges you",
     "wants_rematch": "{{name}} wants a rematch",

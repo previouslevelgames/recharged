@@ -574,8 +574,8 @@ them up: **Player profile** (who you are signed in as, your Mii, your friend
 code, your Discord friends or Connect Discord, your flag, the server, and
 Sign out, which also ends the Discord link on this computer),
 **Match rules** (the presets a challenge starts from, see *Match settings*,
-and the server's rule sets) and **Sidekicks**. Your friends, the players
-available, your set, the RANKED leaderboards and the events are in the
+and the server's rule sets) and **Sidekicks**. Your friends, quick
+matches, your set, the RANKED leaderboards and the events are in the
 Recharged Game Menu (**F1** or HOME, see Hotkeys). A dot before
 **Online** in the sidebar shows the sign-in: green signed in, red not; signed
 out, **Player profile** shows what playing online brings and its two ways in,

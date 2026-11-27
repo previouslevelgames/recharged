@@ -17,8 +17,8 @@ works as on the Wii, with friend codes, ranked matches and rankings.
    your **Sidekicks**; the RANKED leaderboards are in the
    game's Recharged Game Menu (**ONLINE** → **LEADERBOARD**).
 2. In the game, press **F1** (or HOME) for the **Recharged Game Menu**: its
-   **ONLINE** → **PLAYERS** has your set, your friends online and the players
-   available. Challenge an opponent there. The game shows the key in the
+   **ONLINE** → **PLAYERS** has your set, your friends online and your recent
+   opponents, and **Quick match** finds you an opponent. Challenge one there. The game shows the key in the
    corner while it is in its menus.
 3. They accept on a card over their game, or, with only the launcher open,
    in a dialog there.
@@ -56,7 +56,7 @@ with the score.
   set.
 - Anyone who is signed in and has Recharged open can be challenged, unless
   they are playing a match or on **Do not disturb** (the switch under
-  **Random opponent**, on until you switch it off or search): then only
+  **Quick match**, on until you switch it off or search): then only
   players they keep as friends, and their Discord friends, can.
 - A player's screen in the Recharged Game Menu also adds them to your friends or
   takes them off. **Friends** lists your friends who are online and, under
@@ -67,7 +67,7 @@ with the score.
   panel searches for one by the rules you set up, as for a challenge: you
   searched, so your rules count. The server asks one player at a time who is
   open to challenges (or searching too), whichever version of the game they
-  play; they get a **Random challenge** card with Accept and Decline, and 30
+  play; they get a **Quick match** card with Accept and Decline, and 30
   seconds to answer before the next one is asked. Your card shows how long
   you have searched and how many players were asked; **Stop** ends the
   search. Y (or F) does the same from anywhere on the panel's first screen.

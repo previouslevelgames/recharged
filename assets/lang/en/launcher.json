@@ -402,7 +402,7 @@
     "mii_failed": "Your Mii for the set could not be made: {{error}}",
     "overline": {
       "rematch": "REMATCH",
-      "random": "RANDOM CHALLENGE",
+      "random": "QUICK MATCH",
       "challenge": "CHALLENGE",
       "set": "SET"
     },
