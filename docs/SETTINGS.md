@@ -357,7 +357,7 @@ does the same, and **F2** opens it on the gameplay options (`game_options`). It
 has **ONLINE**, **OPTIONS** and **QUIT RECHARGED**:
 
 - **ONLINE**: **PLAYERS** (you, your set, the friends who have Recharged open
-  and, while you are **Open to challenges**, the others who are; a player's
+  and your last opponents of a set who aren't friends; a player's
   page challenges them or keeps them as a friend), **RANKED** (the game's online
   RANKED from anywhere in its menus: **Play RANKED** takes the game by itself
   into a RANKED search, with your own Mii or one you choose there; from another

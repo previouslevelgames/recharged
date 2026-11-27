@@ -18,6 +18,9 @@ using platform::ProfilePlayer;
 using platform::RuleSet;
 using texts::T;
 
+// The last opponents of a set the friends page lists, at most.
+constexpr std::size_t kRecentOpponents = 5;
+
 std::string Lower(std::string text)
 {
     for (auto& c : text) c = char(std::tolower(static_cast<unsigned char>(c)));
@@ -412,6 +415,9 @@ void ChallengeableMii(OnlinePanelRow& row, const MiiProfile& mii, const std::str
     else row.can_challenge = true;
 }
 
+// Do not disturb takes a challenge from a player they keep as a friend
+// only (the server says it as `do_not_disturb`); a Discord friend's goes
+// through on the challenger's word, which its challenge gives.
 void Challengeable(OnlinePanelRow& row, const ProfilePlayer& player, const std::string& blocker,
                    const OnlinePanelContext& context)
 {
@@ -420,7 +426,13 @@ void Challengeable(OnlinePanelRow& row, const ProfilePlayer& player, const std::
         && player.game.compare(0, 4, context.game, 0, 4) != 0;
     if (other) row.version = VersionTag(player.game);
     if (row.presence != Presence::Free) return;
+    if (player.do_not_disturb && !row.discord)
+    {
+        if (!player.set) row.status = T("menus.you.do_not_disturb");
+        row.tone = Tone::Away;
+    }
     if (!blocker.empty()) row.blocked = blocker;
+    else if (player.do_not_disturb && !row.discord) row.blocked = T("menus.blocked.do_not_disturb");
     else row.can_challenge = true;
 }
 } // namespace
@@ -595,33 +607,24 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
     });
     model.sections.push_back(std::move(friends));
 
-    // While the player is available: the others available, then the game's
-    // own online players by their Mii.
-    if (me.available && context.random_games)
+    // The last players a set was played with who aren't friends of any kind
+    // (those show among the friends, once): at most five, the latest first,
+    // online or not.
+    OnlinePanelSection recent;
+    recent.id = OnlinePanelSection::Id::Recent;
+    recent.title = T("menus.friends.recent");
+    recent.empty = context.loading ? T("menus.common.loading") : T("menus.friends.no_recent");
+    for (const auto& player : lists.recent)
     {
-        OnlinePanelSection available;
-        available.id = OnlinePanelSection::Id::Available;
-        available.title = T("menus.players.open_to_challenges");
-        available.empty = context.loading ? T("menus.common.loading") : T("menus.players.nobody_open");
-        for (const auto& player : lists.available)
-        {
-            if (!player.online || !listed.insert(player.id).second) continue;
-            OnlinePanelRow row = PlayerRow(player);
-            row.can_befriend = true;
-            Challengeable(row, player, blocker, context);
-            available.rows.push_back(std::move(row));
-        }
-        for (const auto& mii : lists.game_online)
-        {
-            if (!mii.online || !miis.insert(mii.profile_id).second) continue;
-            if (mii.player_id && !listed.insert(mii.player_id).second) continue;
-            OnlinePanelRow row = MiiRow(mii);
-            ChallengeableMii(row, mii, blocker);
-            available.rows.push_back(std::move(row));
-        }
-        SortRows(available.rows);
-        model.sections.push_back(std::move(available));
+        if (recent.rows.size() >= kRecentOpponents) break;
+        if (!befriended.insert(player.id).second) continue;
+        OnlinePanelRow row = PlayerRow(player);
+        row.can_befriend = true;
+        Challengeable(row, player, blocker, context);
+        recent.rows.push_back(std::move(row));
     }
+    model.sections.push_back(std::move(recent));
+    if (!context.loading) model.available_count = lists.available_count;
     return model;
 }
 

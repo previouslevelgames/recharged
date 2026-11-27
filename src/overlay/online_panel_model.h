@@ -10,10 +10,11 @@
 // The online panel the game opens over its blurred picture (F1, or the Wii
 // Remote's HOME button): where the player plays online. The player and the
 // switch for random games, their set when there is one, the friends online
-// now (and how many are offline) and, while the player is available, the
-// others available now; a player's screen to challenge them or keep them as
-// a friend. This is its data, made from what the profile service answers and
-// without any drawing types; online_panel.h draws it with ImGui.
+// now (and how many are offline) and the last players they played a set
+// with; a player's screen to challenge them or keep them as a friend. Nobody
+// else is listed: who is online or open to challenges stays private. This is
+// its data, made from what the profile service answers and without any
+// drawing types; online_panel.h draws it with ImGui.
 namespace mscharged::overlay
 {
 // The colour a status line is drawn in.
@@ -80,9 +81,9 @@ struct OnlinePanelSection
 {
     enum class Id
     {
-        Online,    // friends, Discord friends and Mii friends online now
-        Available, // others open to challenges, and the game's online players
-        Friends,   // all of the friends, online first: the player's profile
+        Online,  // friends, Discord friends and Mii friends online now
+        Recent,  // the last opponents of a set who aren't friends, online or not
+        Friends, // all of the friends, online first: the player's profile
     };
     Id id = Id::Online;
     std::string title; // "ONLINE NOW"
@@ -200,6 +201,9 @@ struct OnlinePanelModel
     // Searching for a random opponent, or whether the player can start.
     OnlinePanelSearch search;
     bool can_search = false;
+    // How many others are open to challenges or search; none while the lists
+    // load or from a server that doesn't say.
+    std::optional<int> available_count;
     // For the footer: what the player should know (an action the server
     // refused, the server out of reach).
     std::string message;

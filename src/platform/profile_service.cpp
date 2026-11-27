@@ -114,6 +114,7 @@ ProfilePlayer ParsePlayer(const JsonValue& value)
     player.country_choice = value["country_choice"].Text();
     player.screen = value["screen"].Text();
     player.searching = value["searching"].Bool();
+    player.do_not_disturb = value["do_not_disturb"].Bool();
     if (const auto& set = value["set"]; !set["stage"].Text().empty())
     {
         ListedSet listed;
@@ -765,7 +766,8 @@ ProfileMatch ProfileService::Challenge(const std::string& opponent, std::int64_t
     return ParseMatch(Call("POST", "/api/v1/matches", &body).body);
 }
 
-ProfileMatch ProfileService::ChallengePlayer(std::int64_t opponent_id, const MatchRules& rules, const std::string& name)
+ProfileMatch ProfileService::ChallengePlayer(std::int64_t opponent_id, const MatchRules& rules, const std::string& name,
+                                             bool discord_friend)
 {
     std::string body = "{\"opponent_id\":" + Integer(opponent_id) + ",\"rules\":" + RulesJson(rules);
     if (!name.empty())
@@ -773,13 +775,16 @@ ProfileMatch ProfileService::ChallengePlayer(std::int64_t opponent_id, const Mat
         body += ",\"name\":";
         AppendJsonString(body, name);
     }
+    if (discord_friend) body += ",\"discord_friend\":true";
     body += "}";
     return ParseMatch(Call("POST", "/api/v1/matches", &body).body);
 }
 
-ProfileMatch ProfileService::ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set)
+ProfileMatch ProfileService::ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set, bool discord_friend)
 {
-    const std::string body = "{\"opponent_id\":" + Integer(opponent_id) + ",\"rule_set\":" + Integer(rule_set) + "}";
+    std::string body = "{\"opponent_id\":" + Integer(opponent_id) + ",\"rule_set\":" + Integer(rule_set);
+    if (discord_friend) body += ",\"discord_friend\":true";
+    body += "}";
     return ParseMatch(Call("POST", "/api/v1/matches", &body).body);
 }
 
@@ -907,12 +912,11 @@ PlayerLists ProfileService::Players()
 {
     const auto answer = Call("GET", "/api/v1/players", nullptr);
     PlayerLists lists;
-    lists.online = ParsePlayers(answer.body["online"]);
     lists.recent = ParsePlayers(answer.body["recent"]);
     lists.friends = ParsePlayers(answer.body["friends"]);
-    lists.available = ParsePlayers(answer.body["available"]);
     lists.mii_friends = ParseMiis(answer.body["mii_friends"]);
-    lists.game_online = ParseMiis(answer.body["game_online"]);
+    if (const auto count = answer.body["available_count"].Integer()) lists.available_count = int(*count);
+    else if (answer.body["available"].IsArray()) lists.available_count = int(answer.body["available"].Items().size());
     return lists;
 }
 

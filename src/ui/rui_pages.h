@@ -30,8 +30,8 @@ enum class PageId
     Quit,        // QUIT RECHARGED: are you sure?
     Online,      // the hub: the player's set, PLAY, PROFILE, LEADERBOARD (and WII ONLINE from the main menu)
     Play,        // FRIENDS, RANDOM OPPONENT, RANKED
-    Friends,     // the friends online, to challenge
-    Random,      // open to challenges, the search for an opponent, the others open to challenges
+    Friends,     // the friends online and the last opponents of a set, to challenge
+    Random,      // the search for an opponent, Do not disturb
     Profile,     // the player, their records and all their friends
     Player,      // one player (the page's key): challenge, friend
     Setup,       // a challenge's rules (key: the player's), or a search's ("search")

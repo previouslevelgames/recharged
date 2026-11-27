@@ -102,6 +102,10 @@ struct ProfilePlayer
     bool chat = false;
     // GET /api/v1/me only: available for random games (servers from 1.2.1).
     bool available = false;
+    // In the lists: they take no challenge from the player now (Do not
+    // disturb, and they keep the player as no friend; servers from 1.3.3).
+    // A Discord friend's goes through anyway (ChallengePlayer).
+    bool do_not_disturb = false;
     int unread = 0;
 
     bool MiiAccount() const { return account == "mii"; }
@@ -201,18 +205,20 @@ struct PlayerStats
 };
 
 // The lobby's lists (GET /api/v1/players).
+// The players the server tells the player about: nobody else is named (who
+// is online, or open to challenges, stays private; a search finds an
+// opponent on the server).
 struct PlayerLists
 {
-    std::vector<ProfilePlayer> online; // who has Recharged open, by name
-    std::vector<ProfilePlayer> recent; // the last players a set was played with
+    // The last players a set was played with, each once, the latest first.
+    std::vector<ProfilePlayer> recent;
     // The player's friends: online first, by name, then the last online first.
     std::vector<ProfilePlayer> friends;
-    // While the player is available for random games: the other available
-    // players with Recharged open (servers from 1.2.1).
-    std::vector<ProfilePlayer> available;
-    // The Mii profiles the player keeps as friends, and while available the
-    // game's own online players not in the lists (servers from 1.2.1).
-    std::vector<MiiProfile> mii_friends, game_online;
+    // The Mii profiles the player keeps as friends (servers from 1.2.1).
+    std::vector<MiiProfile> mii_friends;
+    // How many others are open to challenges or search (servers from 1.3.3;
+    // from older ones, the size of the list of them they sent).
+    std::optional<int> available_count;
 };
 
 // When a player last had Recharged open, for the friends list: "Last online 5
@@ -637,9 +643,12 @@ public:
     ProfileMatch Challenge(const std::string& opponent, std::int64_t rule_set);
     // A challenge by rules of the player's own (servers 1.2.3 on): `name` is
     // the preset they come from, empty for none (the server calls it Custom).
-    ProfileMatch ChallengePlayer(std::int64_t opponent_id, const MatchRules& rules, const std::string& name);
+    // `discord_friend`: the two are Discord friends, which takes the challenge
+    // past their Do not disturb (servers from 1.3.3; older ones ignore it).
+    ProfileMatch ChallengePlayer(std::int64_t opponent_id, const MatchRules& rules, const std::string& name,
+                                 bool discord_friend = false);
     // The same by the player's id, from the lobby's lists.
-    ProfileMatch ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set);
+    ProfileMatch ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set, bool discord_friend = false);
     // Tournaments (servers with them; 404 before): open for entries or
     // running, then the last that ended; one with its bracket; joining and
     // leaving (the page after); READY for the player's set, or taken back:

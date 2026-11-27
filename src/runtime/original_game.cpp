@@ -442,13 +442,17 @@ void SampleOnline(mscharged::overlay::GameOverlayModel& model)
     friends.rows={row("Luigi","DE",ov::Presence::Free,"Main menu",ov::Tone::Good,true,2),
                   row("Peach","FR",ov::Presence::Busy,"Domination: choosing teams",ov::Tone::Busy,true,3)};
     friends.rows[0].detail="@luigi";
-    ov::OnlinePanelSection others;
-    others.id=ov::OnlinePanelSection::Id::Available;
-    others.rows={row("Waluigi","US",ov::Presence::Free,"Open to challenges",ov::Tone::Good,false,4),
-                 row("Daisy","SE",ov::Presence::Free,"Open to challenges",ov::Tone::Good,false,5),
-                 row("Bowser","JP",ov::Presence::Busy,"Set vs Wario: game 1 of 5",ov::Tone::Busy,false,6)};
-    others.rows[1].version="1.1.6";
-    online.sections={friends,others};
+    ov::OnlinePanelSection recent;
+    recent.id=ov::OnlinePanelSection::Id::Recent;
+    recent.rows={row("Waluigi","US",ov::Presence::Free,"In the game",ov::Tone::Good,false,4),
+                 row("Daisy","SE",ov::Presence::Free,"Do not disturb",ov::Tone::Away,false,5),
+                 row("Bowser","JP",ov::Presence::Offline,"Offline",ov::Tone::Away,false,6)};
+    recent.rows[1].version="EU";
+    recent.rows[1].can_challenge=false;
+    recent.rows[1].blocked="Do not disturb";
+    recent.rows[2].blocked="Offline";
+    online.sections={friends,recent};
+    online.available_count=3;
     ov::OnlinePanelPreset competitive;
     competitive.name="Competitive";
     competitive.rule_set=1;
@@ -3009,7 +3013,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(panelFeed) {
                 if(online.challenge && !locked) {
                     const auto& challenge=*online.challenge;
-                    panelFeed->Challenge(challenge.player,challenge.rule_set,challenge.rules,challenge.name);
+                    panelFeed->Challenge(challenge.player,challenge.rule_set,challenge.rules,challenge.name,
+                                         challenge.discord_friend);
                     overlayNotice=texts::T("menus.notices.challenge_sent");
                 }
                 // Do not disturb stops a search first; a search makes the

@@ -18,6 +18,8 @@ struct OnlinePanelChallenge
     std::string name;
     platform::MatchRules rules;
     std::int64_t rule_set = 0;
+    // The player is a Discord friend: past their Do not disturb.
+    bool discord_friend = false;
 };
 
 // What the player did on the online pages this frame; the host acts on it

@@ -352,11 +352,12 @@ void Requests()
         {"GET /api/v1/matches/current", 200, R"({"match":null})"},
         {"GET /api/v1/me", 401, R"({"error":"signed out"})"},
         {"GET /api/v1/players", 200,
-         R"({"online":[{"id":8,"name":"Sam","discord":"sam","test":false,"online":true,"busy":false,)"
+         R"({"recent":[{"id":8,"name":"Sam","discord":"sam","test":false,"online":true,"busy":false,)"
          R"("activity":"match","match":"cpu","last_online":1793000000,"friend":false,"screen":"cup_team",)"
-         R"("searching":true,"set":{"stage":"playing","challenger":true,"opponent":"Bo","games":3,"game":2}}],)"
-         R"("recent":[],)"
-         R"("friends":[{"id":9,"name":"Bo","online":false,"busy":false,"last_online":null,"friend":true}]})"},
+         R"("searching":true,"set":{"stage":"playing","challenger":true,"opponent":"Bo","games":3,"game":2},)"
+         R"("do_not_disturb":true}],)"
+         R"("friends":[{"id":9,"name":"Bo","online":false,"busy":false,"last_online":null,"friend":true}],)"
+         R"("available_count":3})"},
         {"POST /api/v1/matches", 201, kSet},
         {"POST /api/v1/matches/12/ready-to-play", 200, kSet},
         {"POST /api/v1/matches/12/rematch", 200, kSet},
@@ -433,19 +434,20 @@ void Requests()
             CHECK(e.SignedOut());
         }
         const auto lists = api.Players();
-        CHECK(lists.online.size() == 1 && lists.online[0].id == 8 && lists.online[0].online && !lists.online[0].busy
-              && lists.online[0].activity == "match" && lists.online[0].match_kind == "cpu"
-              && lists.online[0].last_online == 1793000000
-              && !lists.online[0].is_friend && lists.recent.empty());
+        CHECK(lists.recent.size() == 1 && lists.recent[0].id == 8 && lists.recent[0].online && !lists.recent[0].busy
+              && lists.recent[0].activity == "match" && lists.recent[0].match_kind == "cpu"
+              && lists.recent[0].last_online == 1793000000 && !lists.recent[0].is_friend);
+        // Nobody else is named, only counted; Do not disturb as the player sees it (servers from 1.3.3).
+        CHECK(lists.available_count == 3 && lists.recent[0].do_not_disturb && !lists.friends[0].do_not_disturb);
         CHECK(lists.friends.size() == 1 && lists.friends[0].id == 9 && lists.friends[0].is_friend
               && !lists.friends[0].online && lists.friends[0].activity.empty() && !lists.friends[0].last_online);
         // What their game shows, their search and their set (servers from 1.2.12 on).
-        CHECK(lists.online[0].screen == "cup_team" && lists.online[0].searching && lists.online[0].set
-              && lists.online[0].set->stage == "playing" && lists.online[0].set->challenger
-              && lists.online[0].set->opponent == "Bo" && lists.online[0].set->games == 3
-              && lists.online[0].set->game == 2);
+        CHECK(lists.recent[0].screen == "cup_team" && lists.recent[0].searching && lists.recent[0].set
+              && lists.recent[0].set->stage == "playing" && lists.recent[0].set->challenger
+              && lists.recent[0].set->opponent == "Bo" && lists.recent[0].set->games == 3
+              && lists.recent[0].set->game == 2);
         CHECK(lists.friends[0].screen.empty() && !lists.friends[0].searching && !lists.friends[0].set);
-        const auto set = api.ChallengePlayer(8, 2);
+        const auto set = api.ChallengePlayer(8, 2, true);
         CHECK(set.stage == "go" && set.you_ready && set.opponent_ready && set.opponent_online
               && set.go_at == 1792771200 && set.playing_at == 0 && set.rematch_of == 11 && set.reason.empty());
         api.ReadyToPlay(12, true);
@@ -512,7 +514,7 @@ void Requests()
                               R"("interrupted":true,"played":0.400}]})");
         CHECK(sent[5].body == "{}");
         CHECK(sent[6].body.empty() && sent[6].content_type.empty());
-        CHECK(sent[9].body == R"({"opponent_id":8,"rule_set":2})");
+        CHECK(sent[9].body == R"({"opponent_id":8,"rule_set":2,"discord_friend":true})");
         CHECK(sent[10].body == R"({"ready":true})");
         CHECK(sent[11].body == "{}");
         CHECK(sent[14].body == R"({"player_id":8})" && sent[14].content_type == "application/json");
@@ -777,7 +779,7 @@ void FeedDiscordFriends()
     std::vector<std::string> ids;
     for (int i = 0; i < 250; ++i) ids.push_back(std::to_string(900000000000000000LL + i));
     const std::string me = R"({"id":7,"name":"Nelly","discord":"nelly","discord_id":"80351110224678912"})";
-    const std::string lists = R"({"online":[],"recent":[],"friends":[{"id":9,"name":"Zed","online":false,"friend":true}]})";
+    const std::string lists = R"({"recent":[],"friends":[{"id":9,"name":"Zed","online":false,"friend":true}]})";
     const std::string none = R"({"match":null})";
     const std::vector<Exchange> exchanges{
         {"GET /api/v1/me", 200, me},
@@ -874,7 +876,8 @@ void FeedChallengeRules()
     std::filesystem::remove_all(folder);
     const auto session = ProfileSessionFile(folder, "feed.ini");
     const std::string me = R"({"id":7,"name":"Nelly","discord":"nelly"})";
-    const std::string lists = R"({"online":[],"recent":[],"friends":[]})";
+    // A server before 1.3.3: who is available comes as a list, counted.
+    const std::string lists = R"({"online":[],"recent":[],"friends":[],"available":[{"id":5},{"id":6}]})";
     const std::string none = R"({"match":null})";
     const std::vector<Exchange> exchanges{
         {"GET /api/v1/me", 200, me},
@@ -914,14 +917,15 @@ void FeedChallengeRules()
             };
             feed->SetOpen(true);
             CHECK(wait(1) && feed->Latest().rule_sets.size() == 2);
+            CHECK(feed->Latest().lists.available_count == 2);
             feed->SetOpen(false); // only the actions ask now
             feed->SetChallengeRules("Classic");
             CHECK(feed->ChallengeRules() == "Classic");
-            feed->Challenge(8, 5, {}, "Classic");
+            feed->Challenge(8, 5, {}, "Classic", false);
             CHECK(wait(2));
             MatchRules own = feed->Latest().rule_sets[0].rules;
             own.stadium_cheat = "field_tilt";
-            feed->Challenge(9, 0, own, "Competitive (changed)");
+            feed->Challenge(9, 0, own, "Competitive (changed)", true);
             CHECK(wait(3));
             feed.reset();
         }
@@ -935,7 +939,7 @@ void FeedChallengeRules()
         CHECK(sent[9].body
               == R"({"opponent_id":9,"rules":{"tweaks":[],"skill":"rookie","limit":"time","time":180,"goals":5,)"
                  R"("games":3,"stadium":"random","stadium_cheat":"field_tilt","player_cheat":"none",)"
-                 R"x("powerup_cheat":"none"},"name":"Competitive (changed)"})x");
+                 R"x("powerup_cheat":"none"},"name":"Competitive (changed)","discord_friend":true})x");
     }
 }
 #endif

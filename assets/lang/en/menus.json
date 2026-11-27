@@ -208,12 +208,12 @@
     "on_the_way": "On the way…"
   },
   "friends": {
-    "title": "FRIENDS"
+    "title": "FRIENDS",
+    "recent": "RECENT OPPONENTS",
+    "no_recent": "Nobody yet: the players you play a set against show here."
   },
   "random": {
     "title": "RANDOM OPPONENT",
-    "closed": "The players available for random games show here while Do not disturb is off.",
-    "available_caption": "AVAILABLE NOW",
     "find": "FIND AN OPPONENT",
     "search_time": "{{seconds}} s  ·  {{asked}} asked"
   },
@@ -238,9 +238,7 @@
     "online_now": "ONLINE NOW",
     "no_friends_online": "None of your friends is online",
     "friends_offline_one": "{{count}} friend offline",
-    "friends_offline_other": "{{count}} friends offline",
-    "open_to_challenges": "OPEN TO CHALLENGES",
-    "nobody_open": "Nobody else is available right now"
+    "friends_offline_other": "{{count}} friends offline"
   },
   "you": {
     "no_profile_title": "No player profile",
@@ -549,6 +547,7 @@
     "no_rules": "No rules to play by",
     "not_recharged": "Not on Recharged",
     "recharged_closed": "Recharged closed",
+    "do_not_disturb": "Do not disturb",
     "update_checking": "Checking for updates",
     "update_outdated": "Update Recharged first",
     "update_unchecked": "Check for updates first"

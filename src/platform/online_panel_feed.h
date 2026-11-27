@@ -103,7 +103,8 @@ public:
     // The panel's actions, sent in turn on the feed's thread. A challenge
     // plays by one of the server's rule sets as it is (`rule_set`), else by
     // `rules`, under `name` (the preset they come from).
-    void Challenge(std::int64_t player, std::int64_t rule_set, MatchRules rules, std::string name);
+    void Challenge(std::int64_t player, std::int64_t rule_set, MatchRules rules, std::string name,
+                   bool discord_friend);
     void AddFriend(std::int64_t player);
     void RemoveFriend(std::int64_t player);
     void AddMiiFriend(std::int32_t profile);

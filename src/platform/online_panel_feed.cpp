@@ -136,12 +136,13 @@ std::string OnlinePanelFeed::ChallengeRules()
     return challenge_rules_;
 }
 
-void OnlinePanelFeed::Challenge(std::int64_t player, std::int64_t rule_set, MatchRules rules, std::string name)
+void OnlinePanelFeed::Challenge(std::int64_t player, std::int64_t rule_set, MatchRules rules, std::string name,
+                                bool discord_friend)
 {
     Send(
-        [player, rule_set, rules = std::move(rules), name = std::move(name)](ProfileService& api) {
-            if (rule_set > 0) api.ChallengePlayer(player, rule_set);
-            else api.ChallengePlayer(player, rules, name);
+        [player, rule_set, rules = std::move(rules), name = std::move(name), discord_friend](ProfileService& api) {
+            if (rule_set > 0) api.ChallengePlayer(player, rule_set, discord_friend);
+            else api.ChallengePlayer(player, rules, name, discord_friend);
         },
         "The challenge");
 }

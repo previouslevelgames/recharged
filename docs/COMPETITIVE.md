@@ -52,11 +52,14 @@ with the score.
   launcher*). Accept in the launcher starts the game and goes straight to the
   set.
 - Anyone who is signed in and has Recharged open can be challenged, unless
-  they are playing a match.
+  they are playing a match or on **Do not disturb** (the switch under
+  **Random opponent**, on until you switch it off or search): then only
+  players they keep as friends, and their Discord friends, can.
 - A player's screen in the Recharged Game Menu also adds them to your friends or
-  takes them off. Switch on **Open to challenges** there to meet
-  players you don't know yet: the others who are available show to you, and
-  you to them.
+  takes them off. **Friends** lists your friends who are online and, under
+  them, the last five players you played a set against who aren't friends
+  yet, online or not: challenge them again or add them. Nobody else is
+  listed: who is online stays private.
 - No one to challenge? **Find an opponent** on your own card in the online
   panel searches for one by the rules you set up, as for a challenge: you
   searched, so your rules count. The server asks one player at a time who is

@@ -436,8 +436,8 @@ void DrawPlay(const PageModel& model, List& list, PageActions& actions)
             friends = texts::Count("menus.play.online_count", count);
         if (online.search.active) random = T("menus.play.searching");
         else if (!online.me.available && online.me.can_set_available) random = T("menus.you.do_not_disturb");
-        else if (const int count = SectionRows(online, overlay::OnlinePanelSection::Id::Available); count > 0)
-            random = texts::Count("menus.play.available_count", count);
+        else if (online.available_count && *online.available_count > 0)
+            random = texts::Count("menus.play.available_count", *online.available_count);
     }
     const char* ranked = model.overlay.ranked.going ? T("menus.play.on_the_way") : nullptr;
     if (list.Plate(T("menus.play.friends"), nullptr, true, friends.c_str())) actions.open = PageId::Friends;
@@ -482,7 +482,8 @@ void DrawSection(const PageModel& model, PageState& state, List& list, PageActio
     }
 }
 
-// FRIENDS: the friends online, each to challenge from their page.
+// FRIENDS: the friends online, then the last opponents of a set who aren't
+// friends (to challenge again, or keep as a friend), each from their page.
 void DrawFriends(const PageModel& model, PageState& state, List& list, PageActions& actions)
 {
     const auto& online = model.overlay.online;
@@ -492,13 +493,16 @@ void DrawFriends(const PageModel& model, PageState& state, List& list, PageActio
         return;
     }
     if (!online.note.empty()) list.Note(online.note.c_str());
+    list.Caption(T("menus.players.online_now"));
     DrawSection(model, state, list, actions, overlay::OnlinePanelSection::Id::Online);
+    list.Caption(T("menus.friends.recent"));
+    DrawSection(model, state, list, actions, overlay::OnlinePanelSection::Id::Recent);
 }
 
-// RANDOM OPPONENT: the search (its setup: the rules, FIND NOW), Do not
-// disturb, and the others available (listed while Do not disturb is off).
-// Give and take: searching makes the player available, Do not disturb stops
-// a search.
+// RANDOM OPPONENT: the search (its setup: the rules, FIND NOW) and Do not
+// disturb; the server finds the opponent, nobody else is listed. Give and
+// take: searching makes the player available, Do not disturb stops a
+// search.
 void DrawRandom(const PageModel& model, PageState& state, List& list, PageActions& actions)
 {
     const auto& online = model.overlay.online;
@@ -535,9 +539,6 @@ void DrawRandom(const PageModel& model, PageState& state, List& list, PageAction
             actions.online.set_available = !*on;
             if (*on && online.search.active) actions.online.stop_search = true;
         }
-    list.Caption(T("menus.random.available_caption"));
-    if (SectionRows(online, overlay::OnlinePanelSection::Id::Available) < 0) list.Note(T("menus.random.closed"));
-    else DrawSection(model, state, list, actions, overlay::OnlinePanelSection::Id::Available);
 }
 
 // A record as "won – lost", with the share won when games were played.
@@ -698,7 +699,8 @@ void DrawSetup(const std::string& key, const PageModel& model, PageState& state,
         }
         else
         {
-            const auto challenge = overlay::MakeOnlinePanelChallenge(preset, rules, search ? 0 : row->player_id);
+            auto challenge = overlay::MakeOnlinePanelChallenge(preset, rules, search ? 0 : row->player_id);
+            challenge.discord_friend = row && row->discord;
             actions.online.set_challenge_rules = preset.name;
             if (search)
             {
