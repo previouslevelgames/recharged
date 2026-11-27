@@ -83,6 +83,17 @@ add_library(charged_launcher_texture_packs STATIC src/launcher/texture_pack_libr
 target_include_directories(charged_launcher_texture_packs PUBLIC src)
 target_compile_features(charged_launcher_texture_packs PUBLIC cxx_std_17)
 target_link_libraries(charged_launcher_texture_packs PUBLIC charged_texture_packs PRIVATE charged_texts)
+# The Replays page's match stats: what a replay's stats show and the game's
+# pictures of the captains and sidekicks from the player's disc.
+add_library(charged_match_report STATIC src/launcher/match_report.cpp src/launcher/game_pictures.cpp)
+target_include_directories(charged_match_report PUBLIC src)
+target_compile_features(charged_match_report PUBLIC cxx_std_17)
+target_link_libraries(charged_match_report PUBLIC charged_match_replays)
+if(BUILD_TESTING)
+    add_executable(match_report_tests tests/match_report.cpp)
+    target_link_libraries(match_report_tests PRIVATE charged_match_report)
+    add_test(NAME match_report COMMAND match_report_tests)
+endif()
 add_library(charged_match_presets STATIC src/launcher/match_presets.cpp)
 target_include_directories(charged_match_presets PUBLIC src)
 target_compile_features(charged_match_presets PUBLIC cxx_std_17)
@@ -121,7 +132,8 @@ add_executable(mscharged src/launcher/main.cpp src/launcher/release_notes_view.c
 set_target_properties(mscharged PROPERTIES OUTPUT_NAME recharged WIN32_EXECUTABLE TRUE)
 target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui charged_app_icon mscharged_build_info
     charged_wiimote_scan charged_session_log charged_updates charged_image_library charged_graphics_cards
-    charged_texture_packs charged_launcher_texture_packs charged_mii_maker charged_match_presets charged_competitive
+    charged_texture_packs charged_launcher_texture_packs charged_mii_maker charged_match_presets charged_match_report
+    charged_competitive
     charged_discord_friends
     charged_alert_sound charged_discord charged_ui_kit charged_overlay charged_mii_faces charged_players_online charged_texts
     charged_online_reports)

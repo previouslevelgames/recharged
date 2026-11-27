@@ -2,7 +2,8 @@
 
 Recharged keeps the matches you play as replays, offline and online. You can
 watch a match again from the launcher, as fast as four times the normal speed,
-or send the file to a friend who has the same game.
+look through its stats (goals, shots, items, each player's numbers), or send
+the file to a friend who has the same game.
 
 ## What is recorded
 
@@ -21,18 +22,21 @@ the match. A match left within its first second is not kept. Replays go to the
 replays/replay_20261122-172740.msc   (the date and time the match ended)
 ```
 
-A replay is small, about 5 KB per minute of play. It holds only what the
-match started from (the teams, stadium, rules, cheats, gameplay tweaks and
-the match's random seed) and the inputs of every human player. The CPU
-players need no inputs: the game makes the same decisions again from the
-same start. A replay holds no names and no account or save data.
+A replay is small, about 5 KB per minute of play. It holds what the match
+started from (the teams, stadium, rules, cheats, gameplay tweaks and the
+match's random seed), the inputs of every human player and the match's stats.
+The CPU players need no inputs: the game makes the same decisions again from
+the same start. A replay holds no account or save data; an online match's
+replay names its two players (their profile names in a set, else their Miis'
+names), an offline one names nobody.
 
 ## Watching a replay
 
 In the launcher, go to **Replays**. The page lists your replays,
 newest first, each on one line with its captains and score, the date, the
-match's length and whether it was Training; click one to watch it. **Open
-folder** opens the `replays` folder.
+match's length and whether it was Training; click one to watch it. The chart
+button at the end of a line shows the match's stats. **Open folder** opens the
+`replays` folder.
 
 You can also:
 
@@ -63,6 +67,32 @@ single match, so watching it does not change your Cup.
 Cutscenes play as the players saw them: a part of one a player skipped
 (a goal's celebration, its replay) is skipped in the replay too, at the same
 moment.
+
+## Match stats
+
+The chart button of a replay's line opens its stats on the Replays page
+(**Replays**, Escape or B go back to the list; **Watch** plays it):
+
+- **The match:** who played (online, their names; offline, the controllers
+  or the CPU), the captains and sidekicks, the score, the date, the stadium,
+  how long it was played and by which rules.
+- **Match summary:** both sides' numbers side by side: goals, shots, shots on
+  goal, possession, passes, interceptions, hits, steals, dekes, items,
+  Skillshots, Mega Strikes and fouls.
+- **Goals:** each goal in order, with its time, scorer, assist, kind
+  (one-timer, Skillshot, Mega Strike, own goal) and the score after it.
+- **Timeline:** the goals, items, hits, steals and fouls of both sides along
+  the match; point at one to see what it was.
+- **Shots:** where each shot was taken, on the field to scale; a filled dot
+  scored. Point at a dot for its time, kind and shooter.
+- **Items:** each side's items, the most used first.
+- **Players:** each player's goals, assists, shots, passes, hits, steals and
+  items.
+
+The numbers are the game's own: its stats keeper counts them while the match
+is played, and Recharged keeps them in the replay. Replays from before match
+stats have none (their chart button stays grey). The captains' faces and the
+sidekicks' pictures come from your game image; without one, initials stand in.
 
 ### The game image a replay needs
 
@@ -165,11 +195,12 @@ A `.msc` file is little-endian:
 | 8 | `MSCRPLY` and the byte 0x1A |
 | 2 | File version (1) |
 | 2 | Size of the header that follows |
-| header | The Recharged version that recorded it (one length byte, then the text), the game ID (6 characters, such as `R4QE01`), the revision (1 byte), the time it was made (8 bytes, seconds since 1970), the size of the match data and of its compressed form (4 bytes each), then a summary for the launcher's list: the match's steps (4 bytes), the home and away captains and the stadium (2 bytes each), the two scores (2 bytes each) and a flags byte (bit 0: Training, bit 1: an online or LAN match) |
+| header | The Recharged version that recorded it (one length byte, then the text), the game ID (6 characters, such as `R4QE01`), the revision (1 byte), the time it was made (8 bytes, seconds since 1970), the size of the match data and of its compressed form (4 bytes each), then a summary for the launcher's list: the match's steps (4 bytes), the home and away captains and the stadium (2 bytes each), the two scores (2 bytes each) and a flags byte (bit 0: Training, bit 1: an online or LAN match, bit 2: the match's stats are in the match data); in replays with stats or names, then each side's player name (its kind, one length byte, the UTF-8 text) |
 | rest | The match data, compressed with zlib |
 
 A reader skips header bytes it does not know, so later versions can add to
 the header. The match data begin with the setup (which also lists the parts of
-cutscenes the players skipped, and when), then one record per game step: one
-byte when no input changed, otherwise only the bytes that changed, and every
-25 steps the checksum and seed the replay is compared with.
+cutscenes the players skipped, and when, and ends with the match's stats),
+then one record per game step: one byte when no input changed, otherwise only
+the bytes that changed, and every 25 steps the checksum and seed the replay is
+compared with.

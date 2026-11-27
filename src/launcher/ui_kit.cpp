@@ -335,6 +335,13 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddCircleFilled(p(-0.14f, 0.20f), 0.105f * s, color);
         break;
     }
+    case Icon::Stats:
+        // A bar chart (a match's stats): three bars on a base line.
+        draw->AddRectFilled(p(-0.40f, 0.04f), p(-0.18f, 0.36f), color, 0.04f * s);
+        draw->AddRectFilled(p(-0.11f, -0.36f), p(0.11f, 0.36f), color, 0.04f * s);
+        draw->AddRectFilled(p(0.18f, -0.14f), p(0.40f, 0.36f), color, 0.04f * s);
+        draw->AddRectFilled(p(-0.46f, 0.42f), p(0.46f, 0.48f), color);
+        break;
     case Icon::Lock:
         // A padlock (rules that stay as they are): the shackle over its body.
         draw->PathArcTo(p(0.0f, -0.10f), 0.20f * s, IM_PI, 2.0f * IM_PI, 12);

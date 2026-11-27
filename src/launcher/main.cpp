@@ -23,7 +23,9 @@
 #include "launcher/disc_search.h"
 #include "launcher/image_library.h"
 #include "launcher/issue_reporters.h"
+#include "launcher/game_pictures.h"
 #include "launcher/match_presets.h"
+#include "launcher/match_report.h"
 #include "launcher/mii_faces.h"
 #include "launcher/online_gate.h"
 #include "launcher/player_lineup.h"
@@ -853,6 +855,7 @@ public:
         if (library_progress_) library_progress_->cancel = true;
         for (auto& [id, texture] : banners_)
             if (texture) SDL_DestroyTexture(texture);
+        ClearPictureTextures();
         if (header_back_) SDL_DestroyTexture(header_back_);
         if (header_front_) SDL_DestroyTexture(header_front_);
         if (header_strokes_) SDL_DestroyTexture(header_strokes_);
@@ -893,6 +896,10 @@ public:
             if (!capture_ && config_ok_) AskReplay(fs::absolute(*options_.launch.replay));
             options_.launch.replay.reset();
         }
+        // Development captures of a replay's match stats (--page replays):
+        // RECHARGED_CAPTURE_STATS names the replay.
+        if (const char* stats = capture_ ? std::getenv("RECHARGED_CAPTURE_STATS") : nullptr; stats && *stats)
+            OpenReplayStats(PathFromUtf8(stats));
         StartUpdates();
         StartCompetitive();
         // Back from a set's game: that set's game does not start again by itself.
@@ -1113,7 +1120,7 @@ public:
             const bool update_settled = update_preview_ || (!UpdateBusy() && !(update_capture_install_ && update_.offer));
             const bool settled = !disc_check_.Busy() && !search_.Busy() && !library_scan_.Busy() && !candidate_.Busy()
                 && !pack_library_.Scanning() && update_settled && CompetitiveSettled() && !server_message_fetch_
-                && (!mii_faces_ || mii_faces_->Settled());
+                && (!mii_faces_ || mii_faces_->Settled()) && !picture_job_.Busy() && !replay_stats_job_.Busy();
             settled_frames = settled ? settled_frames + 1 : 0;
             if (!options_.screenshot.empty() && frame >= 12 && (settled_frames >= 3 || frame > 600))
             {
@@ -4094,10 +4101,12 @@ private:
             ImGui::EndChild();
             ImGui::PopStyleVar();
             // Development captures: RECHARGED_CAPTURE_SCROLL=bottom shows the
-            // page's end (the mouse wheel does nothing without a real window).
-            if (const char* scroll = capture_ ? std::getenv("RECHARGED_CAPTURE_SCROLL") : nullptr;
-                scroll && std::string_view(scroll) == "bottom")
-                ImGui::SetScrollY(ImGui::GetScrollMaxY());
+            // page's end, a number scrolls that far down (in window units; the
+            // mouse wheel does nothing without a real window).
+            if (const char* scroll = capture_ ? std::getenv("RECHARGED_CAPTURE_SCROLL") : nullptr; scroll && *scroll)
+                ImGui::SetScrollY(std::string_view(scroll) == "bottom"
+                                      ? ImGui::GetScrollMaxY()
+                                      : std::min(Dp(std::strtof(scroll, nullptr)), ImGui::GetScrollMaxY()));
             ImGui::EndChild();
             ImGui::PopStyleVar();
         }
@@ -11840,10 +11849,15 @@ private:
     }
 
     // Replays: whether matches are kept ([replays] record), the newest ones
-    // to watch again and their folder. A page of its own: more is to come
-    // (stats).
+    // to watch again and their folder; a replay's match stats in place of
+    // the list.
     void ReplaysPage()
     {
+        if (replay_stats_open_)
+        {
+            ReplayStatsView();
+            return;
+        }
         PageHeader(texts::T("settings.replays.title"), texts::T("settings.replays.about"));
         ReplaysCard();
     }
@@ -11900,7 +11914,7 @@ private:
                 return team >= 0 && team < int(std::size(kCaptainNames)) && kCaptainNames[team] ? kCaptainNames[team]
                                                                                               : "?";
             };
-            const float line = Dp(42);
+            const float line = Dp(46);
             const float height = line * float(std::min<std::size_t>(listings.size(), 6));
             ImGui::Dummy({0, Dp(6)});
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0, 0, 0, 0});
@@ -11919,7 +11933,7 @@ private:
                 const auto& info = listing.info;
                 const bool readable = listing.error.empty() && info.home_team >= 0;
                 const bool can = listing.error.empty() && config_ok_ && !pending_replay_;
-                std::string title, detail;
+                std::string title, detail, names;
                 if (readable)
                 {
                     title = texts::T("settings.replays.score",
@@ -11928,6 +11942,9 @@ private:
                                       {"away_score", std::to_string(info.score[1])}});
                     detail = LocalTime(info.created) + "  \xC2\xB7  " + replay::MatchLength(info.steps);
                     if (info.training) detail += std::string("  \xC2\xB7  ") + texts::T("settings.replays.training");
+                    if (!info.names[0].empty() || !info.names[1].empty())
+                        names = (info.names[0].empty() ? std::string("?") : info.names[0]) + "  vs  "
+                            + (info.names[1].empty() ? std::string("?") : info.names[1]);
                 }
                 else
                 {
@@ -11936,8 +11953,12 @@ private:
                 }
                 const ImVec2 pos = ImGui::GetCursorScreenPos();
                 ImGui::PushID(int(n));
+                // The line watches the replay, its stats button (at its right
+                // end) shows the match's stats.
+                const float stats_size = Dp(34), stats_room = stats_size + Dp(10);
+                const float watch_width = row - stats_room;
                 ImGui::BeginDisabled(!can);
-                const bool pressed = ImGui::InvisibleButton("##replay", {row, line});
+                const bool pressed = ImGui::InvisibleButton("##replay", {watch_width, line});
                 ImGui::EndDisabled();
                 const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
                 const float hover = Animate(ImGui::GetItemID(), hovered && can, 14.0f);
@@ -11954,15 +11975,53 @@ private:
                 list->AddCircleFilled(badge, Dp(13), Col(Mix(color::field, color::accent, hover)), 32);
                 DrawIcon(list, Icon::Play, {badge.x + Dp(1.5f), badge.y}, Dp(11),
                          Col(can ? Mix(color::accent, color::accent_ink, hover) : color::dim));
+                // The captains' faces, from the game image, overlapping.
+                float text_x = pos.x + Dp(48);
+                if (readable)
+                {
+                    const float face = Dp(28);
+                    const bool home = DrawCaptainFace(list, {text_x + face * 0.5f, middle}, face, info.home_team);
+                    const bool away = DrawCaptainFace(list, {text_x + face * 1.25f, middle}, face, info.away_team, true);
+                    if (home || away) text_x += face * 1.75f + Dp(10);
+                }
                 const ImVec2 detail_size = TextSize(fonts.caption, detail.c_str());
-                const float text_x = pos.x + Dp(48), detail_x = pos.x + row - Dp(12) - detail_size.x;
+                const float detail_x = pos.x + row - stats_room - Dp(8) - detail_size.x;
                 const std::string shown = Elide(fonts.label, title, std::max(Dp(40), detail_x - Dp(16) - text_x));
                 const ImVec2 title_size = TextSize(fonts.label, shown.c_str());
-                DrawLabel(list, fonts.label, {text_x, middle - title_size.y * 0.5f},
-                          Col(readable ? color::text : color::muted), shown.c_str());
+                if (names.empty())
+                    DrawLabel(list, fonts.label, {text_x, middle - title_size.y * 0.5f},
+                              Col(readable ? color::text : color::muted), shown.c_str());
+                else
+                {
+                    const std::string names_shown
+                        = Elide(fonts.caption, names, std::max(Dp(40), detail_x - Dp(16) - text_x));
+                    const float names_height = TextSize(fonts.caption, names_shown.c_str()).y;
+                    const float top = middle - (title_size.y + names_height + Dp(1)) * 0.5f;
+                    DrawLabel(list, fonts.label, {text_x, top}, Col(color::text), shown.c_str());
+                    DrawLabel(list, fonts.caption, {text_x, top + title_size.y + Dp(1)}, Col(color::muted),
+                              names_shown.c_str());
+                }
                 DrawLabel(list, fonts.caption, {detail_x, middle - detail_size.y * 0.5f},
                           Col(listing.error.empty() ? color::muted : color::warning), detail.c_str());
-                if (hovered)
+                // The stats button: only for replays with the match's stats.
+                ImGui::SetCursorScreenPos({pos.x + row - stats_size - Dp(4), middle - stats_size * 0.5f});
+                const bool has_stats = readable && info.stats;
+                ImGui::BeginDisabled(!has_stats);
+                const bool stats_pressed = ImGui::InvisibleButton("##stats", {stats_size, stats_size});
+                ImGui::EndDisabled();
+                const bool stats_hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+                const float stats_hover = Animate(ImGui::GetItemID(), stats_hovered && has_stats, 14.0f);
+                const ImVec2 stats_center{std::floor(pos.x + row - stats_size * 0.5f - Dp(4)), std::floor(middle)};
+                if (stats_hover > 0.0f)
+                    list->AddCircleFilled(stats_center, stats_size * 0.5f, Col(color::accent, 0.16f * stats_hover), 32);
+                DrawIcon(list, Icon::Stats, stats_center, Dp(16),
+                         Col(has_stats ? Mix(color::muted, color::accent, stats_hover) : color::dim, has_stats ? 1.0f : 0.5f));
+                if (stats_hovered)
+                    ImGui::SetTooltip("%s", has_stats ? texts::T("settings.replays.stats.open")
+                                                      : texts::T("settings.replays.stats.unavailable"));
+                if (stats_pressed && has_stats) OpenReplayStats(listing.path);
+                ImGui::SetCursorScreenPos({pos.x, pos.y + line});
+                if (hovered && !stats_hovered)
                     ImGui::SetTooltip("%s", listing.error.empty()
                                                 ? (texts::T("settings.replays.watch") + std::string("\n")
                                                    + PathUtf8(listing.path)).c_str()
@@ -11992,6 +12051,804 @@ private:
         if (GhostButton("open_replays", open, {open_width, button}, replays_.folder_exists, Icon::Folder))
             OpenPath(folder);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", PathUtf8(folder).c_str());
+        EndCard();
+    }
+
+    // ------------------------------------------------- the game's pictures
+    // The captains' HUD icons and the sidekicks' pictures in their teams'
+    // kits (launcher/game_pictures.h), from the game image in use: its two
+    // bundles read once on a worker, each picture made into a texture the
+    // first time it is drawn. Recharged ships none of them.
+    struct PictureBundles
+    {
+        fs::path disc;
+        std::vector<std::uint8_t> icons, sidekicks;
+        std::string error;
+    };
+    BackgroundJob<std::shared_ptr<const PictureBundles>> picture_job_;
+    std::shared_ptr<const PictureBundles> pictures_;
+    fs::path pictures_disc_; // the image the bundles are (being) read from
+    std::map<std::string, SDL_Texture*> picture_textures_; // by name; null: none
+    static constexpr std::size_t kMostPictureBundle = 32u << 20;
+
+    void ClearPictureTextures()
+    {
+        for (auto& [name, texture] : picture_textures_)
+            if (texture) SDL_DestroyTexture(texture);
+        picture_textures_.clear();
+    }
+
+    const PictureBundles* GamePictureBundles()
+    {
+        if (auto taken = picture_job_.Take())
+        {
+            pictures_ = std::move(*taken);
+            if (pictures_ && !pictures_->error.empty())
+                platform::SessionLogLine("Match stats: the game image's pictures can't be read: " + pictures_->error);
+        }
+        const fs::path disc = config_ok_ ? EffectiveLaunch().disc_path : fs::path();
+        if (disc.empty()) return nullptr;
+        if (disc != pictures_disc_)
+        {
+            pictures_disc_ = disc;
+            pictures_.reset();
+            ClearPictureTextures();
+            picture_job_.Start([disc] {
+                auto bundles = std::make_shared<PictureBundles>();
+                bundles->disc = disc;
+                try
+                {
+                    bundles->icons = ReadDiscFile(disc, kCaptainIconBundle, kMostPictureBundle);
+                    bundles->sidekicks = ReadDiscFile(disc, kSidekickPictureBundle, kMostPictureBundle);
+                }
+                catch (const std::exception& error)
+                {
+                    bundles->error = error.what();
+                }
+                return std::shared_ptr<const PictureBundles>(std::move(bundles));
+            });
+        }
+        return pictures_ && pictures_->disc == disc ? pictures_.get() : nullptr;
+    }
+
+    // A picture of the game image by its name (`sidekick`: of the sidekicks'
+    // bundle); null while the bundles are read or when it has none.
+    SDL_Texture* GamePicture(const std::string& name, bool sidekick)
+    {
+        if (name.empty() || !renderer_) return nullptr;
+        const PictureBundles* bundles = GamePictureBundles();
+        if (!bundles) return nullptr;
+        if (const auto it = picture_textures_.find(name); it != picture_textures_.end()) return it->second;
+        SDL_Texture* texture = nullptr;
+        const auto& bytes = sidekick ? bundles->sidekicks : bundles->icons;
+        Picture picture;
+        if (DecodePicture(BundleEntry({bytes.data(), bytes.size()}, name), picture))
+        {
+            texture = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, picture.width,
+                                        picture.height);
+            if (texture && !SDL_UpdateTexture(texture, nullptr, picture.rgba.data(), picture.width * 4))
+            {
+                SDL_DestroyTexture(texture);
+                texture = nullptr;
+            }
+            if (texture)
+            {
+                SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
+                SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
+            }
+        }
+        picture_textures_[name] = texture;
+        return texture;
+    }
+
+    static ImTextureID PictureId(SDL_Texture* texture)
+    {
+        return static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(texture));
+    }
+
+    // A captain's face in a disc `size` across (`ring`: a ring in the card's
+    // colour, for faces drawn over each other); false without the picture.
+    bool DrawCaptainFace(ImDrawList* draw, ImVec2 center, float size, int team, bool ring = false)
+    {
+        SDL_Texture* texture = GamePicture(CaptainIconPath(team), false);
+        if (!texture) return false;
+        const float r = size * 0.5f;
+        if (ring) draw->AddCircleFilled(center, r + Dp(2), Col(color::card), 32);
+        draw->AddImageRounded(PictureId(texture), {center.x - r, center.y - r}, {center.x + r, center.y + r}, {0, 0},
+                              {1, 1}, IM_COL32_WHITE, r);
+        return true;
+    }
+
+    // A player of a side as a face: the captain's icon, a sidekick's picture
+    // (its head, in the team's kit) or, for the goalie or without pictures,
+    // initials on the side's colour.
+    void DrawPlayerFace(ImDrawList* draw, ImVec2 center, float size, const SideReport& side, int player,
+                        const ImVec4& tint)
+    {
+        const float r = size * 0.5f;
+        if (player == 0 && DrawCaptainFace(draw, center, size, side.captain)) return;
+        if (player >= 1 && player <= 3)
+            if (SDL_Texture* texture
+                = GamePicture(SidekickPicturePath(side.sidekicks[std::size_t(player - 1)], side.captain), true))
+            {
+                // The head: the upper middle of the 1:2 picture.
+                draw->AddImageRounded(PictureId(texture), {center.x - r, center.y - r}, {center.x + r, center.y + r},
+                                      {0.0f, 0.10f}, {1.0f, 0.60f}, IM_COL32_WHITE, r);
+                return;
+            }
+        draw->AddCircleFilled(center, r, Col(Mix(color::field, tint, 0.35f)), 32);
+        const std::string initials = NameInitials(PlayerName(side, player));
+        const ImVec2 text = TextSize(CurrentFonts().caption, initials.c_str());
+        DrawLabel(draw, CurrentFonts().caption, {center.x - text.x * 0.5f, center.y - text.y * 0.5f}, Col(color::text),
+                  initials.c_str());
+    }
+
+    // ------------------------------------------------- a replay's match stats
+    // A replay's match stats (#177), shown on the Replays page in place of
+    // the list (its line's stats button; Back, Escape or B return): read and
+    // worked out on a worker.
+    struct ReplayStats
+    {
+        fs::path path;
+        replay::FileInfo info;
+        int stadium = -1;
+        int limit_type = 0, game_time = 0, goal_limit = 0, skill = -1;
+        bool online = false;
+        MatchReport report;
+        std::string error;
+    };
+    BackgroundJob<std::shared_ptr<const ReplayStats>> replay_stats_job_;
+    std::shared_ptr<const ReplayStats> replay_stats_;
+    bool replay_stats_open_ = false;
+    int shot_filter_ = 0; // the shot map: 0 both sides, 1 home, 2 away
+
+    void OpenReplayStats(const fs::path& path)
+    {
+        replay_stats_open_ = true;
+        replay_stats_.reset();
+        shot_filter_ = 0;
+        replay_stats_job_.Start([path] {
+            auto stats = std::make_shared<ReplayStats>();
+            stats->path = path;
+            std::vector<std::uint8_t> bytes, stream;
+            auto setup = std::make_unique<replay::Setup>();
+            if (replay::ReadReplayFile(path, bytes, stats->error)
+                && replay::DecodeFile(bytes.data(), bytes.size(), stats->info, stream, stats->error)
+                && replay::ReadSetup(stream.data(), stream.size(), *setup, stats->error))
+            {
+                stats->stadium = setup->stadium;
+                stats->skill = setup->settings[0];
+                stats->limit_type = setup->settings[1];
+                stats->game_time = setup->settings[2];
+                stats->goal_limit = setup->settings[3];
+                stats->online = setup->online != 0;
+                stats->report = BuildMatchReport(*setup);
+                stats->error.clear();
+            }
+            return std::shared_ptr<const ReplayStats>(std::move(stats));
+        });
+    }
+
+    void CloseReplayStats()
+    {
+        replay_stats_job_.Drop();
+        replay_stats_.reset();
+        replay_stats_open_ = false;
+    }
+
+    static const char* CaptainName(int team)
+    {
+        return team >= 0 && team < int(std::size(kCaptainNames)) && kCaptainNames[team] ? kCaptainNames[team] : "?";
+    }
+
+    // A player of a side by name: the captain, a sidekick, the goalie.
+    static std::string PlayerName(const SideReport& side, int player)
+    {
+        if (player == 0) return CaptainName(side.captain);
+        if (player >= 1 && player <= 3)
+        {
+            const int sidekick = side.sidekicks[std::size_t(player - 1)];
+            return sidekick >= 0 && sidekick < int(std::size(kSidekickNames)) && kSidekickNames[sidekick]
+                ? kSidekickNames[sidekick]
+                : "?";
+        }
+        return texts::T("settings.replays.stats.players.goalie");
+    }
+
+    // Who played a side: their name online (the captain in replays from
+    // before names), else the controllers (Player 1) or the CPU.
+    static std::string SideLabel(const ReplayStats& stats, int side)
+    {
+        const SideReport& report = stats.report.sides[std::size_t(side)];
+        if (!report.name.empty()) return report.name;
+        if (stats.online) return CaptainName(report.captain);
+        if (report.pads.empty()) return texts::T("settings.replays.stats.cpu");
+        std::string label;
+        for (const int pad : report.pads)
+            label += (label.empty() ? "" : ", ")
+                + texts::T("settings.replays.stats.player", {{"number", std::to_string(pad + 1)}});
+        return label;
+    }
+
+    // An item as the game names it: its kind and how many (Banana ×3), a
+    // captain's ability by the captain.
+    static std::string ItemName(int type, int count)
+    {
+        // The captains' abilities (ePowerUpType 9 to 20) in eTeamID.
+        static constexpr int kAbilityCaptains[] = {0, 5, 3, 1, 4, 2, 7, 6, 9, 10, 8, 11};
+        if (type >= 9 && type <= 20)
+            return texts::T("settings.replays.stats.items.captains_ability",
+                            {{"captain", CaptainName(kAbilityCaptains[type - 9])}});
+        for (std::size_t n = 0; n < kTrainingItemKinds.size(); ++n)
+            if (kTrainingItemKinds[n].type == type && kTrainingItemKinds[n].count == count
+                && !kTrainingItemKinds[n].giant && kTrainingItemNames[n])
+                return kTrainingItemNames[n];
+        for (std::size_t n = 0; n < kTrainingItemKinds.size(); ++n)
+            if (kTrainingItemKinds[n].type == type && kTrainingItemKinds[n].count == 1 && kTrainingItemNames[n])
+                return count > 1 ? texts::T("settings.replays.stats.items.count",
+                                            {{"item", kTrainingItemNames[n]}, {"count", std::to_string(count)}})
+                                 : std::string(kTrainingItemNames[n]);
+        return texts::T("settings.replays.stats.items.unknown");
+    }
+
+    static ImVec4 SideTint(int side) { return side == 0 ? color::accent : color::info; }
+
+    void ReplayStatsView()
+    {
+        const auto& fonts = CurrentFonts();
+        if (auto taken = replay_stats_job_.Take()) replay_stats_ = std::move(*taken);
+        const float width = ImGui::GetContentRegionAvail().x;
+        const ImVec2 top = ImGui::GetCursorScreenPos();
+        if (SecondaryButton("##stats_back", texts::T("settings.replays.stats.back"), Dp(124, 36), true, Icon::Back)
+            || (CancelPressed() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)))
+        {
+            CloseReplayStats();
+            return;
+        }
+        if (!replay_stats_)
+        {
+            ImGui::Dummy(Dp(0, 18));
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            Spinner({at.x + Dp(12), at.y + Dp(12)}, Dp(9), Col(color::accent));
+            DrawLabel(ImGui::GetWindowDrawList(), fonts.body, {at.x + Dp(32), at.y + Dp(3)}, Col(color::muted),
+                      texts::T("settings.replays.stats.loading"));
+            ImGui::Dummy(Dp(0, 24));
+            return;
+        }
+        const ReplayStats& stats = *replay_stats_;
+        if (!stats.error.empty())
+        {
+            ImGui::Dummy(Dp(0, 12));
+            Callout(texts::T("settings.replays.stats.unreadable", {{"error", stats.error}}), color::danger, Icon::Error);
+            return;
+        }
+        // Watch, at the right of Back.
+        const char* watch = texts::T("settings.replays.stats.watch");
+        const float watch_width = TextSize(fonts.body, watch).x + Dp(18 + 8 + 28);
+        const ImVec2 after = ImGui::GetCursorScreenPos();
+        ImGui::SetCursorScreenPos({top.x + width - watch_width, top.y});
+        if (PrimaryButton("##stats_watch", watch, {watch_width, Dp(36)}, config_ok_ && !pending_replay_, Icon::Play))
+            AskReplay(stats.path);
+        ImGui::SetCursorScreenPos(after);
+        ImGui::Dummy(Dp(0, 8));
+        ReplayStatsHeader(stats);
+        const MatchReport& report = stats.report;
+        if (!report.has_stats)
+        {
+            Callout(texts::T("settings.replays.stats.older"), color::info, Icon::Info);
+            return;
+        }
+        ReplayStatsSummary(stats);
+        ReplayStatsGoals(stats);
+        ReplayStatsTimeline(stats);
+        ReplayStatsShots(stats);
+        ReplayStatsItems(stats);
+        ReplayStatsPlayers(stats);
+    }
+
+    // The match: both sides (who played, their captain's face and sidekicks),
+    // the score, and when, where and by which rules it was played.
+    void ReplayStatsHeader(const ReplayStats& stats)
+    {
+        const auto& fonts = CurrentFonts();
+        const MatchReport& report = stats.report;
+        BeginCard("##stats_header", nullptr);
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x;
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const float face = Dp(64), portrait_w = Dp(30), portrait_h = Dp(60), gap = Dp(6);
+        const float height = face + Dp(12) + portrait_h + Dp(10);
+        const int winner = report.score[0] == report.score[1] ? -1 : report.score[0] > report.score[1] ? 0 : 1;
+        for (int side = 0; side < 2; ++side)
+        {
+            const SideReport& team = report.sides[std::size_t(side)];
+            const bool right = side == 1;
+            const float x = right ? at.x + width - face : at.x;
+            const ImVec2 center{x + face * 0.5f, at.y + face * 0.5f};
+            draw->AddCircleFilled(center, face * 0.5f + Dp(3), Col(SideTint(side), 0.85f), 48);
+            if (!DrawCaptainFace(draw, center, face, team.captain))
+                DrawPlayerFace(draw, center, face, team, 0, SideTint(side));
+            // Who played, then the captain (once when they are the same).
+            const std::string label = Elide(fonts.heading, SideLabel(stats, side), width * 0.5f - face - Dp(70));
+            const std::string captain = SideLabel(stats, side) == CaptainName(team.captain) ? "" : CaptainName(team.captain);
+            const ImVec2 label_size = TextSize(fonts.heading, label.c_str());
+            const ImVec2 captain_size = TextSize(fonts.body, captain.c_str());
+            const float text_x = right ? x - Dp(14) - label_size.x : x + face + Dp(14);
+            const float captain_x = right ? x - Dp(14) - captain_size.x : x + face + Dp(14);
+            DrawLabel(draw, fonts.heading, {text_x, at.y + Dp(10)},
+                      Col(winner == -1 || winner == side ? color::text : color::muted), label.c_str());
+            DrawLabel(draw, fonts.body, {captain_x, at.y + Dp(14) + label_size.y}, Col(color::muted), captain.c_str());
+            // The sidekicks in the team's kit.
+            for (int slot = 0; slot < 3; ++slot)
+            {
+                const float px = right ? at.x + width - (3 - slot) * (portrait_w + gap) + gap
+                                       : at.x + slot * (portrait_w + gap);
+                const ImVec2 min{px, at.y + face + Dp(12)}, max{px + portrait_w, at.y + face + Dp(12) + portrait_h};
+                const int sidekick = team.sidekicks[std::size_t(slot)];
+                if (SDL_Texture* texture = GamePicture(SidekickPicturePath(sidekick, team.captain), true))
+                    draw->AddImageRounded(PictureId(texture), min, max, {0, 0}, {1, 1}, IM_COL32_WHITE, Dp(6));
+                else
+                {
+                    draw->AddRectFilled(min, max, Col(Mix(color::field, SideTint(side), 0.2f)), Dp(6));
+                    const std::string initials = NameInitials(PlayerName(team, slot + 1));
+                    const ImVec2 size = TextSize(fonts.caption, initials.c_str());
+                    DrawLabel(draw, fonts.caption, {(min.x + max.x - size.x) * 0.5f, (min.y + max.y - size.y) * 0.5f},
+                              Col(color::muted), initials.c_str());
+                }
+                if (ImGui::IsMouseHoveringRect(min, max)) ImGui::SetTooltip("%s", PlayerName(team, slot + 1).c_str());
+            }
+        }
+        // The score in the middle, the winner's number lit.
+        const std::string home = std::to_string(report.score[0]), away = std::to_string(report.score[1]);
+        const std::string dash = "\xE2\x80\x93";
+        const float home_w = TextSize(fonts.title, home.c_str()).x, away_w = TextSize(fonts.title, away.c_str()).x;
+        const float dash_w = TextSize(fonts.title, dash.c_str()).x, space = Dp(14);
+        float sx = at.x + (width - home_w - dash_w - away_w - 2 * space) * 0.5f;
+        const float sy = at.y + Dp(8);
+        DrawLabel(draw, fonts.title, {sx, sy}, Col(winner == 0 ? color::text : color::muted), home.c_str());
+        sx += home_w + space;
+        DrawLabel(draw, fonts.title, {sx, sy}, Col(color::dim), dash.c_str());
+        sx += dash_w + space;
+        DrawLabel(draw, fonts.title, {sx, sy}, Col(winner == 1 ? color::text : color::muted), away.c_str());
+        // When, where, how long and by which rules.
+        std::vector<std::string> facts{LocalTime(stats.info.created)};
+        if (stats.stadium >= 0 && stats.stadium < int(std::size(kStadiumNames)) && kStadiumNames[stats.stadium])
+            facts.push_back(kStadiumNames[stats.stadium]);
+        facts.push_back(texts::T("settings.replays.stats.played", {{"time", ClockText(report.length)}}));
+        if (stats.info.training) facts.push_back(texts::T("settings.replays.training"));
+        else if (stats.limit_type == 1 && stats.goal_limit > 0)
+            facts.push_back(texts::T("settings.replays.stats.goal_limit", {{"goals", std::to_string(stats.goal_limit)}}));
+        else if (stats.game_time > 0 && stats.game_time < 3600)
+            facts.push_back(texts::T("settings.replays.stats.time_limit", {{"time", ClockText(float(stats.game_time))}}));
+        if (stats.online) facts.push_back(texts::T("settings.replays.stats.online"));
+        else if (stats.info.network) facts.push_back(texts::T("settings.replays.stats.lan"));
+        const bool cpu = !stats.info.network && (report.sides[0].pads.empty() || report.sides[1].pads.empty());
+        if (cpu && stats.skill >= 0 && stats.skill < int(std::size(kSkillNames)) && kSkillNames[stats.skill])
+            facts.push_back(kSkillNames[stats.skill]);
+        const float facts_room = width - 2 * (3 * (portrait_w + gap)) - Dp(24);
+        float fy = sy + TextSize(fonts.title, home.c_str()).y + Dp(8);
+        std::string line;
+        const auto flush = [&] {
+            const ImVec2 size = TextSize(fonts.caption, line.c_str());
+            DrawLabel(draw, fonts.caption, {at.x + (width - size.x) * 0.5f, fy}, Col(color::muted), line.c_str());
+            fy += size.y + Dp(3);
+            line.clear();
+        };
+        for (const std::string& fact : facts)
+        {
+            const std::string longer = line.empty() ? fact : line + "  \xC2\xB7  " + fact;
+            if (!line.empty() && TextSize(fonts.caption, longer.c_str()).x > facts_room) flush();
+            line = line.empty() ? fact : line + "  \xC2\xB7  " + fact;
+        }
+        if (!line.empty()) flush();
+        ImGui::Dummy({width, std::max(height, fy - at.y)});
+        EndCard();
+    }
+
+    // The totals side by side: each row's numbers, the leader's lit, and a
+    // bar from the middle for each side.
+    void ReplayStatsSummary(const ReplayStats& stats)
+    {
+        static constexpr std::pair<StatRow, const char*> kRows[] = {
+            {StatRow::Goals, "settings.replays.stats.rows.goals"},
+            {StatRow::Shots, "settings.replays.stats.rows.shots"},
+            {StatRow::ShotsOnGoal, "settings.replays.stats.rows.shots_on_goal"},
+            {StatRow::Possession, "settings.replays.stats.rows.possession"},
+            {StatRow::Passes, "settings.replays.stats.rows.passes"},
+            {StatRow::PerfectPasses, "settings.replays.stats.rows.perfect_passes"},
+            {StatRow::Interceptions, "settings.replays.stats.rows.interceptions"},
+            {StatRow::Hits, "settings.replays.stats.rows.hits"},
+            {StatRow::Steals, "settings.replays.stats.rows.steals"},
+            {StatRow::Dekes, "settings.replays.stats.rows.dekes"},
+            {StatRow::Items, "settings.replays.stats.rows.items"},
+            {StatRow::Skillshots, "settings.replays.stats.rows.skillshots"},
+            {StatRow::MegaStrikes, "settings.replays.stats.rows.mega_strikes"},
+            {StatRow::Fouls, "settings.replays.stats.rows.fouls"},
+        };
+        const auto& fonts = CurrentFonts();
+        const MatchReport& report = stats.report;
+        BeginCard("##stats_summary", texts::T("settings.replays.stats.summary"), nullptr, Icon::Stats);
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x;
+        // The sides' names over their columns.
+        {
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            for (int side = 0; side < 2; ++side)
+            {
+                const std::string label = Elide(fonts.caption, SideLabel(stats, side), width * 0.3f);
+                const ImVec2 size = TextSize(fonts.caption, label.c_str());
+                DrawLabel(draw, fonts.caption, {side == 0 ? at.x : at.x + width - size.x, at.y},
+                          Col(SideTint(side)), label.c_str());
+            }
+            ImGui::Dummy({width, Dp(20)});
+        }
+        const float row_height = Dp(38), bar = Dp(4), half = width * 0.5f;
+        for (const auto& [which, text] : kRows)
+        {
+            const auto& values = report.rows[std::size_t(which)];
+            const bool always = which == StatRow::Goals || which == StatRow::Shots || which == StatRow::Possession;
+            if (!always && values[0] == 0 && values[1] == 0) continue;
+            const bool percent = which == StatRow::Possession;
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const int most = std::max(values[0], values[1]);
+            const char* label = texts::T(text);
+            const ImVec2 label_size = TextSize(fonts.body, label);
+            DrawLabel(draw, fonts.body, {at.x + half - label_size.x * 0.5f, at.y + Dp(4)}, Col(color::muted), label);
+            for (int side = 0; side < 2; ++side)
+            {
+                const int value = values[std::size_t(side)];
+                const std::string number = std::to_string(value) + (percent ? "%" : "");
+                const bool leads = value > 0 && value == most && values[0] != values[1];
+                const ImVec2 size = TextSize(fonts.label, number.c_str());
+                DrawLabel(draw, fonts.label, {side == 0 ? at.x : at.x + width - size.x, at.y + Dp(3)},
+                          Col(leads ? SideTint(side) : color::text), number.c_str());
+                // The bar from the middle out, as long as its share of the larger.
+                const float share = most > 0 ? float(value) / float(most) : 0.0f;
+                const float length = (half - Dp(6)) * share;
+                const float y = at.y + row_height - bar - Dp(6);
+                draw->AddRectFilled({at.x + Dp(0), y}, {at.x + width, y + bar}, Col(color::field), bar * 0.5f);
+                if (length > 0.0f)
+                {
+                    const ImVec2 min = side == 0 ? ImVec2{at.x + half - Dp(2) - length, y} : ImVec2{at.x + half + Dp(2), y};
+                    draw->AddRectFilled(min, {min.x + length, y + bar}, Col(SideTint(side), leads ? 1.0f : 0.45f),
+                                        bar * 0.5f);
+                }
+            }
+            ImGui::Dummy({width, row_height});
+        }
+        EndCard();
+    }
+
+    // The goals in order: when, who scored (and assisted), how, and the score
+    // after it.
+    void ReplayStatsGoals(const ReplayStats& stats)
+    {
+        const auto& fonts = CurrentFonts();
+        const MatchReport& report = stats.report;
+        BeginCard("##stats_goals", texts::T("settings.replays.stats.goals.title"), nullptr, Icon::Target);
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x;
+        if (report.goals.empty())
+            TextColored(fonts.body, color::muted, texts::T("settings.replays.stats.goals.none"));
+        const float line = Dp(40), face = Dp(28);
+        for (std::size_t n = 0; n < report.goals.size(); ++n)
+        {
+            const GoalLine& goal = report.goals[n];
+            const SideReport& team = report.sides[std::size_t(goal.side)];
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float middle = at.y + line * 0.5f;
+            if (n > 0) draw->AddRectFilled({at.x, at.y}, {at.x + width, at.y + 1.0f}, Col(color::border, 0.6f));
+            const std::string time = ClockText(goal.seconds);
+            const ImVec2 time_size = TextSize(fonts.label, time.c_str());
+            DrawLabel(draw, fonts.label, {at.x, middle - time_size.y * 0.5f}, Col(color::muted), time.c_str());
+            float x = at.x + Dp(56);
+            draw->AddRectFilled({x - Dp(10), middle - Dp(12)}, {x - Dp(7), middle + Dp(12)}, Col(SideTint(goal.side)),
+                                Dp(2));
+            std::string who;
+            if (goal.own_goal) who = texts::T("settings.replays.stats.goals.own_goal");
+            else
+            {
+                DrawPlayerFace(draw, {x + face * 0.5f, middle}, face, team, goal.player, SideTint(goal.side));
+                x += face + Dp(10);
+                who = goal.player >= 0 ? PlayerName(team, goal.player) : CaptainName(team.captain);
+            }
+            std::vector<std::string> notes;
+            if (goal.assist >= 0)
+                notes.push_back(texts::T("settings.replays.stats.goals.assist", {{"name", PlayerName(team, goal.assist)}}));
+            if (goal.kind == 6)
+                notes.push_back(texts::Count("settings.replays.stats.goals.mega_strike", goal.count));
+            else if (goal.kind == 1) notes.push_back(texts::T("settings.replays.stats.goals.one_timer"));
+            else if (goal.kind == 2) notes.push_back(texts::T("settings.replays.stats.goals.skillshot"));
+            else if (goal.kind == 3) notes.push_back(texts::T("settings.replays.stats.goals.deflection"));
+            std::string note;
+            for (const auto& part : notes) note += (note.empty() ? "" : "  \xC2\xB7  ") + part;
+            const ImVec2 who_size = TextSize(fonts.label, who.c_str());
+            DrawLabel(draw, fonts.label, {x, middle - who_size.y * 0.5f}, Col(color::text), who.c_str());
+            if (!note.empty())
+            {
+                const ImVec2 note_size = TextSize(fonts.caption, note.c_str());
+                DrawLabel(draw, fonts.caption, {x + who_size.x + Dp(10), middle - note_size.y * 0.5f},
+                          Col(color::muted), note.c_str());
+            }
+            // The score after it, the scoring side's number lit.
+            const std::string home = std::to_string(goal.score[0]), away = std::to_string(goal.score[1]);
+            const std::string dash = "  \xE2\x80\x93  ";
+            const float away_w = TextSize(fonts.label, away.c_str()).x, dash_w = TextSize(fonts.label, dash.c_str()).x;
+            const float home_w = TextSize(fonts.label, home.c_str()).x;
+            float sx = at.x + width - away_w - dash_w - home_w;
+            const float sy = middle - TextSize(fonts.label, home.c_str()).y * 0.5f;
+            DrawLabel(draw, fonts.label, {sx, sy}, Col(goal.side == 0 ? SideTint(0) : color::muted), home.c_str());
+            sx += home_w;
+            DrawLabel(draw, fonts.label, {sx, sy}, Col(color::dim), dash.c_str());
+            sx += dash_w;
+            DrawLabel(draw, fonts.label, {sx, sy}, Col(goal.side == 1 ? SideTint(1) : color::muted), away.c_str());
+            ImGui::Dummy({width, line});
+        }
+        EndCard();
+    }
+
+    // The match from kickoff to its end: home's moments above the line,
+    // away's below; a goal a ball, an item a diamond, a hit, a steal or a
+    // foul a mark. Pointing at one tells what it was.
+    void ReplayStatsTimeline(const ReplayStats& stats)
+    {
+        const auto& fonts = CurrentFonts();
+        const MatchReport& report = stats.report;
+        BeginCard("##stats_timeline", texts::T("settings.replays.stats.timeline.title"), nullptr, Icon::Clipboard);
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x;
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const float height = Dp(118), axis = at.y + height * 0.5f - Dp(6), pad = Dp(10);
+        const float length = std::max(report.length, 1.0f);
+        const auto x_of = [&](float seconds) {
+            return at.x + pad + (width - 2 * pad) * std::clamp(seconds / length, 0.0f, 1.0f);
+        };
+        draw->AddRectFilled({at.x + pad, axis - 1.0f}, {at.x + width - pad, axis + 1.0f}, Col(color::border));
+        // A tick each minute (each five past ten minutes), with its time.
+        const int step = length > 600.0f ? 300 : 60;
+        for (int second = 0; second <= int(length); second += step)
+        {
+            const float x = x_of(float(second));
+            draw->AddRectFilled({x - 0.5f, axis - Dp(4)}, {x + 0.5f, axis + Dp(4)}, Col(color::dim));
+            const std::string label = ClockText(float(second));
+            const ImVec2 size = TextSize(fonts.caption, label.c_str());
+            DrawLabel(draw, fonts.caption, {std::clamp(x - size.x * 0.5f, at.x, at.x + width - size.x), at.y + height - size.y},
+                      Col(color::dim), label.c_str());
+        }
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        std::string tip;
+        float tip_distance = Dp(9);
+        const auto consider = [&](ImVec2 point, const std::string& text) {
+            const float d = std::hypot(mouse.x - point.x, mouse.y - point.y);
+            if (d < tip_distance && ImGui::IsWindowHovered())
+            {
+                tip_distance = d;
+                tip = text;
+            }
+        };
+        const auto lane = [&](int side, float level) { return axis + (side == 0 ? -1.0f : 1.0f) * level; };
+        for (const Moment& moment : report.moments)
+        {
+            if (moment.kind == Moment::Goal || moment.kind == Moment::Item) continue;
+            const ImVec2 point{x_of(moment.seconds), lane(moment.side, Dp(10))};
+            const ImU32 tint = Col(SideTint(moment.side), 0.55f);
+            const char* what = moment.kind == Moment::Hit ? "settings.replays.stats.timeline.hit"
+                : moment.kind == Moment::Steal            ? "settings.replays.stats.timeline.steal"
+                                                          : "settings.replays.stats.timeline.foul";
+            if (moment.kind == Moment::Foul)
+                draw->AddRectFilled({point.x - Dp(2.5f), point.y - Dp(2.5f)}, {point.x + Dp(2.5f), point.y + Dp(2.5f)},
+                                    Col(color::warning, 0.8f));
+            else draw->AddRectFilled({point.x - 1.0f, point.y - Dp(4)}, {point.x + 1.0f, point.y + Dp(4)}, tint);
+            consider(point, ClockText(moment.seconds) + "  " + texts::T(what) + "  \xC2\xB7  " + SideLabel(stats, moment.side));
+        }
+        for (const ItemUse& item : report.items)
+        {
+            const ImVec2 point{x_of(item.seconds), lane(item.side, Dp(24))};
+            const float r = Dp(4.5f);
+            const ImVec2 diamond[] = {{point.x, point.y - r}, {point.x + r, point.y}, {point.x, point.y + r}, {point.x - r, point.y}};
+            draw->AddConvexPolyFilled(diamond, 4, Col(SideTint(item.side), 0.8f));
+            consider(point, ClockText(item.seconds) + "  " + ItemName(item.type, item.count) + "  \xC2\xB7  "
+                                 + PlayerName(report.sides[std::size_t(item.side)], item.player));
+        }
+        for (const GoalLine& goal : report.goals)
+        {
+            const ImVec2 point{x_of(goal.seconds), lane(goal.side, Dp(40))};
+            draw->AddLine({point.x, axis}, point, Col(SideTint(goal.side), 0.5f), Dp(1.5f));
+            draw->AddCircleFilled(point, Dp(8), Col(color::text), 24);
+            draw->AddCircleFilled(point, Dp(6), Col(SideTint(goal.side)), 24);
+            const SideReport& team = report.sides[std::size_t(goal.side)];
+            const std::string who = goal.own_goal ? texts::T("settings.replays.stats.goals.own_goal")
+                                                  : goal.player >= 0 ? PlayerName(team, goal.player) : "";
+            consider(point, ClockText(goal.seconds) + "  " + texts::T("settings.replays.stats.timeline.goal") + "  "
+                                + std::to_string(goal.score[0]) + "\xE2\x80\x93" + std::to_string(goal.score[1])
+                                + (who.empty() ? std::string() : "  \xC2\xB7  " + who));
+        }
+        ImGui::Dummy({width, height});
+        if (!tip.empty()) ImGui::SetTooltip("%s", tip.c_str());
+        EndCard();
+    }
+
+    // Where each shot was taken, on the field to scale: home's in the
+    // accent, away's in blue, a filled dot for a shot that scored.
+    void ReplayStatsShots(const ReplayStats& stats)
+    {
+        const auto& fonts = CurrentFonts();
+        const MatchReport& report = stats.report;
+        BeginCard("##stats_shots", texts::T("settings.replays.stats.shots.title"),
+                  texts::T("settings.replays.stats.shots.about"), Icon::Pitch);
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x;
+        const std::string home = SideLabel(stats, 0), away = SideLabel(stats, 1);
+        Segmented("##shot_side", &shot_filter_, {texts::T("settings.replays.stats.shots.both"), home.c_str(), away.c_str()},
+                  std::min(width, Dp(420)));
+        ImGui::Dummy(Dp(0, 8));
+        if (report.shots.empty() || report.field_x <= 0.0f || report.field_y <= 0.0f)
+        {
+            TextColored(fonts.body, color::muted, texts::T("settings.replays.stats.shots.none"));
+            EndCard();
+            return;
+        }
+        const float map_w = std::min(width, Dp(640));
+        const float map_h = map_w * report.field_y / report.field_x;
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const ImVec2 min{at.x + (width - map_w) * 0.5f, at.y}, max{min.x + map_w, min.y + map_h};
+        const ImVec2 center{(min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f};
+        const float sx = map_w * 0.5f / report.field_x, sy = map_h * 0.5f / report.field_y;
+        const auto point = [&](float x, float y) { return ImVec2{center.x + x * sx, center.y - y * sy}; };
+        const ImU32 lines = Col(color::text, 0.35f);
+        const float corner = std::clamp(report.corner * sx, 0.0f, map_h * 0.5f);
+        draw->AddRectFilled(min, max, Col(Mix(color::field, color::accent, 0.07f)), corner);
+        draw->AddRect(min, max, lines, corner, 0, Dp(1.5f));
+        draw->AddLine({center.x, min.y}, {center.x, max.y}, lines, Dp(1.2f));
+        draw->AddCircle(center, map_h * 0.17f, lines, 48, Dp(1.2f));
+        if (report.box_x > 0.0f && report.box_x < report.field_x && report.box_y > 0.0f && report.box_y < report.field_y)
+            for (const float end : {-1.0f, 1.0f})
+            {
+                const ImVec2 a = point(end * report.field_x, report.box_y), b = point(end * report.box_x, -report.box_y);
+                draw->AddRect({std::min(a.x, b.x), std::min(a.y, b.y)}, {std::max(a.x, b.x), std::max(a.y, b.y)}, lines,
+                              0.0f, 0, Dp(1.2f));
+            }
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        std::string tip;
+        float tip_distance = Dp(8);
+        // The missed ones first, the goals over them.
+        for (const bool scored : {false, true})
+            for (const ShotSpot& shot : report.shots)
+            {
+                if (shot.scored != scored || (shot_filter_ == 1 && shot.side != 0) || (shot_filter_ == 2 && shot.side != 1))
+                    continue;
+                const ImVec2 p = point(std::clamp(shot.x, -report.field_x, report.field_x),
+                                       std::clamp(shot.y, -report.field_y, report.field_y));
+                const ImU32 tint = Col(SideTint(shot.side));
+                const float r = shot.kind == ShotKind::MegaStrike ? Dp(8) : Dp(5.5f);
+                if (scored)
+                {
+                    draw->AddCircleFilled(p, r + Dp(2), Col(color::text), 24);
+                    draw->AddCircleFilled(p, r, tint, 24);
+                }
+                else draw->AddCircle(p, r - Dp(1), Col(SideTint(shot.side), 0.85f), 24, Dp(2));
+                const float d = std::hypot(mouse.x - p.x, mouse.y - p.y);
+                if (d < tip_distance && ImGui::IsWindowHovered())
+                {
+                    static constexpr const char* kKinds[] = {
+                        "settings.replays.stats.shots.low", "settings.replays.stats.shots.medium",
+                        "settings.replays.stats.shots.high", "settings.replays.stats.shots.skillshot",
+                        "settings.replays.stats.shots.mega_strike"};
+                    tip_distance = d;
+                    tip = ClockText(shot.seconds) + "  " + texts::T(kKinds[int(shot.kind)]) + "  \xC2\xB7  "
+                        + PlayerName(report.sides[std::size_t(shot.side)], shot.player)
+                        + (shot.scored ? "  \xC2\xB7  " + std::string(texts::T("settings.replays.stats.shots.scored")) : "");
+                }
+            }
+        ImGui::Dummy({width, map_h + Dp(4)});
+        if (!tip.empty()) ImGui::SetTooltip("%s", tip.c_str());
+        EndCard();
+    }
+
+    // Each side's items: the most used, then every kind with how often.
+    void ReplayStatsItems(const ReplayStats& stats)
+    {
+        const auto& fonts = CurrentFonts();
+        const MatchReport& report = stats.report;
+        if (report.item_counts[0].empty() && report.item_counts[1].empty()) return;
+        BeginCard("##stats_items", texts::T("settings.replays.stats.items.title"), nullptr, Icon::Layers);
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x, column = (width - Dp(24)) * 0.5f;
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        float bottom = at.y;
+        for (int side = 0; side < 2; ++side)
+        {
+            const float x = at.x + side * (column + Dp(24));
+            float y = at.y;
+            const std::string label = Elide(fonts.label, SideLabel(stats, side), column);
+            DrawLabel(draw, fonts.label, {x, y}, Col(SideTint(side)), label.c_str());
+            y += TextSize(fonts.label, label.c_str()).y + Dp(8);
+            const auto& counts = report.item_counts[std::size_t(side)];
+            if (counts.empty())
+            {
+                DrawLabel(draw, fonts.body, {x, y}, Col(color::muted), texts::T("settings.replays.stats.items.none"));
+                y += TextSize(fonts.body, "A").y + Dp(6);
+            }
+            for (std::size_t n = 0; n < counts.size(); ++n)
+            {
+                const ItemCount& count = counts[n];
+                const std::string name = Elide(fonts.body, ItemName(count.type, count.count), column - Dp(90));
+                const std::string uses = texts::Count("settings.replays.stats.items.uses", count.uses);
+                const ImVec2 uses_size = TextSize(fonts.body, uses.c_str());
+                if (n == 0)
+                {
+                    // The most used, on a tinted band.
+                    draw->AddRectFilled({x - Dp(6), y - Dp(4)}, {x + column, y + uses_size.y + Dp(4)},
+                                        Col(SideTint(side), 0.12f), Dp(6));
+                }
+                DrawLabel(draw, fonts.body, {x, y}, Col(n == 0 ? color::text : color::muted), name.c_str());
+                DrawLabel(draw, fonts.body, {x + column - uses_size.x - Dp(6), y}, Col(color::muted), uses.c_str());
+                y += uses_size.y + Dp(10);
+            }
+            bottom = std::max(bottom, y);
+        }
+        ImGui::Dummy({width, bottom - at.y});
+        EndCard();
+    }
+
+    // Each player's line: goals, assists, shots, passes, hits, steals, items.
+    void ReplayStatsPlayers(const ReplayStats& stats)
+    {
+        static constexpr std::pair<PlayerColumn, const char*> kColumns[] = {
+            {PlayerColumn::Goals, "settings.replays.stats.players.goals"},
+            {PlayerColumn::Assists, "settings.replays.stats.players.assists"},
+            {PlayerColumn::Shots, "settings.replays.stats.players.shots"},
+            {PlayerColumn::Passes, "settings.replays.stats.players.passes"},
+            {PlayerColumn::Hits, "settings.replays.stats.players.hits"},
+            {PlayerColumn::Steals, "settings.replays.stats.players.steals"},
+            {PlayerColumn::Items, "settings.replays.stats.players.items"},
+        };
+        const auto& fonts = CurrentFonts();
+        const MatchReport& report = stats.report;
+        BeginCard("##stats_players", texts::T("settings.replays.stats.players.title"), nullptr, Icon::Person);
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x;
+        const float name_w = std::max(Dp(150), width - Dp(70) * float(std::size(kColumns)));
+        const float column_w = (width - name_w) / float(std::size(kColumns));
+        const float line = Dp(36), face = Dp(26);
+        for (int side = 0; side < 2; ++side)
+        {
+            const SideReport& team = report.sides[std::size_t(side)];
+            if (side == 1) ImGui::Dummy(Dp(0, 10));
+            ImVec2 at = ImGui::GetCursorScreenPos();
+            const std::string label = Elide(fonts.label, SideLabel(stats, side), name_w - Dp(8));
+            DrawLabel(draw, fonts.label, at, Col(SideTint(side)), label.c_str());
+            for (std::size_t c = 0; c < std::size(kColumns); ++c)
+            {
+                const std::string head = Elide(fonts.caption, texts::T(kColumns[c].second), column_w - Dp(4));
+                const ImVec2 size = TextSize(fonts.caption, head.c_str());
+                DrawLabel(draw, fonts.caption, {at.x + name_w + column_w * (float(c) + 1.0f) - size.x - Dp(4), at.y + Dp(3)},
+                          Col(color::dim), head.c_str());
+            }
+            ImGui::Dummy({width, Dp(24)});
+            for (int player = 0; player < 5; ++player)
+            {
+                at = ImGui::GetCursorScreenPos();
+                const float middle = at.y + line * 0.5f;
+                if (player % 2 == 0) draw->AddRectFilled(at, {at.x + width, at.y + line}, Col(color::field, 0.5f), Dp(6));
+                DrawPlayerFace(draw, {at.x + Dp(6) + face * 0.5f, middle}, face, team, player, SideTint(side));
+                const std::string name = Elide(fonts.body, PlayerName(team, player), name_w - face - Dp(24));
+                const ImVec2 name_size = TextSize(fonts.body, name.c_str());
+                DrawLabel(draw, fonts.body, {at.x + face + Dp(16), middle - name_size.y * 0.5f}, Col(color::text),
+                          name.c_str());
+                const auto& values = report.players[std::size_t(side)][std::size_t(player)];
+                for (std::size_t c = 0; c < std::size(kColumns); ++c)
+                {
+                    const int value = values[std::size_t(kColumns[c].first)];
+                    const std::string number = std::to_string(value);
+                    const ImVec2 size = TextSize(fonts.label, number.c_str());
+                    DrawLabel(draw, fonts.label,
+                              {at.x + name_w + column_w * (float(c) + 1.0f) - size.x - Dp(4), middle - size.y * 0.5f},
+                              Col(value ? color::text : color::dim), number.c_str());
+                }
+                ImGui::Dummy({width, line});
+            }
+        }
         EndCard();
     }
 

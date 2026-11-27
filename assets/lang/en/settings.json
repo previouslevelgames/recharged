@@ -347,10 +347,10 @@
   },
   "replays": {
     "title": "Replays",
-    "about": "Watch an offline match again. During a replay, Right plays it faster, Left slower or paused.",
+    "about": "Watch a match again or look through its stats. During a replay, Right plays it faster, Left slower or paused.",
     "record": {
       "name": "Keep replays",
-      "about": "Each offline match is saved as a replay when it ends."
+      "about": "Each match is saved as a replay when it ends."
     },
     "score": "{{home}} {{home_score}} - {{away_score}} {{away}}",
     "training": "Training",
@@ -359,7 +359,92 @@
     "open_folder": "Open folder",
     "count_one": "{{count}} replay",
     "count_other": "{{count}} replays",
-    "none": "No replays yet: one is kept after each offline match."
+    "none": "No replays yet: one is kept after each match.",
+    "stats": {
+      "open": "Match stats",
+      "unavailable": "This replay is older than match stats.",
+      "back": "Replays",
+      "watch": "Watch",
+      "loading": "Reading the replay...",
+      "unreadable": "The replay cannot be read: {{error}}",
+      "older": "This replay was kept before Recharged counted match stats: only its score is known.",
+      "cpu": "CPU",
+      "player": "Player {{number}}",
+      "online": "Online",
+      "lan": "LAN",
+      "played": "{{time}} played",
+      "time_limit": "{{time}} match",
+      "goal_limit": "First to {{goals}}",
+      "summary": "Match summary",
+      "rows": {
+        "goals": "Goals",
+        "shots": "Shots",
+        "shots_on_goal": "Shots on goal",
+        "skillshots": "Skillshots",
+        "mega_strikes": "Mega Strikes",
+        "passes": "Passes",
+        "perfect_passes": "Perfect passes",
+        "interceptions": "Interceptions",
+        "hits": "Hits",
+        "steals": "Steals",
+        "dekes": "Dekes",
+        "items": "Items used",
+        "fouls": "Fouls",
+        "possession": "Possession"
+      },
+      "goals": {
+        "title": "Goals",
+        "none": "No goals.",
+        "assist": "assist {{name}}",
+        "own_goal": "Own goal",
+        "one_timer": "One-timer",
+        "skillshot": "Skillshot",
+        "deflection": "Deflection",
+        "mega_strike_one": "Mega Strike",
+        "mega_strike_other": "Mega Strike, {{count}} goals"
+      },
+      "timeline": {
+        "title": "Timeline",
+        "goal": "Goal",
+        "item": "Item",
+        "hit": "Hit",
+        "steal": "Steal",
+        "foul": "Foul"
+      },
+      "shots": {
+        "title": "Shots",
+        "about": "Where each shot was taken. A filled dot scored.",
+        "both": "Both",
+        "none": "No shots.",
+        "low": "Shot",
+        "medium": "Charged shot",
+        "high": "Fully charged shot",
+        "skillshot": "Skillshot",
+        "mega_strike": "Mega Strike",
+        "scored": "scored"
+      },
+      "items": {
+        "title": "Items",
+        "none": "No items used.",
+        "most_used": "Most used",
+        "uses_one": "{{count}} time",
+        "uses_other": "{{count}} times",
+        "count": "{{item}} ×{{count}}",
+        "captains_ability": "{{captain}}'s ability",
+        "unknown": "Item"
+      },
+      "players": {
+        "title": "Players",
+        "goals": "Goals",
+        "assists": "Assists",
+        "shots": "Shots",
+        "passes": "Passes",
+        "hits": "Hits",
+        "steals": "Steals",
+        "items": "Items",
+        "goalie": "Goalie"
+      }
+    }
   },
   "gameplay": {
     "super_team": {

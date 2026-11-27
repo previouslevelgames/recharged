@@ -69,7 +69,8 @@ enum class Icon
 {
     None, Play, Disc, Display, Audio, Keyboard, Sliders, Info, Folder, Check, Warning, Error, Refresh, Mouse,
     Gamepad, Copy, Link, Target, Back, GitHub, Download, Flask, Tag, Trophy, Gear, Close, Up, Down, Archive, More,
-    Heart, Bug, Layers, Bulb, Code, Person, Pitch, Clipboard, Medal, Chat, Bracket, Podium, Dice, Paint, Lock
+    Heart, Bug, Layers, Bulb, Code, Person, Pitch, Clipboard, Medal, Chat, Bracket, Podium, Dice, Paint, Lock,
+    Stats
 };
 void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 center, float size, ImU32 color);
 

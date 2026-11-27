@@ -288,8 +288,11 @@ lets you choose which one to follow ([updates](SETTINGS.md#updates)).
 ## Replays
 
 Every match, offline and online, is kept as a small replay file (a few KB a
-minute: the match's start and the players' inputs). The launcher's Extras page lists them;
-watching one plays the match again, up to four times as fast, and pauses it.
+minute: the match's start, the players' inputs and the match's stats). The
+launcher's Replays page lists them; watching one plays the match again, up to
+four times as fast, and pauses it. Each replay's match stats show there too:
+the score and who played, both sides' numbers side by side, the goals, a
+timeline, where each shot was taken, the items and each player's numbers.
 You can send a replay to a friend with the same game ([replays](REPLAYS.md)).
 
 ## Texture packs
