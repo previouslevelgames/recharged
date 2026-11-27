@@ -1,0 +1,243 @@
+From: mscharged-port
+Subject: Tweak: a live replay catches up behind a catch-up screen
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A spectator who joins a match under way plays it from its kickoff as fast
+as the computer can (tweak patch 0086), and saw it race by. When that
+catch-up begins more than 30 s behind, the host now shows a catch-up screen
+instead (the score, how far it got, when it is live), and the match behind
+it draws nothing, so its steps get nearly all of the time.
+
+Drawing nothing is what a rollback's replay of a frame already does (tweak
+patch 0042 and the sites before it): the places that only draw skip their
+work, the updates around them still run. They now ask
+mscharged_tweak_draws_nothing, which is true for a rollback's replay and
+for a replay behind the catch-up screen. The sites that read the pads,
+serve disc reads or send messages during a rollback's replay keep asking
+mscharged_rollback_resimulating.
+
+Behind the screen the steps also record no frames for the goal replays
+(ReplayManager::GrabSnapshot) until the last 10 s before it is live:
+nothing in the match reads them, only the goal replays (skipped while it
+catches up) and the drawing. The goal replays after it is live find their
+last seconds. On a production game, 355 s of the match caught up in
+about 8 s instead of about 12 s, with every recorded checksum the same.
+
+diff --git a/include/mscharged_replay.h b/include/mscharged_replay.h
+index d0524bd..2730d2b 100644
+--- a/include/mscharged_replay.h
++++ b/include/mscharged_replay.h
+@@ -52,6 +52,11 @@ bool mscharged_tweak_replay_tick_over(void);
+ // Whether a live replay catches up as fast as the computer can now: it
+ // starts no sound but the tracked ones meanwhile, its sound being off.
+ bool mscharged_tweak_replay_turbo(void);
++// Whether a step records no frame for the goal replays (tweak patch 0090):
++// while a live replay catches up behind the catch-up screen, until its last
++// 10 s. Nothing in the match reads them, only the goal replays and the
++// drawing, which the screen hides.
++bool mscharged_tweak_replay_skips_snapshot(void);
+ // How many times faster the wipes around cutscenes run: more than 1 while a
+ // live replay catches up.
+ float mscharged_tweak_replay_wipe_speed(void);
+diff --git a/include/mscharged_rollback.h b/include/mscharged_rollback.h
+index 631c766..892601f 100644
+--- a/include/mscharged_rollback.h
++++ b/include/mscharged_rollback.h
+@@ -38,6 +38,11 @@ bool mscharged_rollback_active(void);
+ // Whether the steps running now replay earlier ones: deterministic data they
+ // queue was sent when they first ran.
+ bool mscharged_rollback_resimulating(void);
++// Whether this frame's drawing goes nowhere: a rollback's replay of a frame
++// that was drawn, or a replay behind the host's catch-up screen while it
++// catches up with its live match (tweak patch 0090). The places that only
++// draw skip their work then; the updates around them still run.
++bool mscharged_tweak_draws_nothing(void);
+ #if defined(MSCHARGED_TWEAKS)
+ // Whether deterministic data a step queues goes out: once for each step, by
+ // its bytes. A replay sends what the step's earlier runs did not (with
+diff --git a/src/Game/Drawable/DrawableCharacter.cpp b/src/Game/Drawable/DrawableCharacter.cpp
+index 39e3f85..2668b6b 100644
+--- a/src/Game/Drawable/DrawableCharacter.cpp
++++ b/src/Game/Drawable/DrawableCharacter.cpp
+@@ -619,7 +619,7 @@ void DrawableCharacter::Blend(const float* blendFactors, DrawableCharacter& lhs,
+     // replays too, or the effect would emit from where the joints were.
+     const bool readByEffect = poseAccumulator->m_Padding[0] != 0;
+     poseAccumulator->m_Padding[0] = 0;
+-    if (mscharged_rollback_resimulating() && !readByEffect)
++    if (mscharged_tweak_draws_nothing() && !readByEffect)
+         return;
+ #endif
+ 
+diff --git a/src/Game/RenderSnapshot.cpp b/src/Game/RenderSnapshot.cpp
+index fd25de9..20055b5 100644
+--- a/src/Game/RenderSnapshot.cpp
++++ b/src/Game/RenderSnapshot.cpp
+@@ -372,7 +372,7 @@ void RenderSnapshot::Render(float deltaTime)
+     // actors' timer, the camera's up vector and the goal light still follow.
+     // The characters' skin meshes keep the poses of their last drawing, which
+     // only the drawing reads: the next one poses them again.
+-    const bool draw = !mscharged_rollback_resimulating();
++    const bool draw = !mscharged_tweak_draws_nothing();
+     if (draw)
+ #endif
+     if (!allActorsHidden)
+diff --git a/src/Game/Task/FixedUpdateTask.cpp b/src/Game/Task/FixedUpdateTask.cpp
+index d22695a..8889024 100644
+--- a/src/Game/Task/FixedUpdateTask.cpp
++++ b/src/Game/Task/FixedUpdateTask.cpp
+@@ -565,5 +565,10 @@ void FixedUpdateTask::CallFixedUpdateTasks()
+ 
+     mEventDispatcher.Dispatch(true);
+     UpdatePeachPhoto(&gPeachPhotoState, g_fSimulationTick, gGameplayContextDepth--);
++#if defined(MSCHARGED_TWEAKS)
++    // A live replay that catches up behind its catch-up screen: frames for
++    // the goal replays only from its last seconds on.
++    if (!mscharged_tweak_replay_skips_snapshot())
++#endif
+     ReplayManager::Instance()->GrabSnapshot();
+ }
+diff --git a/src/Game/Task/FrontEndTask.cpp b/src/Game/Task/FrontEndTask.cpp
+index 50f1374..e90dbd2 100644
+--- a/src/Game/Task/FrontEndTask.cpp
++++ b/src/Game/Task/FrontEndTask.cpp
+@@ -99,7 +99,7 @@ static void DrawFrontEndElements(float fDeltaT)
+ #if defined(MSCHARGED_TWEAKS)
+             // A rollback's replay draws nothing: the scenes' render walks their
+             // timelines to attach what GLView drops; their updates ran above.
+-            if (!mscharged_rollback_resimulating())
++            if (!mscharged_tweak_draws_nothing())
+ #endif
+             FESceneManager::Instance()->RenderActiveScenes();
+         }
+diff --git a/src/Game/Task/GameRenderTask.cpp b/src/Game/Task/GameRenderTask.cpp
+index 2a2c2b6..a425bab 100644
+--- a/src/Game/Task/GameRenderTask.cpp
++++ b/src/Game/Task/GameRenderTask.cpp
+@@ -206,7 +206,7 @@ void GameRenderTask::Run(float fDeltaT)
+     // A rollback's replay draws nothing: its frame was drawn when it first
+     // ran, and GLView drops what a replay attaches. The updates around the
+     // drawing still run, as the rollback took back what they update.
+-    const bool draw = !mscharged_rollback_resimulating();
++    const bool draw = !mscharged_tweak_draws_nothing();
+ #endif
+     mElapsedTime += fDeltaT;
+ 
+@@ -342,7 +342,7 @@ void GameRenderTask::RenderFrame(float fDeltaT, bool bPictureInPicture)
+     static float prevTime;
+ #if defined(MSCHARGED_TWEAKS)
+     // A replay draws nothing (see Run).
+-    const bool draw = !mscharged_rollback_resimulating();
++    const bool draw = !mscharged_tweak_draws_nothing();
+ #endif
+ 
+     glPoly2 p;
+diff --git a/src/Game/Task/ParticleUpdateTask.cpp b/src/Game/Task/ParticleUpdateTask.cpp
+index 042466b..fd00bc1 100644
+--- a/src/Game/Task/ParticleUpdateTask.cpp
++++ b/src/Game/Task/ParticleUpdateTask.cpp
+@@ -75,7 +75,7 @@ void ParticleUpdateTask::Run(float dt)
+     // A rollback's replay draws nothing: the particles' quads, models and
+     // field lights are built for the drawing alone (the lights feed the
+     // characters' shading); the update above ran as ever.
+-    if (mscharged_rollback_resimulating())
++    if (mscharged_tweak_draws_nothing())
+         render = false;
+ #endif
+     if (mRenderEnabled && render)
+diff --git a/src/Game/objectblur.cpp b/src/Game/objectblur.cpp
+index a0a5d17..d3117e8 100644
+--- a/src/Game/objectblur.cpp
++++ b/src/Game/objectblur.cpp
+@@ -399,7 +399,7 @@ void BlurManager::Update(float deltaTime)
+ #if defined(MSCHARGED_TWEAKS)
+         // A rollback's replay draws nothing: the trail's mesh is built from
+         // the ring of points, which it leaves alone.
+-        if (!mscharged_rollback_resimulating())
++        if (!mscharged_tweak_draws_nothing())
+ #endif
+         {
+             current->RenderMesh(current->m_uTexHashID);
+diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
+index 2873b12..0a008e9 100644
+--- a/src/NL/gl/glDraw2.cpp
++++ b/src/NL/gl/glDraw2.cpp
+@@ -42,7 +42,7 @@ bool glPoly2::Attach(
+ #if defined(MSCHARGED_TWEAKS)
+     // A rollback's replay draws nothing: the model would go nowhere
+     // (GLView::AttachModel), so it is not built either.
+-    if (mscharged_rollback_resimulating())
++    if (mscharged_tweak_draws_nothing())
+         return true;
+ #endif
+ 
+@@ -171,7 +171,7 @@ bool glAttachPoly2(GLView* view, unsigned long numPolys, glPoly2* pPolys,
+ #if defined(MSCHARGED_TWEAKS)
+     // A rollback's replay draws nothing: the model would go nowhere
+     // (GLView::AttachModel), so it is not built either.
+-    if (mscharged_rollback_resimulating())
++    if (mscharged_tweak_draws_nothing())
+         return true;
+ #endif
+     glModel* model = glBuildPoly2Model(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
+@@ -191,7 +191,7 @@ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
+ #if defined(MSCHARGED_TWEAKS)
+     // A rollback's replay draws nothing: the model would go nowhere
+     // (GLView::AttachModel), so it is not built either.
+-    if (mscharged_rollback_resimulating())
++    if (mscharged_tweak_draws_nothing())
+         return true;
+ #endif
+     glModel* model = glBuildPoly2Model(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
+@@ -211,7 +211,7 @@ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
+ #if defined(MSCHARGED_TWEAKS)
+     // A rollback's replay draws nothing: the model would go nowhere
+     // (GLView::AttachModel), so it is not built either.
+-    if (mscharged_rollback_resimulating())
++    if (mscharged_tweak_draws_nothing())
+         return true;
+ #endif
+     static unsigned long scissorbox = nlStringHash("scissorbox");
+diff --git a/src/NL/gl/glDraw3.cpp b/src/NL/gl/glDraw3.cpp
+index ac4088f..8233c2b 100644
+--- a/src/NL/gl/glDraw3.cpp
++++ b/src/NL/gl/glDraw3.cpp
+@@ -20,7 +20,7 @@ bool glAttachQuad3(eGLView view, unsigned long count, glQuad3* quads)
+ #if defined(MSCHARGED_TWEAKS)
+     // A rollback's replay draws nothing: the model would go nowhere
+     // (GLView::AttachModel), so it is not built either.
+-    if (mscharged_rollback_resimulating())
++    if (mscharged_tweak_draws_nothing())
+         return true;
+ #endif
+     int i = 0;
+@@ -38,7 +38,7 @@ bool glAttachQuad3(
+ #if defined(MSCHARGED_TWEAKS)
+     // A rollback's replay draws nothing: the model would go nowhere
+     // (GLView::AttachModel), so it is not built either.
+-    if (mscharged_rollback_resimulating())
++    if (mscharged_tweak_draws_nothing())
+         return true;
+ #endif
+     glQuad3* quad = quads;
+diff --git a/src/NL/gl/glView.cpp b/src/NL/gl/glView.cpp
+index b6b5023..aec28c3 100644
+--- a/src/NL/gl/glView.cpp
++++ b/src/NL/gl/glView.cpp
+@@ -409,7 +409,7 @@ void GLView::AttachPacket(const glModelPacket* packet, unsigned long layer)
+ {
+ #if defined(MSCHARGED_TWEAKS)
+     // Drawing during a rollback's replay goes nowhere: its frame was drawn.
+-    if (mscharged_rollback_resimulating())
++    if (mscharged_tweak_draws_nothing())
+     {
+         return;
+     }
+@@ -425,7 +425,7 @@ void GLView::AttachPacket(const glModelPacket* packet, unsigned long layer)
+ void GLView::AttachModel(const glModel* model, unsigned long layer)
+ {
+ #if defined(MSCHARGED_TWEAKS)
+-    if (mscharged_rollback_resimulating())
++    if (mscharged_tweak_draws_nothing())
+     {
+         return;
+     }

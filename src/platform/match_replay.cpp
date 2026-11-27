@@ -15,6 +15,7 @@
 #error Match replays belong to the isolated original game module built with MSCHARGED_TWEAKS
 #endif
 #include "mscharged_replay.h"
+#include "mscharged_rollback.h"
 #include "mscharged_sim_profile.h"
 #include "mscharged_tweaks.h"
 #include "platform/game_allocation_ownership.h"
@@ -24,6 +25,7 @@
 #include "platform/match_replay_status.h"
 #include "platform/match_replay_stream.h"
 #include "platform/match_stats.h"
+#include "platform/parallel_pose.h"
 #include "platform/online_match_snapshot.h"
 
 #include "Game/DB/SaveLoad.h"
@@ -119,6 +121,14 @@ constexpr int kTurboUntil = 50;      // 1 s: twice as fast again
 // steps ahead.
 constexpr double kTurboShare = 0.75;
 constexpr double kTurboMostBurst = 0.1; // seconds
+// A turbo that begins more than kCatchUpFrom behind (a spectator who joined a
+// match under way) hides the match behind the host's catch-up screen: the
+// frames draw nothing (mscharged_tweak_draws_nothing), so the steps take
+// kCatchUpShare of the time, and they record the frames of the goal replays
+// only from kRecordFrom behind on (the game keeps the last 8 s or so of them).
+constexpr int kCatchUpFrom = 1500;  // 30 s
+constexpr int kRecordFrom = 500;    // 10 s
+constexpr double kCatchUpShare = 0.95;
 constexpr int kTurboMostSteps = 4000;   // in one tick (80 s of a match)
 // Meanwhile the parts of cutscenes a player may skip are skipped, and the
 // wipes before and after them (the match stands still) run this many times
@@ -195,6 +205,13 @@ int sLoadWait = 0;
 // (its Step() counts them), and whether the replay catches up in turbo.
 StreamReader sArrived;
 bool sTurbo = false;
+// It hides the match behind the catch-up screen (kCatchUpFrom): from a turbo
+// that began that far behind, or from before its first step when the match
+// it joined was that far ahead; sHidesMatch while the screen shows.
+bool sCatchUp = false;
+bool sHidesMatch = false;
+// The steps behind at the start of the current tick, and the step it began at.
+std::uint32_t sTickBehind = 0, sTickFrom = 0;
 // Turbo: the time its steps may still take (seconds, below 0 after a long
 // step), when its last step ended (or its tick began), and whether a tick of
 // it runs; its start and how far the replay had read then.
@@ -363,6 +380,14 @@ int LiveAhead()
     return ahead;
 }
 
+// Whether the catch-up screen hides the match: while turbo runs for it, or
+// before the first step of a match it joined far behind.
+void UpdateHidesMatch()
+{
+    sHidesMatch = sCatchUp && sLiveReplay && sPlaying && !sFinishedPlaying && (sTurbo || !sReader.Step());
+    sStatus.catch_up = sHidesMatch ? 1 : 0;
+}
+
 // Why turbo ends.
 enum class TurboEnd
 {
@@ -377,6 +402,10 @@ void SetTurbo(bool on, TurboEnd why = TurboEnd::CaughtUp)
     if (on == sTurbo) return;
     sTurbo = on;
     sStatus.turbo = on ? 1 : 0;
+    // The catch-up screen: for a turbo that begins far behind (or that the
+    // screen already hid the match for, before its first step).
+    sCatchUp = on && (sCatchUp || sStatus.behind > unsigned(kCatchUpFrom));
+    UpdateHidesMatch();
     sTurboTime = 0.0;
     sStepEnded = {};
     sTurboTick = false;
@@ -388,8 +417,8 @@ void SetTurbo(bool on, TurboEnd why = TurboEnd::CaughtUp)
         sTurboFromStep = sReader.Step();
         sTurboStepSeconds = sTurboStillSeconds = 0.0;
         sTurboSteps = sTurboHeldTicks = 0;
-        std::snprintf(line, sizeof line, "catching up with the live match as fast as this computer can, %.1f s behind",
-                      double(sStatus.behind) / 50.0);
+        std::snprintf(line, sizeof line, "catching up with the live match as fast as this computer can, %.1f s behind%s",
+                      double(sStatus.behind) / 50.0, sCatchUp ? ", behind the catch-up screen" : "");
     }
     else if (why == TurboEnd::Paused)
         std::snprintf(line, sizeof line, "paused while catching up, %.1f s behind", double(sStatus.behind) / 50.0);
@@ -419,11 +448,14 @@ int TurboTick(int ahead)
     if (sStepEnded != SteadyClock::time_point{})
     {
         const double rest = Seconds(now - sStepEnded);
-        sTurboTime = std::min(sTurboTime + kTurboShare / (1.0 - kTurboShare) * rest, kTurboMostBurst);
+        const double share = sCatchUp ? kCatchUpShare : kTurboShare;
+        sTurboTime = std::min(sTurboTime + share / (1.0 - share) * rest, kTurboMostBurst);
         if (rest > 0.1) sTurboStillSeconds += rest;
     }
     sStepEnded = now;
     sTurboTick = true;
+    sTickBehind = std::uint32_t(ahead);
+    sTickFrom = sReader.Step();
     return std::clamp(ahead - kLiveFastFrom, 1, kTurboMostSteps);
 }
 
@@ -434,6 +466,9 @@ void FinishPlaying()
     sFinishedPlaying = true;
     sTurbo = sTurboTick = false;
     sStatus.turbo = 0;
+    sCatchUp = false;
+    UpdateHidesMatch();
+    mscharged::platform::ReportParallelPosing();
     char line[200];
     std::snprintf(line, sizeof line, "played %u steps, %u of %u checksums matched%s%s", sReader.Step(),
                   sStatus.checked - sStatus.differences, sStatus.checked, sStatus.error[0] ? ": " : "",
@@ -864,6 +899,20 @@ bool mscharged_tweak_replay_tick_over(void)
     return true;
 }
 
+bool mscharged_tweak_draws_nothing(void)
+{
+    // A rollback's replay of a frame (rollback_engine.cpp), or a replay's
+    // catch-up screen.
+    return sHidesMatch || mscharged_rollback_resimulating();
+}
+
+bool mscharged_tweak_replay_skips_snapshot(void)
+{
+    // Its goal replays' frames from kRecordFrom behind on: the steps this
+    // tick took so far count.
+    return sHidesMatch && sTurbo && sTickBehind > sReader.Step() - sTickFrom + unsigned(kRecordFrom);
+}
+
 bool mscharged_tweak_replay_turbo(void)
 {
     return sTurbo && mscharged_tweak_replay_playing();
@@ -1241,6 +1290,9 @@ __attribute__((visibility("default"))) int charged_replay_status(ChargedReplaySt
     {
         const int ahead = LiveAhead();
         if (sLiveComplete.load(std::memory_order_acquire) && sStarted && sReader.Step() && !ahead) FinishPlaying();
+        // A match it joined far behind: the catch-up screen from its loading on.
+        if (sStarted && !sReader.Step() && ahead > kCatchUpFrom) sCatchUp = true;
+        UpdateHidesMatch();
     }
     // One whose match takes no more steps while some are left (not paused,
     // not waiting for a live stream's next ones).

@@ -73,6 +73,18 @@ public:
         bool operator==(const Status&) const = default;
     };
     void SetStatus(std::optional<Status> status);
+    // A live replay that catches up with its match: a screen over the whole
+    // picture (the match draws nothing behind it) with a gold title, the
+    // score, how far it got and when it is live, and a bar for that. Over it
+    // only messages and the performance numbers. None hides it.
+    struct CatchUp {
+        std::string title;
+        std::string score;    // empty: not known yet
+        std::string progress; // how far it got, when it is live
+        int percent = 0;      // of the way to the live match, 0..100
+        bool operator==(const CatchUp&) const = default;
+    };
+    void SetCatchUp(std::optional<CatchUp> catchUp);
     // Recharged's menus, drawn while shown under the performance numbers and
     // messages; null for none.
     void SetMenus(HostMenus* menus);
@@ -83,6 +95,7 @@ public:
 
 private:
     void BuildFonts(float size, float menuScale);
+    void DrawCatchUp(const CatchUp& catchUp, std::uint32_t surface_width, std::uint32_t surface_height, float size);
 
     std::optional<OverlayCorner> performance_;
     std::optional<platform::SystemUsageMonitor> usage_;
@@ -92,6 +105,7 @@ private:
     std::string message_;
     std::optional<Hint> hint_, shownHint_;
     std::optional<Status> status_, shownStatus_;
+    std::optional<CatchUp> catchUp_, shownCatchUp_;
     HostMenus* menus_ = nullptr;
     bool shownMenus_ = false;
     Clock::time_point messageShown_{};
@@ -107,6 +121,7 @@ private:
     ImFont* number_ = nullptr;
     ImFont* label_ = nullptr;
     ImFont* messageFont_ = nullptr;
+    ImFont* catchUpFont_ = nullptr; // the catch-up screen's score
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
     // Recharged's menus' (bold): their title, plates, rows and small lines.
     ui::Fonts menuFonts_{};

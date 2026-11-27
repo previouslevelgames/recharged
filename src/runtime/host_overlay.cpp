@@ -38,6 +38,8 @@ constexpr auto kMessageTime = std::chrono::milliseconds(2500);
 constexpr auto kMessageFade = std::chrono::milliseconds(500);
 // Fade steps: the overlay is rebuilt once per step, not every frame.
 constexpr int kOpacitySteps = 8;
+// The catch-up screen's score, in message sizes.
+constexpr float kCatchUpScoreScale = 2.0f;
 
 ImU32 WithAlpha(ImU32 color, int opacity)
 {
@@ -140,6 +142,8 @@ void HostOverlay::SetHint(std::optional<Hint> hint) { hint_ = std::move(hint); }
 
 void HostOverlay::SetStatus(std::optional<Status> status) { status_ = std::move(status); }
 
+void HostOverlay::SetCatchUp(std::optional<CatchUp> catchUp) { catchUp_ = std::move(catchUp); }
+
 void HostOverlay::BuildFonts(float size, float menuScale)
 {
     ImGuiIO& io = ImGui::GetIO();
@@ -167,6 +171,7 @@ void HostOverlay::BuildFonts(float size, float menuScale)
         };
         label_ = add(size);
         messageFont_ = addText(MessageFontSize(size));
+        catchUpFont_ = addText(std::round(MessageFontSize(size) * kCatchUpScoreScale));
         config.FontBuilderFlags |= ImGuiFreeTypeBuilderFlags_Bold;
         number_ = add(size);
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
@@ -188,6 +193,47 @@ void HostOverlay::BuildFonts(float size, float menuScale)
     aurora_imgui_update_overlay_fonts();
     builtSize_ = size;
     builtMenuScale_ = menuScale;
+}
+
+void HostOverlay::DrawCatchUp(const CatchUp& catchUp, std::uint32_t surface_width, std::uint32_t surface_height,
+                              float size)
+{
+    ImDrawList* draw = ImGui::GetBackgroundDrawList();
+    const float width = float(surface_width), height = float(surface_height);
+    // The match draws nothing behind it: a dark screen in the menus' colours.
+    draw->AddRectFilledMultiColor({0, 0}, {width, height}, IM_COL32(18, 22, 32, 255), IM_COL32(18, 22, 32, 255),
+                                  IM_COL32(8, 9, 14, 255), IM_COL32(8, 9, 14, 255));
+    const float titleSize = std::round(size * 0.9f), scoreSize = std::round(size * kCatchUpScoreScale);
+    const float gap = std::round(size * 0.9f), barHeight = std::max(4.0f, std::round(size * 0.35f));
+    const float barWidth = std::round(std::min(width * 0.6f, size * 26.0f));
+    const auto measure = [&](ImFont* font, float pixels, const std::string& text) {
+        return font->CalcTextSizeA(pixels, FLT_MAX, 0, text.c_str());
+    };
+    const ImVec2 title = measure(messageFont_, titleSize, catchUp.title);
+    const ImVec2 score = catchUp.score.empty() ? ImVec2{0, 0} : measure(catchUpFont_, scoreSize, catchUp.score);
+    const ImVec2 progress = measure(messageFont_, size, catchUp.progress);
+    const float total = title.y + (catchUp.score.empty() ? 0 : gap + score.y) + gap * 1.4f + barHeight + gap * 0.7f
+                      + progress.y;
+    float y = std::round((height - total) * 0.5f);
+    const auto centred = [&](ImFont* font, float pixels, const ImVec2& extent, ImU32 colour, const std::string& text) {
+        const float x = std::round((width - extent.x) * 0.5f);
+        draw->AddText(font, pixels, {x + 1, y + 1}, kShadow, text.c_str());
+        draw->AddText(font, pixels, {x, y}, colour, text.c_str());
+        y += extent.y;
+    };
+    centred(messageFont_, titleSize, title, kGold, catchUp.title);
+    if (!catchUp.score.empty()) {
+        y += gap;
+        centred(catchUpFont_, scoreSize, score, kNumber, catchUp.score);
+    }
+    y += gap * 1.4f;
+    // The bar: how far it got towards the live match.
+    const float left = std::round((width - barWidth) * 0.5f), round = barHeight * 0.5f;
+    draw->AddRectFilled({left, y}, {left + barWidth, y + barHeight}, IM_COL32(255, 255, 255, 40), round);
+    const float filled = std::round(barWidth * float(std::clamp(catchUp.percent, 0, 100)) / 100.0f);
+    if (filled > 0) draw->AddRectFilled({left, y}, {left + std::max(filled, barHeight), y + barHeight}, kGold, round);
+    y += barHeight + gap * 0.7f;
+    centred(messageFont_, size, progress, kLabel, catchUp.progress);
 }
 
 void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_height, Clock::time_point now)
@@ -219,9 +265,11 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
 #else
     const bool menus = false;
 #endif
-    const std::optional<Hint> hint = menus ? std::nullopt : hint_;
-    const std::optional<Status> status = menus ? std::nullopt : status_;
-    const bool showing = performance_ || opacity > 0 || menus || hint || status;
+    // The catch-up screen covers the corners' hint and status.
+    const std::optional<CatchUp> catchUp = catchUp_;
+    const std::optional<Hint> hint = menus || catchUp ? std::nullopt : hint_;
+    const std::optional<Status> status = menus || catchUp ? std::nullopt : status_;
+    const bool showing = performance_ || opacity > 0 || menus || hint || status || catchUp;
     if (!showing) {
         if (drawn_) aurora_imgui_clear_overlay();
         drawn_ = false;
@@ -229,7 +277,8 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     }
     // The menus are live: every frame while they show.
     if (drawn_ && !menus && !shownMenus_ && values == shownValues_ && count == shownCount_ && message_ == shownMessage_
-        && opacity == shownOpacity_ && hint == shownHint_ && status == shownStatus_ && surface_width == shownWidth_
+        && opacity == shownOpacity_ && hint == shownHint_ && status == shownStatus_ && catchUp == shownCatchUp_
+        && surface_width == shownWidth_
         && surface_height == shownHeight_)
         return;
     const auto size = FpsOverlayFontSize(surface_width, surface_height);
@@ -244,6 +293,8 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
         || platform::NameGlyphsVersion() != launcher::NameGlyphsBuilt())
         BuildFonts(size, menuScale);
     aurora_imgui_begin_overlay(surface_width, surface_height);
+    // The catch-up screen under everything else.
+    if (catchUp) DrawCatchUp(*catchUp, surface_width, surface_height, MessageFontSize(size));
     // The menus first: the performance numbers and messages stay on top.
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
     if (menus) menus_->Draw(float(surface_width), float(surface_height), menuFonts_);
@@ -336,6 +387,7 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     shownMessage_ = message_;
     shownHint_ = hint;
     shownStatus_ = status;
+    shownCatchUp_ = catchUp;
     shownMenus_ = menus;
     shownOpacity_ = opacity;
     shownWidth_ = surface_width;

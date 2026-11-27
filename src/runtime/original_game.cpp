@@ -100,6 +100,7 @@
 #include "movie_hardware.h"
 #include "runtime/game_window.h"
 #include "runtime/host_overlay.h"
+#include "runtime/parallel_jobs.h"
 #include "runtime/menu_input.h"
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
 #include "runtime/host_menus.h"
@@ -1367,6 +1368,21 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 +(launch.settings.replays_keep ? " (the newest "+std::to_string(launch.settings.replays_keep)+" kept)" : "");
             else line+=configureReplays ? "off" : "off (this build's game module records none)";
             std::fprintf(stderr,"%s\n",line.c_str());
+        }
+        // A replay poses its characters on worker threads (tweak patch 0091):
+        // they help only replays, so only a program that plays one starts them.
+        // RECHARGED_PARALLEL_POSE=0 turns them off.
+        std::unique_ptr<mscharged::runtime::ParallelJobs> parallelJobs;
+        if(!replayStream.empty()) {
+            const auto configureJobs=reinterpret_cast<ChargedConfigureParallelJobsFunction>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_parallel_jobs"));
+            const char* setting=std::getenv("RECHARGED_PARALLEL_POSE");
+            const unsigned workers=mscharged::runtime::ParallelJobs::DefaultWorkers(std::thread::hardware_concurrency());
+            if(configureJobs && workers && !(setting && std::strcmp(setting,"0")==0)) {
+                parallelJobs=std::make_unique<mscharged::runtime::ParallelJobs>(workers);
+                configureJobs(parallelJobs->Table());
+                std::fprintf(stderr,"Replays: the characters are posed on %u more threads\n",workers);
+            }
         }
         // A finished recording to its file.
         auto keepReplay=[&,gameId=std::string(release->game_id),revision=int(release->revision)](
@@ -3423,6 +3439,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         } liveCatchUp;
         std::string liveBehindShown;
         std::chrono::steady_clock::time_point liveLoggedAt{};
+        // The catch-up screen: shown, held for one frame after the match
+        // stopped hiding (that frame drew nothing yet), last updated.
+        bool catchUpShown=false,catchUpHeld=false;
+        std::chrono::steady_clock::time_point catchUpAt{};
         auto observeReplays=[&] {
             takeReplays();
             if(replayStream.empty() || !replayStatus)return;
@@ -3468,6 +3488,37 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     ? texts::T("menus.messages.watch_turbo_eta",{{"behind",behind},
                           {"seconds",std::to_string(int(double(status.behind)/liveCatchUp.gain+0.5))}})
                     : texts::T("menus.messages.watch_turbo",{{"behind",behind}});
+            }
+            // Behind the catch-up screen the match draws nothing: the screen
+            // says how far it got (ten times a second).
+            if(hostOverlay && status.catch_up && (!catchUpShown || now-catchUpAt>=std::chrono::milliseconds(100))) {
+                catchUpAt=now;
+                mscharged::runtime::HostOverlay::CatchUp screen;
+                screen.title=texts::T("menus.messages.watch_catch_up_title");
+                ChargedPresenceSnapshot game{};
+                if(presenceSnapshot && presenceSnapshot(&game,sizeof game) && game.in_match && game.teams[0]>=0
+                   && game.teams[1]>=0)
+                    screen.score=texts::T("menus.messages.watch_catch_up_score",
+                        {{"home",mscharged::platform::CaptainName(game.teams[0])},
+                         {"home_goals",std::to_string(game.scores[0])},{"away_goals",std::to_string(game.scores[1])},
+                         {"away",mscharged::platform::CaptainName(game.teams[1])}});
+                const std::string played=mscharged::replay::MatchLength(status.steps);
+                const std::string live=mscharged::replay::MatchLength(status.steps+status.behind);
+                screen.progress=liveCatchUp.gain>1.0
+                    ? texts::T("menus.messages.watch_catch_up_eta",{{"played",played},{"live",live},
+                          {"seconds",std::to_string(int(double(status.behind)/liveCatchUp.gain+0.5))}})
+                    : texts::T("menus.messages.watch_catch_up_progress",{{"played",played},{"live",live}});
+                const double all=double(status.steps)+double(status.behind);
+                screen.percent=all>0.0 ? int(100.0*double(status.steps)/all) : 0;
+                hostOverlay->SetCatchUp(std::move(screen));
+                catchUpShown=true;
+                catchUpHeld=false;
+            } else if(hostOverlay && catchUpShown && !status.catch_up) {
+                if(!catchUpHeld) catchUpHeld=true;
+                else {
+                    hostOverlay->SetCatchUp(std::nullopt);
+                    catchUpShown=catchUpHeld=false;
+                }
             }
             if(status.speed!=replaySpeedShown || (status.steps && !replayStepsSeen) || catchingUp!=liveCatchingUp
                || liveCatchUp.text!=liveBehindShown) {

@@ -208,6 +208,8 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     # match's stats (0085).
     target_sources(${target} PRIVATE src/platform/match_replay.cpp src/platform/match_replay_stream.cpp
                                       src/platform/match_stats.cpp)
+    # A replay poses its characters on the host's worker threads (tweak patch 0091).
+    target_sources(${target} PRIVATE src/platform/parallel_pose.cpp)
     # The original game's globals in sections of their own (rbk_data/rbk_bss),
     # which a rollback saves with the arenas: a linker script on ELF (GNU ld,
     # lld; a static game image takes its sections into the image's data), and

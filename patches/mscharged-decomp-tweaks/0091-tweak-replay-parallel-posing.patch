@@ -1,0 +1,108 @@
+From: mscharged-port
+Subject: Tweak: a replay poses its characters on more threads
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A step poses the ten characters in cCharacter::PostPhysicsUpdate, one after
+the other: cPoseAccumulator::Pose evaluates the animation tree (about a
+fifth of a step), then builds the bone matrices. The evaluation reads only
+the character's own tree, animations and accumulator.
+
+While a replay plays (a spectator catching up most of all), PhysicsUpdate
+now begins by having the port copy the ten trees and accumulators and
+evaluate the copies on the host's worker threads while the collisions and
+the physics engine's step run (parallel_pose.cpp); it waits for them after
+the step. PostPhysicsUpdate takes a character's result only if everything
+its evaluation read is still the same, and then builds the bone matrices as
+before, in the same order (their callbacks read the other characters and
+the ball); else it poses as before. The same calculations on the same
+inputs: the match plays exactly as it would, and a match that is not a
+replay never asks.
+
+diff --git a/include/mscharged_replay.h b/include/mscharged_replay.h
+index 2730d2b..12e2852 100644
+--- a/include/mscharged_replay.h
++++ b/include/mscharged_replay.h
+@@ -57,6 +57,16 @@ bool mscharged_tweak_replay_turbo(void);
+ // 10 s. Nothing in the match reads them, only the goal replays and the
+ // drawing, which the screen hides.
+ bool mscharged_tweak_replay_skips_snapshot(void);
++// Parallel posing while a replay plays (tweak patch 0091, the port's
++// parallel_pose.cpp): PhysicsUpdate begins by having the characters' poses
++// evaluated on other threads (from copies of their trees), and waits for
++// them after the physics engine's step; cCharacter::PostPhysicsUpdate then
++// takes its pose's evaluation (`accumulator` posed with `tree`) when
++// everything it read is unchanged, and only builds the bone matrices, or
++// poses as before when it is not taken.
++void mscharged_tweak_pose_begin(void);
++void mscharged_tweak_pose_end(void);
++bool mscharged_tweak_pose_take(void* accumulator, const void* tree);
+ // How many times faster the wipes around cutscenes run: more than 1 while a
+ // live replay catches up.
+ float mscharged_tweak_replay_wipe_speed(void);
+diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
+index 82372b0..9d414c7 100644
+--- a/src/Game/Character.cpp
++++ b/src/Game/Character.cpp
+@@ -31,6 +31,9 @@
+ #include "Game/TweakRegistry.h"
+ #include "Game/Team.h"
+ #include "mscharged_tweaks.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_replay.h"
++#endif
+ #include "Game/AnimInventory.h"
+ #include "Game/CharacterTweaks.h"
+ #include "Game/Ball.h"
+@@ -837,6 +840,13 @@ void cCharacter::PostPhysicsUpdate()
+ 
+     CreateWorldMatrix();
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // A replay: the pose's evaluation ran beside the physics step (when it
++    // still holds); the bone matrices follow here, in the characters' order.
++    if (mscharged_tweak_pose_take(m_pPoseAccumulator, m_pPoseTree))
++        m_pPoseAccumulator->BuildNodeMatrices(m_m4WorldMatrix);
++    else
++#endif
+     m_pPoseAccumulator->Pose(*m_pPoseTree, m_m4WorldMatrix);
+     m_pPhysicsCharacter->UpdatePose(
+         m_pPoseAccumulator, m_DetChar.m_v3Position.z, false);
+diff --git a/src/Game/Physics.cpp b/src/Game/Physics.cpp
+index 221c17c..ae86898 100644
+--- a/src/Game/Physics.cpp
++++ b/src/Game/Physics.cpp
+@@ -18,6 +18,9 @@
+ #include "NL/nlMemory.h"
+ #include "NL/nlString.h"
+ #include "ode/NLGAdditions.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_replay.h"
++#endif
+ #include "ode/ext/dColumn.h"
+ #include "ode/ext/dCylinder.h"
+ #include "ode/ext/dFinitePlane.h"
+@@ -176,6 +179,13 @@ void DestroyPhysicsWorld()
+ 
+ void PhysicsUpdate(PhysicsWorld* world, float dt)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // A replay: the characters' poses are evaluated on other threads, from
++    // copies of their trees, while the collisions and the physics engine's
++    // step run here, for PostUpdate.
++    if (world == g_PhysicsWorld)
++        mscharged_tweak_pose_begin();
++#endif
+     if (!sbDisableCollisionDetection)
+     {
+         world->Collide();
+@@ -217,6 +227,10 @@ void PhysicsUpdate(PhysicsWorld* world, float dt)
+ 
+     world->PreUpdate();
+     world->Update(dt, true);
++#if defined(MSCHARGED_TWEAKS)
++    if (world == g_PhysicsWorld)
++        mscharged_tweak_pose_end();
++#endif
+     world->PostUpdate();
+ 
+     if (world == g_PhysicsWorld)

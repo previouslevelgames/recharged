@@ -21,6 +21,7 @@ struct ChargedReplayStatus
     int live;               // a live stream (charged_configure_live_replay)
     unsigned behind;        // live: the steps that have arrived and not played yet
     int turbo;              // live: catching up as fast as this computer can, its sound off
+    int catch_up;           // live: the match hides behind the catch-up screen (it draws nothing)
 };
 
 // [replays] record: whether matches are recorded (before original main).

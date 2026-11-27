@@ -342,7 +342,7 @@ add_library(charged_original_game_host OBJECT
     src/runtime/menu_input.cpp
     src/runtime/game_window.cpp
     src/runtime/texture_pack_loading.cpp src/platform/hd_recolour.cpp
-    src/runtime/host_frame_pacing.cpp
+    src/runtime/host_frame_pacing.cpp src/runtime/parallel_jobs.cpp
     src/runtime/pipeline_warmup.cpp src/runtime/pipeline_demand_log.cpp src/runtime/graphics_loading_view.cpp
     src/platform/console.cpp
     src/platform/os.cpp src/platform/host_metadata.cpp src/platform/string_format.cpp
@@ -375,6 +375,16 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Texts.cmake")
 target_link_libraries(charged_original_game_host PRIVATE charged_texts)
 # The game's overlay in the panel (F1, HOME): the Online and Game options tabs
 # (src/overlay, built with the launcher, through Aurora's ImGui).
+if(BUILD_TESTING)
+    # The worker threads the host lends the game module (a replay's posing).
+    add_executable(parallel_jobs_tests tests/parallel_jobs.cpp src/runtime/parallel_jobs.cpp)
+    target_include_directories(parallel_jobs_tests PRIVATE src)
+    target_compile_features(parallel_jobs_tests PRIVATE cxx_std_20)
+    find_package(Threads REQUIRED)
+    target_link_libraries(parallel_jobs_tests PRIVATE Threads::Threads)
+    add_test(NAME parallel_jobs COMMAND parallel_jobs_tests)
+    set_tests_properties(parallel_jobs PROPERTIES TIMEOUT 120)
+endif()
 if(TARGET charged_overlay)
     target_sources(charged_original_game_host PRIVATE src/runtime/host_menus.cpp src/runtime/mii_heads.cpp
         src/runtime/server_tournament.cpp)
