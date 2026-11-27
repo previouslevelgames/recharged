@@ -71,7 +71,9 @@ until it is live again, with the sound off. If it is more than a few seconds
 behind, for example when you join a match that is already under way, it
 catches up as fast as your computer can: cutscenes that can be skipped are
 skipped, and the corner shows how far behind it still is and about when it
-is live.
+is live. While your computer still loads something the match needs (a
+cutscene, from a slow drive), it waits for it, and after ten seconds plays on
+at normal speed until it has loaded.
 
 Cutscenes play as the players saw them: a part of one a player skipped
 (a goal's celebration, its replay) is skipped in the replay too, at the same

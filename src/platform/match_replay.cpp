@@ -90,7 +90,8 @@ constexpr std::size_t kMostWaiting = 8;
 // does not have.
 constexpr int kStalledFrames = 1200;
 // A replay waits at most this many steps' time (10 s) for what this computer
-// still loads (StillLoading) before it goes on anyway.
+// still loads (StillLoading) before it goes on anyway, then at its own pace,
+// one step a tick, never faster, until the load is done.
 constexpr int kMostLoadWait = 500;
 // The steps each speed adds to the router's one per step: paused (-1: none),
 // normal, twice and four times as fast.
@@ -354,8 +355,16 @@ int LiveAhead()
     return ahead;
 }
 
-// Turbo begins, or ends (caught up, or paused).
-void SetTurbo(bool on, bool paused = false)
+// Why turbo ends.
+enum class TurboEnd
+{
+    CaughtUp,
+    Paused,
+    Loading, // a load this computer waited kMostLoadWait for still runs
+};
+
+// Turbo begins, or ends.
+void SetTurbo(bool on, TurboEnd why = TurboEnd::CaughtUp)
 {
     if (on == sTurbo) return;
     sTurbo = on;
@@ -374,8 +383,11 @@ void SetTurbo(bool on, bool paused = false)
         std::snprintf(line, sizeof line, "catching up with the live match as fast as this computer can, %.1f s behind",
                       double(sStatus.behind) / 50.0);
     }
-    else if (paused)
+    else if (why == TurboEnd::Paused)
         std::snprintf(line, sizeof line, "paused while catching up, %.1f s behind", double(sStatus.behind) / 50.0);
+    else if (why == TurboEnd::Loading)
+        std::snprintf(line, sizeof line, "stops catching up until this computer has loaded, %.1f s behind",
+                      double(sStatus.behind) / 50.0);
     else
     {
         const double took = Seconds(now - sTurboBegan);
@@ -768,15 +780,25 @@ int mscharged_tweak_replay_extra_updates(void)
     // The speed the host asked for, from this step on.
     const int speed = sSpeed.load(std::memory_order_relaxed);
     const int extra = kExtraSteps[(speed < -1 ? -1 : speed > 2 ? 2 : speed) + 1];
-    // No step while this computer still loads (at most kMostLoadWait).
-    if (!StillLoading()) sLoadWait = 0;
+    // No step while this computer still loads (at most kMostLoadWait); after
+    // that one step a tick until it has: a faster replay would run into what
+    // it has not loaded (a cutscene's animations).
+    bool loadOverdue = false;
+    if (!StillLoading())
+    {
+        if (sLoadWait >= kMostLoadWait) Log("this computer has loaded what it waited for: the replay's pace is back");
+        sLoadWait = 0;
+    }
     else if (sLoadWait < kMostLoadWait)
     {
-        ++sLoadWait;
+        if (++sLoadWait == kMostLoadWait)
+            Log("this computer still loads after 10 s: the replay goes on at its own pace until it has");
         if (sTurbo) ++sTurboHeldTicks;
         return -1;
     }
-    if (!sLiveReplay) return extra;
+    else
+        loadOverdue = true;
+    if (!sLiveReplay) return loadOverdue ? std::min(extra, 0) : extra;
     // Live: the steps that have arrived whole set the pace.
     const bool complete = sLiveComplete.load(std::memory_order_acquire);
     const int ahead = LiveAhead();
@@ -788,11 +810,13 @@ int mscharged_tweak_replay_extra_updates(void)
     }
     if (sLiveBuffering && ahead < kLiveBufferSteps && !complete) return -1;
     sLiveBuffering = false;
-    if (speed < 0 || ahead < kTurboUntil) SetTurbo(false, speed < 0);
+    if (loadOverdue) SetTurbo(false, TurboEnd::Loading);
+    else if (speed < 0 || ahead < kTurboUntil) SetTurbo(false, speed < 0 ? TurboEnd::Paused : TurboEnd::CaughtUp);
     else if (ahead > kTurboFrom) SetTurbo(true);
     if (sTurbo) return TurboTick(ahead) - 1;
     int steps = extra + 1;
     if (speed >= 0) steps = std::max(steps, ahead > kLiveFastFrom ? 2 : 1);
+    if (loadOverdue) steps = std::min(steps, 1);
     return std::min(steps, ahead) - 1;
 }
 
