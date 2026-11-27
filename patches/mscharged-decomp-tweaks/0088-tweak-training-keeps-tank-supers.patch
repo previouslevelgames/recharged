@@ -1,0 +1,61 @@
+From: mscharged-port
+Subject: Tweak: training keeps the tank supers
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+Training's team keeps every item it uses (tweak patch 0038,
+DesireUsePowerup), but Bowser's, Wario's, Waluigi's and Petey's supers run
+on a tank, and DesireSuperPower::Cleanup clears the power-up once the tank
+is spent. The slot was then empty: the next item the team won took its
+place for good. Cleanup now leaves the power-up to the team that trains,
+and the next use fills the tank again (InitSuperPowerTank).
+
+diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
+--- a/src/Game/AI/DesireSuperPower.cpp
++++ b/src/Game/AI/DesireSuperPower.cpp
+@@ -408,11 +408,19 @@
+ void DesireSuperPower::Cleanup()
+ {
+     DeactivateScriptMachine(GetTeamScriptMachine(m_pFielder->m_pTeam));
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": the team that trains keeps its item, the tank
++    // supers' too once their tank is spent (DesireUsePowerup keeps the rest).
++    const bool bKeepPowerup = GetTrainingSide() == m_pFielder->m_pTeam->m_nSide;
++#endif
+ 
+     switch (m_pFielder->m_DetChar.m_eCharacterClass)
+     {
+     case BOWSER:
+         m_pFielder->ClearSuperPowerTank();
++#if defined(MSCHARGED_TWEAKS)
++        if (!bKeepPowerup)
++#endif
+         m_pFielder->m_pTeam->ClearCurrentPowerUp();
+         EndBowserSmoke(m_pFielder);
+         break;
+@@ -462,6 +470,9 @@
+         m_pFielder->m_fPeteyLastMuckBallTime = 0.0f;
+         m_pFielder->m_fPeteyMuckBallSpeed = 0.0f;
+         m_pFielder->ClearSuperPowerTank();
++#if defined(MSCHARGED_TWEAKS)
++        if (!bKeepPowerup)
++#endif
+         m_pFielder->m_pTeam->ClearCurrentPowerUp();
+         if (m_pFielder->m_eAnimID == 104)
+         {
+@@ -475,10 +486,16 @@
+             m_pFielder->EndDesire();
+         }
+         m_pFielder->ClearSuperPowerTank();
++#if defined(MSCHARGED_TWEAKS)
++        if (!bKeepPowerup)
++#endif
+         m_pFielder->m_pTeam->ClearCurrentPowerUp();
+         break;
+     case WARIO:
+         m_pFielder->ClearSuperPowerTank();
++#if defined(MSCHARGED_TWEAKS)
++        if (!bKeepPowerup)
++#endif
+         m_pFielder->m_pTeam->ClearCurrentPowerUp();
+         if (m_pFielder->m_eAnimID == 104)
+         {
