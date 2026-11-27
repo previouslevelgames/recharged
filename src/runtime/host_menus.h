@@ -113,6 +113,9 @@ public:
     // button, 2 its second: B and BACK too), once.
     void SetPrompt(std::optional<overlay::OverlayPrompt> prompt);
     std::optional<int> TakePromptAnswer();
+    // The stadium the player stepped to on the prompt's row (OverlayPrompt::
+    // stadium; the prompt shows it at once), once.
+    std::optional<std::string> TakePromptStadium();
     // Every page goes (a set going on into the game).
     void CloseAll();
     // The set READY started is done, or its search was left: still in the
@@ -236,6 +239,7 @@ private:
     // The prompt: its question, its answer to take.
     std::optional<overlay::OverlayPrompt> prompt_;
     std::optional<int> promptAnswer_;
+    std::optional<std::string> promptStadium_;
     // TOURNAMENT's way into the trophy room, since when.
     TournamentWay tournament_ = TournamentWay::None;
     bool tournamentPage_ = false; // TournamentSetDone: the page comes again in the room

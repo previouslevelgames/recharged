@@ -262,6 +262,8 @@ void HostMenus::SetPrompt(std::optional<overlay::OverlayPrompt> prompt)
 
 std::optional<int> HostMenus::TakePromptAnswer() { return std::exchange(promptAnswer_, std::nullopt); }
 
+std::optional<std::string> HostMenus::TakePromptStadium() { return std::exchange(promptStadium_, std::nullopt); }
+
 void HostMenus::MenuKey(MenuInput::MenuKey key, int channel)
 {
     // The game's pause in an online match, which the game refuses: the match
@@ -464,6 +466,10 @@ void HostMenus::Apply(const ui::PageActions& actions, bool live, const overlay::
     if (actions.music || actions.effects || actions.voices || actions.auto_zoom || actions.zoom) gameChanged_ = true;
     if (actions.open) Push(*actions.open, actions.open_category, actions.open_key);
     if (actions.answer) promptAnswer_ = actions.answer;
+    if (actions.prompt_stadium && prompt_ && !prompt_->stadium.empty()) {
+        prompt_->stadium = *actions.prompt_stadium;
+        promptStadium_ = *actions.prompt_stadium;
+    }
     if (actions.forfeit && !forfeitAsked_) {
         platform::SessionLogLine("Menus: FORFEIT (the online match is left)");
         forfeitAsked_ = true;

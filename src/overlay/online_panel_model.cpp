@@ -229,6 +229,8 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
             set.tone = Tone::Neutral;
             set.can_accept = !context.in_match && !locked;
             set.can_decline = true;
+            set.you_pick = match.rematch_of != 0 && match.first_pick == "you" && match.tournament.id == 0;
+            set.stadium = match.rules.stadium;
         }
         else
         {
@@ -372,6 +374,9 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
             set.tone = match.winner == "you" ? Tone::Good : match.winner == "opponent" ? Tone::Bad : Tone::Neutral;
         }
         set.can_rematch = sets && match.opponent_online && !context.in_match && !locked;
+        // The rematch is the other player's turn.
+        set.you_pick = set.can_rematch && match.first_pick == "opponent";
+        set.stadium = match.rules.stadium;
         return set;
     }
     // Declined, cancelled, expired or dissolved: nothing to show.

@@ -382,8 +382,13 @@ extern "C" __attribute__((visibility("default"))) bool charged_configure_competi
                                                                                      unsigned size)
 {
     if (rules && size != sizeof(ChargedCompetitiveRules)) return false;
+    const int turn = sPending ? sRules.first_pick : -1;
     sPending = rules != nullptr;
     sRules = rules ? *rules : ChargedCompetitiveRules{};
+    if (!rules) sRules.first_pick = -1;
+    if (sRules.first_pick != turn && (sRules.first_pick == 0 || sRules.first_pick == 1))
+        std::fprintf(stderr, "Competitive: the set's turn: %s drafts first\n",
+                     sRules.first_pick == 1 ? "this player" : "the opponent");
     return true;
 }
 
@@ -612,9 +617,17 @@ extern "C" bool mscharged_competitive_game_start(int* scores, float* seconds)
 
 #if defined(MSCHARGED_TWEAKS)
 // Tweak patch 0079: a set's game (not the Game Menu's RANKED) on its way.
+// A tournament's side by its bracket (charged_configure_set_side), else a
+// set's by its turn (the rules' first_pick): the player with the first pick
+// is on the side that drafts first, at home with Defence priority and away
+// without it (mscharged_competitive_draft_away_first, tweak patch 0084).
 extern "C" int mscharged_competitive_set_side(void)
 {
-    return sSetStage != CHARGED_SET_NONE && !sRankedWalk ? sSetSide : -1;
+    if (sSetStage == CHARGED_SET_NONE || sRankedWalk) return -1;
+    if (sSetSide >= 0) return sSetSide;
+    if (!sPending || (sRules.first_pick != 0 && sRules.first_pick != 1)) return -1;
+    const bool away_first = !((sRules.tweaks >> MSCHARGED_TWEAK_FAIR_BALL_CONTESTS) & 1u);
+    return (sRules.first_pick == 1) != away_first ? 0 : 1;
 }
 
 int mscharged_tweak_resume_score(int side)

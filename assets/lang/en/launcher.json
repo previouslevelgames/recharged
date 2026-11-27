@@ -415,6 +415,8 @@
     "update_outdated": "Online play is off until Recharged is updated: use Check for updates on the Play page.",
     "update_unchecked": "Online play is off until a check for updates succeeds: use Check for updates on the Play page.",
     "accept_about": "Accept starts the game and goes straight to the set.",
+    "your_pick": "Your turn: you pick the stadium and draft first.",
+    "their_pick": "{{name}} picked the stadium and drafts first.",
     "start_failed": "Your game couldn't start.",
     "start_failed_why": "Your game couldn't start. {{reason}}",
     "opponent_closed": "{{name}} has closed Recharged. The set ends in a minute unless they come back.",

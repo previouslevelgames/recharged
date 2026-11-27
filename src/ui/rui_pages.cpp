@@ -353,17 +353,37 @@ void OpenSetup(const PageModel& model, PageState& state, PageActions& actions, c
     actions.open_key = key;
 }
 
+void Choices(List& list, const char* label, const std::vector<platform::RuleChoice>& choices, std::string& key);
+
 // The player's set (what it is, and what they can do now), wherever it is shown.
-void DrawSet(const PageModel& model, List& list, PageActions& actions)
+void DrawSet(const PageModel& model, PageState& state, List& list, PageActions& actions)
 {
     const auto& set = model.overlay.online.set;
     if (set.stage == overlay::OnlinePanelSet::Stage::None) return;
     const Person opponent = PersonOf(model, set.opponent);
     std::vector<std::string> about{set.status};
     if (!set.rules.empty()) about.push_back(set.rules);
+    if (set.you_pick) about.push_back(T("menus.sets.your_pick"));
     list.Card(&opponent, T("menus.you.your_set"), set.title.c_str(), about, ToneOf(set.tone), set.games, set.won,
               set.lost);
-    if (set.can_accept && list.Plate(T("menus.you.accept"))) actions.online.accept = true;
+    // A rematch that is the player's turn: ACCEPT or REMATCH goes with the
+    // stadium under it, the set's to start with.
+    auto& pick = state.online;
+    if (set.you_pick && pick.pick_for != set.match)
+    {
+        pick.pick_for = set.match;
+        pick.pick_stadium = set.stadium;
+    }
+    const std::string stadium =
+        set.you_pick ? platform::RuleChoiceLabel(platform::StadiumChoices(), pick.pick_stadium) : std::string();
+    const char* picked = set.you_pick ? stadium.c_str() : nullptr;
+    if (set.can_accept && list.Plate(T("menus.you.accept"), nullptr, true, picked))
+    {
+        actions.online.accept = true;
+        if (set.you_pick) actions.online.stadium = pick.pick_stadium;
+    }
+    if (set.you_pick && set.can_accept)
+        Choices(list, T("menus.setup.stadium"), platform::StadiumChoices(), pick.pick_stadium);
     if (set.can_decline && list.Plate(T("menus.you.decline"))) actions.online.decline = true;
     if (set.can_ready && list.Plate(T("menus.you.ready"))) actions.online.ready = true;
     // A tournament's set: on to the trophy room, the player's tournament.
@@ -372,7 +392,13 @@ void DrawSet(const PageModel& model, List& list, PageActions& actions)
         actions.tournament = true;
         actions.tournament_own = true;
     }
-    if (set.can_rematch && list.Plate(T("menus.you.rematch"))) actions.online.rematch = true;
+    if (set.can_rematch && list.Plate(T("menus.you.rematch"), nullptr, true, picked))
+    {
+        actions.online.rematch = true;
+        if (set.you_pick) actions.online.stadium = pick.pick_stadium;
+    }
+    if (set.you_pick && set.can_rematch)
+        Choices(list, T("menus.setup.stadium"), platform::StadiumChoices(), pick.pick_stadium);
     if (set.can_cancel)
     {
         const std::string label =
@@ -403,13 +429,13 @@ const overlay::OnlinePanelPreset* ChosenPreset(const overlay::OnlinePanelModel& 
 
 // ONLINE: the set going on first, then where to go. While online play waits
 // for an update, why first, and the game's own online stays closed.
-void DrawOnline(const PageModel& model, List& list, PageActions& actions)
+void DrawOnline(const PageModel& model, PageState& state, List& list, PageActions& actions)
 {
     const auto& online = model.overlay.online;
     const bool locked = online.update_lock != overlay::UpdateLock::None;
     if (locked) list.Note(overlay::UpdateLockNote(online.update_lock).c_str());
     if (online.signed_out) DrawNoProfile(list);
-    else DrawSet(model, list, actions);
+    else DrawSet(model, state, list, actions);
     if (list.Plate(T("menus.online.play"))) actions.open = PageId::Play;
     const char* busy = !online.signed_out && !online.me.available && online.me.can_set_available
         ? T("menus.you.do_not_disturb") : nullptr;
@@ -965,11 +991,22 @@ void DrawPrompt(const PageModel& model, List& list, PageActions& actions)
     const Person person = PersonOf(model, prompt.opponent, false);
     std::vector<std::string> lines;
     if (!prompt.detail.empty()) lines.push_back(prompt.detail);
+    if (!prompt.turn.empty()) lines.push_back(prompt.turn);
     // Its kind ("CHALLENGE") is the page's title.
     list.Card(&person, nullptr, prompt.title.c_str(), lines, Tone::Neutral,
               prompt.has_score ? prompt.games : 0, prompt.won, prompt.lost);
     const std::string primary = Upper(prompt.primary.c_str()), secondary = Upper(prompt.secondary.c_str());
-    if (list.Plate(primary.c_str())) actions.answer = 1;
+    // The player's pick of the stadium: the first answer goes with the one
+    // under it (shown at its end).
+    const std::string stadium =
+        prompt.stadium.empty() ? std::string() : platform::RuleChoiceLabel(platform::StadiumChoices(), prompt.stadium);
+    if (list.Plate(primary.c_str(), nullptr, true, stadium.empty() ? nullptr : stadium.c_str())) actions.answer = 1;
+    if (!prompt.stadium.empty())
+    {
+        std::string key = prompt.stadium;
+        Choices(list, T("menus.setup.stadium"), platform::StadiumChoices(), key);
+        if (key != prompt.stadium) actions.prompt_stadium = key;
+    }
     if (!secondary.empty() && list.Plate(secondary.c_str())) actions.answer = 2;
 }
 } // namespace
@@ -1059,7 +1096,7 @@ void DrawPage(PageId id, int category, const std::string& key, const PageModel& 
         else if (category == kSettingsAdvanced) DrawAdvanced(model, list, actions);
         else DrawDisplay(model, list, actions);
         break;
-    case PageId::Online: DrawOnline(model, list, actions); break;
+    case PageId::Online: DrawOnline(model, state, list, actions); break;
     case PageId::Play: DrawPlay(model, list, actions); break;
     case PageId::Friends: DrawFriends(model, state, list, actions); break;
     case PageId::Random: DrawRandom(model, state, list, actions); break;

@@ -2069,9 +2069,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     ? std::string(texts::T("menus.messages.unnamed_opponent")) : end->opponent;
                 // Without a game played it has no result, and a stopped set the
                 // server no longer keeps cannot be played again: only a message.
-                // A set a player left or called off goes again as a rematch.
-                const bool rematch=end->how==How::Left || end->how==How::OpponentLeft
-                    || end->how==How::OpponentGone;
+                // Only a set with a result (played out or forfeited) has a
+                // rematch: one a player left is over, with a message.
                 // A tournament's set: no rematch, its page says what comes next.
                 if(tournamentSetEnds && tournamentSetEnds(end->match,end->how==How::Over
                        || end->how==How::Forfeited || end->how==How::OpponentForfeited)) {
@@ -2082,7 +2081,21 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 } else if(end->how==How::NoResult) {
                     if(hostOverlay)
                         hostOverlay->ShowMessage(texts::T("menus.messages.set_no_result",{{"name",opponent}}),now);
-                } else if(end->how!=How::Over && !rematch && !end->can_play_again) {
+                } else if(end->how==How::Left || end->how==How::OpponentLeft || end->how==How::OpponentGone) {
+                    // The opponent's Back, launcher or closed game: a line from
+                    // the dressing room.
+                    const std::string gone[]={
+                        texts::T("menus.set_end.gone_tears",{{"name",opponent}}),
+                        texts::T("menus.set_end.gone_crying",{{"name",opponent}}),
+                        texts::T("menus.set_end.gone_home",{{"name",opponent}}),
+                        texts::T("menus.set_end.gone_lineup",{{"name",opponent}}),
+                        texts::T("menus.set_end.gone_kritters",{{"name",opponent}})};
+                    if(hostOverlay)
+                        hostOverlay->ShowMessage(end->how==How::Left
+                            ? texts::T("menus.set_end.you_left_title",{{"name",opponent}})
+                            : gone[std::uint64_t(end->match)%std::size(gone)],now);
+                } else if(end->how!=How::Over && end->how!=How::Forfeited && end->how!=How::OpponentForfeited
+                          && !end->can_play_again) {
                     if(hostOverlay)
                         hostOverlay->ShowMessage(texts::T("menus.messages.set_stopped",{{"name",opponent}}),now);
                 } else afterSet=std::move(end);
@@ -2150,6 +2163,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             bool random=false;  // a search for a random opponent asks the player
             bool hasScore=false;
             int won=0, lost=0, games=0;
+            // Whose turn the set is, or its rematch would be: 1 the player's,
+            // 0 the opponent's, -1 not said; `pick`: the first answer picks the
+            // stadium (a rematch that is the player's turn), `stadium` so far.
+            int turn=-1;
+            bool pick=false;
+            std::string stadium;
         } cardPrompt;
         // Counts the prompts asked: the menus get a new one only when it changes.
         int cardPromptVersion=0;
@@ -2176,6 +2195,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 match=afterSet->match;
             }
             if(kind!=cardKind || match!=cardMatch) {
+                // The stadium the player was picking for the rematch, which
+                // the opponent's rematch (their invitation) takes over.
+                const std::string picking=cardKind==CardKind::AfterSet && cardPrompt.pick ? cardPrompt.stadium
+                    : std::string();
                 cardKind=kind;
                 cardMatch=match;
                 cardPrompt=CardPrompt{};
@@ -2188,6 +2211,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     cardPrompt.avatar=invitation->avatar;
                     cardPrompt.mii=invitation->mii;
                     cardPrompt.rules=invitation->rules;
+                    cardPrompt.turn=invitation->turn;
+                    cardPrompt.pick=invitation->rematch && invitation->turn==1;
+                    cardPrompt.stadium=cardPrompt.pick && !picking.empty() ? picking : invitation->stadium;
                     mscharged::platform::SessionLogLine("Competitive: "+invitation->from
                         +(invitation->rematch ? " wants a rematch" : " challenges you")
                         +" (match "+std::to_string(match)+")");
@@ -2198,6 +2224,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     const std::string opponent=end.opponent.empty()
                         ? std::string(texts::T("menus.messages.unnamed_opponent")) : end.opponent;
                     namespace texts=mscharged::texts;
+                    // A set with a result: its rematch is the other player's turn.
+                    if(end.how==How::Over || end.how==How::Forfeited || end.how==How::OpponentForfeited) {
+                        cardPrompt.turn=end.rematch_turn;
+                        cardPrompt.pick=end.rematch_turn==1;
+                        cardPrompt.stadium=end.stadium;
+                    }
                     if(end.how==How::Over) {
                         cardPrompt.kind=CardPrompt::Kind::SetOver;
                     } else if(end.how==How::Forfeited || end.how==How::OpponentForfeited) {
@@ -2211,37 +2243,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                             : texts::T("menus.set_end.opponent_forfeited_reason",{{"name",opponent}});
                         cardPrompt.primary=texts::T("menus.set_end.rematch");
                         cardPrompt.note=texts::T("menus.set_end.rematch_note",{{"name",opponent}});
-                    } else if(end.how==How::OpponentLeft || end.how==How::OpponentGone) {
-                        // The opponent's Back, launcher or closed game: a
-                        // line from the dressing room, the same for a set.
-                        const std::string gone[]={
-                            texts::T("menus.set_end.gone_tears",{{"name",opponent}}),
-                            texts::T("menus.set_end.gone_crying",{{"name",opponent}}),
-                            texts::T("menus.set_end.gone_home",{{"name",opponent}}),
-                            texts::T("menus.set_end.gone_lineup",{{"name",opponent}}),
-                            texts::T("menus.set_end.gone_kritters",{{"name",opponent}})};
-                        cardPrompt.kind=CardPrompt::Kind::SetStopped;
-                        cardPrompt.title=gone[std::uint64_t(end.match)%std::size(gone)];
-                        cardPrompt.reason=end.how==How::OpponentGone
-                            ? texts::T("menus.set_end.opponent_closed_reason",{{"name",opponent}})
-                            : texts::T("menus.set_end.opponent_left_reason",{{"name",opponent}});
-                        cardPrompt.primary=texts::T("menus.set_end.rematch");
-                        cardPrompt.note=texts::T("menus.set_end.rematch_note",{{"name",opponent}});
                     } else {
+                        // A set that stopped before its games met and that the
+                        // server keeps: it waits, and Not now calls it off.
                         cardPrompt.kind=CardPrompt::Kind::SetStopped;
-                        cardPrompt.title=end.how==How::Left
-                            ? texts::T("menus.set_end.you_left_title",{{"name",opponent}})
-                            : texts::T("menus.set_end.stopped_title",{{"name",opponent}});
+                        cardPrompt.title=texts::T("menus.set_end.stopped_title",{{"name",opponent}});
                         cardPrompt.reason=end.how==How::Failed ? std::string(texts::T("menus.set_end.failed_reason"))
-                            : end.how==How::Left ? texts::T("menus.set_end.you_left_reason",{{"name",opponent}})
                             : texts::T("menus.set_end.not_ready_reason",{{"name",opponent}});
-                        // Left: the set is called off, so it goes again as a
-                        // rematch; else it waits, and Not now calls it off.
-                        const bool left=end.how==How::Left;
-                        cardPrompt.primary=left ? texts::T("menus.set_end.rematch")
-                            : texts::T("menus.set_end.play_again");
-                        cardPrompt.note=left ? texts::T("menus.set_end.rematch_note",{{"name",opponent}})
-                            : texts::T("menus.set_end.play_again_call_off_note",{{"name",opponent}});
+                        cardPrompt.primary=texts::T("menus.set_end.play_again");
+                        cardPrompt.note=texts::T("menus.set_end.play_again_call_off_note",{{"name",opponent}});
                     }
                     cardPrompt.opponent=opponent;
                     cardPrompt.avatar=end.opponent_avatar;
@@ -2259,21 +2269,20 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             const bool accept=cardPrompt.answer==1 && !onlineLocked();
             cardPrompt.answer=0;
             if(kind==CardKind::Challenge) {
-                competitive->Answer(cardMatch,accept);
+                competitive->Answer(cardMatch,accept,cardPrompt.pick ? cardPrompt.stadium : std::string());
                 hostOverlay->ShowMessage(accept ? texts::T("menus.messages.challenge_accepted")
                     : texts::T("menus.messages.challenge_declined"),now);
                 return;
             }
             using How=mscharged::platform::CompetitiveHost::SetEnd::How;
-            // A set that was played or called off goes again as a rematch (a
-            // new challenge); one that only stopped, by Ready to play! again.
+            // A set with a result goes again as a rematch (a new challenge);
+            // one that only stopped, by Ready to play! again.
             const How how=afterSet->how;
-            const bool rematch=how==How::Over || how==How::Left || how==How::OpponentLeft || how==How::OpponentGone
-                || how==How::Forfeited || how==How::OpponentForfeited;
+            const bool rematch=how==How::Over || how==How::Forfeited || how==How::OpponentForfeited;
             const std::string opponent=afterSet->opponent.empty()
                 ? std::string(texts::T("menus.messages.unnamed_opponent")) : afterSet->opponent;
             if(accept) {
-                competitive->PlayAgain(cardMatch,rematch);
+                competitive->PlayAgain(cardMatch,rematch,cardPrompt.pick ? cardPrompt.stadium : std::string());
                 hostOverlay->ShowMessage(rematch ? texts::T("menus.messages.rematch_asked",{{"name",opponent}})
                     : texts::T("menus.messages.ready_again",{{"name",opponent}}),now);
             } else if(how==How::CalledOff || how==How::Failed) {
@@ -3038,8 +3047,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             }
             if(competitive) {
                 // An accept starts the set in this game; a rematch asks the opponent.
-                if((online.accept && !locked) || online.decline) competitive->Answer(set,online.accept && !locked);
-                if(online.rematch && !locked) competitive->PlayAgain(set,true);
+                if((online.accept && !locked) || online.decline)
+                    competitive->Answer(set,online.accept && !locked,online.accept ? online.stadium : std::string());
+                if(online.rematch && !locked) competitive->PlayAgain(set,true,online.stadium);
             }
             if(online.set_challenge_rules) {
                 challengeRules=*online.set_challenge_rules;
@@ -3071,6 +3081,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 prompt.title=rematch ? texts::T("menus.prompt.wants_rematch",{{"name",who}})
                     : texts::T("menus.prompt.challenges_you",{{"name",who}});
                 prompt.detail=cardPrompt.rules;
+                // Who picked the stadium and drafts first, or that the player picks it now.
+                prompt.turn=cardPrompt.pick ? std::string(texts::T("menus.prompt.your_pick"))
+                    : cardPrompt.turn==0 ? texts::T("menus.prompt.their_pick",{{"name",who}}) : std::string();
                 prompt.primary=texts::T("menus.prompt.accept");
                 prompt.secondary=texts::T("menus.prompt.decline");
                 prompt.note=cardPrompt.random ? texts::T("menus.prompt.random_note") : texts::T("menus.prompt.note");
@@ -3099,6 +3112,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     : cardPrompt.note;
                 break;
             }
+            // After a set: whose turn its rematch is.
+            if(cardPrompt.kind==Kind::SetOver || cardPrompt.kind==Kind::SetStopped)
+                prompt.turn=cardPrompt.turn==1 ? std::string(texts::T("menus.set_end.rematch_your_pick"))
+                    : cardPrompt.turn==0 ? texts::T("menus.set_end.rematch_their_pick",{{"name",who}}) : std::string();
+            if(cardPrompt.pick) prompt.stadium=cardPrompt.stadium.empty() ? std::string("random") : cardPrompt.stadium;
             prompt.has_score=cardPrompt.hasScore;
             prompt.won=cardPrompt.won;
             prompt.lost=cardPrompt.lost;
@@ -3111,6 +3129,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 const auto gate=static_cast<Gate>(onlineGateState.load());
                 prompt.primary=prompt.secondary;
                 prompt.secondary.clear();
+                prompt.stadium.clear();
                 prompt.note=ov::UpdateLockNote(gate==Gate::Checking ? Lock::Checking
                     : gate==Gate::Outdated ? Lock::Outdated : Lock::Unchecked);
             }
@@ -3690,6 +3709,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     } else hostMenus->SetPrompt(std::nullopt);
                     shownPromptKey=promptKey;
                 }
+                if(const auto stadium=hostMenus->TakePromptStadium(); stadium && want && cardPrompt.pick)
+                    cardPrompt.stadium=*stadium;
                 if(const auto answer=hostMenus->TakePromptAnswer()) {
                     if(want && !cardPrompt.answer) cardPrompt.answer=*answer;
                     else if(!want) menuSamples.prompt=false;

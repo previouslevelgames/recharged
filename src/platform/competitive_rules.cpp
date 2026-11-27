@@ -160,6 +160,7 @@ std::optional<ChargedCompetitiveRules> ModuleRules(const MatchRules& rules, cons
         return std::nullopt;
     };
     ChargedCompetitiveRules module{};
+    module.first_pick = -1;
     for (const auto& name : rules.tweaks)
     {
         const auto* tweak = RuleTweak(name);
@@ -189,6 +190,12 @@ std::optional<ChargedCompetitiveRules> ModuleRules(const MatchRules& rules, cons
             && profile.profile_id <= 0xFFFFFFFFll)
             module.opponents[module.opponent_count++] = unsigned(profile.profile_id);
     return module;
+}
+
+int FirstPickOf(const ProfileMatch& match)
+{
+    if (match.tournament.id != 0) return -1;
+    return match.first_pick == "you" ? 1 : match.first_pick == "opponent" ? 0 : -1;
 }
 
 std::string NameLabel(std::string_view name)

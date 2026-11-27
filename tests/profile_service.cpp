@@ -1043,6 +1043,58 @@ void Tournaments()
     CHECK(ParseJson(kSet)["tournament"].IsNull());
 }
 
+// A set's turn (servers from 1.3.3): who drafts first and picked the
+// stadium, for the module; a rematch or its accept by the player whose turn
+// it is sends their stadium.
+void Turns()
+{
+    ProfileMatch match;
+    CHECK(FirstPickOf(match) == -1);
+    match.first_pick = "you";
+    CHECK(FirstPickOf(match) == 1);
+    match.first_pick = "opponent";
+    CHECK(FirstPickOf(match) == 0);
+    // A tournament's set: its bracket gives the side.
+    match.tournament.id = 4;
+    CHECK(FirstPickOf(match) == -1);
+    MatchRules rules;
+    rules.skill = "rookie";
+    rules.limit = "time";
+    rules.time = 180;
+    rules.goals = 5;
+    rules.games = 3;
+    rules.stadium = "random";
+    const auto module = ModuleRules(rules, ProfilePlayer{});
+    CHECK(module && module->first_pick == -1);
+#ifndef _WIN32
+    if (!HttpUnavailable().empty()) return;
+    const std::string rematch = R"({"id":13,"state":"challenged","side":"challenger","opponent":{"id":8,)"
+                                R"("name":"Bowser"},"rule_set":"Competitive","rules":{"tweaks":[],"skill":"rookie",)"
+                                R"("limit":"time","time":180,"goals":5,"games":3,"stadium":"the_palace"},)"
+                                R"("rules_hash":"h","stage":"invited","rematch_of":12,"first_pick":"you"})";
+    const std::vector<Exchange> exchanges{
+        {"POST /api/v1/matches/12/rematch", 200, rematch},
+        {"POST /api/v1/matches/14/accept", 200, rematch},
+        {"POST /api/v1/matches/15/rematch", 200, rematch},
+    };
+    std::vector<Sent> sent;
+    {
+        Server server(exchanges, sent);
+        ProfileService api(server.Url());
+        const auto asked = api.Rematch(12, "the_palace");
+        CHECK(asked.first_pick == "you" && asked.rematch_of == 12 && asked.rules.stadium == "the_palace");
+        CHECK(FirstPickOf(asked) == 1);
+        api.Accept(14, "random");
+        // Not the player's turn: the ended set's stadium stays.
+        api.Rematch(15);
+    }
+    CHECK(sent.size() == 3);
+    if (sent.size() == 3)
+        CHECK(sent[0].body == R"({"stadium":"the_palace"})" && sent[1].body == R"({"stadium":"random"})"
+              && sent[2].body == "{}");
+#endif
+}
+
 // The tournament the page shows, and the feed asking for it and acting on it.
 void TournamentFeedRounds()
 {
@@ -1179,6 +1231,7 @@ int main()
     FeedChallengeRules();
     Tournaments();
 #endif
+    Turns();
     TournamentFeedRounds();
     if (failures)
     {

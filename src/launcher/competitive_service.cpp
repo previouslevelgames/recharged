@@ -742,12 +742,12 @@ void CompetitiveService::ReadyToPlay(std::int64_t match_id, bool ready)
     }, true);
 }
 
-void CompetitiveService::Accept(std::int64_t match_id)
+void CompetitiveService::Accept(std::int64_t match_id, const std::string& stadium)
 {
-    Post([this, match_id](ProfileService& api) {
+    Post([this, match_id, stadium](ProfileService& api) {
         const auto current = Snapshot().match;
         if (!current || current->id != match_id) return;
-        const auto match = api.Accept(current->id);
+        const auto match = api.Accept(current->id, stadium);
         Change([&](Status& status) { status.match = match; });
     }, true);
 }

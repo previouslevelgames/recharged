@@ -95,12 +95,18 @@ public:
         How how = How::Over;
         int popup = -1;
         bool can_play_again = false; // the server keeps it open for Ready to play!
+        // A rematch's turn (servers from 1.3.3): 1 the player's, who picks
+        // its stadium (from `stadium`, the set's) and drafts first; 0 the
+        // opponent's; -1 without turns.
+        int rematch_turn = -1;
+        std::string stadium;
     };
     std::optional<SetEnd> TakeSetEnd();
     // After a SetEnd: the same set again. `rematch`: a new set by its rules
-    // (the opponent's game asks its player); otherwise the player's Ready to
+    // (the opponent's game asks its player), on `stadium` when the rematch is
+    // the player's turn (empty: the set's); otherwise the player's Ready to
     // play! again for a set that stopped.
-    void PlayAgain(std::int64_t match, bool rematch);
+    void PlayAgain(std::int64_t match, bool rematch, const std::string& stadium = {});
     // After a SetEnd: the player doesn't play a stopped set again now; the
     // server calls it off, so neither player keeps it.
     void CallOff(std::int64_t match);
@@ -137,11 +143,18 @@ public:
         std::string rules; // the rule set and what it plays by
         bool rematch = false; // the set they played last, again
         bool random = false;  // their search for a random opponent asks this player
+        // The set's turn (servers from 1.3.3): 1 the player's, 0 the
+        // challenger's (who picked the stadium), -1 not said. A rematch that
+        // is the player's turn: their accept picks its stadium, from
+        // `stadium` (the set's).
+        int turn = -1;
+        std::string stadium;
     };
     std::optional<Invitation> PendingInvitation();
     // The card's answer. An accept is also the player's Ready to play!: the
-    // set then goes, and TakeSetStart() starts it in this game.
-    void Answer(std::int64_t match, bool accept);
+    // set then goes, and TakeSetStart() starts it in this game. `stadium`:
+    // the one picked for a rematch that is the player's turn (empty: none).
+    void Answer(std::int64_t match, bool accept, const std::string& stadium = {});
     // On the game's thread: the game plays a match (no cards or reminders).
     bool InMatch();
     // What the host shows in a message (an answer the server did not take),
@@ -195,12 +208,14 @@ private:
     std::optional<Invitation> invitation_;
     std::int64_t answer_match_ = 0, answered_match_ = 0;
     bool answer_accept_ = false;
+    std::string answer_stadium_;
     // A set that went for this game to start (TakeSetStart), the last go
     // started (go_at, or the set's id), and a PlayAgain still to send.
     std::optional<SetStart> set_start_;
     std::int64_t started_go_ = 0;
     std::int64_t again_match_ = 0;
     bool again_rematch_ = false;
+    std::string again_stadium_;
     std::int64_t call_off_match_ = 0; // CallOff still to send
     std::optional<std::string> notice_;
     struct Report
@@ -227,6 +242,9 @@ private:
     std::string set_opponent_;
     std::string set_opponent_avatar_, set_opponent_mii_;
     int set_games_ = 0;
+    // Its turn and stadium (ProfileMatch::first_pick, MatchRules::stadium),
+    // for the rematch's.
+    std::string set_first_pick_, set_stadium_;
     std::chrono::steady_clock::time_point set_done_{};
 
     // The game's thread only.

@@ -118,6 +118,10 @@ struct OnlinePanelSet
     int won = 0, lost = 0, games = 0;
     // What the player can do now (OnlinePanelActions).
     bool can_accept = false, can_decline = false, can_ready = false, can_cancel = false, can_rematch = false;
+    // The accept (of a rematch) or the rematch is the player's turn: they
+    // pick its stadium, from `stadium` (the set's), and draft first.
+    bool you_pick = false;
+    std::string stadium;
     // A tournament set's: it goes on from the trophy room (the card's
     // TOURNAMENT goes there, to the player's tournament).
     bool trophy_room = false;

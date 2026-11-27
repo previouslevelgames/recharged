@@ -223,6 +223,7 @@ ProfileMatch ParseMatch(const JsonValue& value)
     match.go_at = value["go_at"].Integer().value_or(0);
     match.playing_at = value["playing_at"].Integer().value_or(0);
     match.rematch_of = value["rematch_of"].Integer().value_or(0);
+    match.first_pick = value["first_pick"].Text();
     match.random = value["random"].Bool();
     match.forfeited_by = value["forfeited_by"].Text();
     if (const auto& tournament = value["tournament"]; tournament.IsObject())
@@ -1151,16 +1152,28 @@ ProfileMatch ProfileService::ReadyToPlay(std::int64_t match, bool ready)
     return ParseMatch(Call("POST", "/api/v1/matches/" + Integer(match) + "/ready-to-play", &body).body);
 }
 
-ProfileMatch ProfileService::Rematch(std::int64_t match)
+namespace
 {
-    const std::string empty = "{}";
-    return ParseMatch(Call("POST", "/api/v1/matches/" + Integer(match) + "/rematch", &empty).body);
+// A rematch's body, or its accept's: the stadium the player picked, if any.
+std::string StadiumPick(const std::string& stadium)
+{
+    if (stadium.empty()) return "{}";
+    std::string body = "{\"stadium\":";
+    AppendJsonString(body, stadium);
+    return body + "}";
+}
+} // namespace
+
+ProfileMatch ProfileService::Rematch(std::int64_t match, const std::string& stadium)
+{
+    const std::string body = StadiumPick(stadium);
+    return ParseMatch(Call("POST", "/api/v1/matches/" + Integer(match) + "/rematch", &body).body);
 }
 
-ProfileMatch ProfileService::Accept(std::int64_t match)
+ProfileMatch ProfileService::Accept(std::int64_t match, const std::string& stadium)
 {
-    const std::string empty = "{}";
-    return ParseMatch(Call("POST", "/api/v1/matches/" + Integer(match) + "/accept", &empty).body);
+    const std::string body = StadiumPick(stadium);
+    return ParseMatch(Call("POST", "/api/v1/matches/" + Integer(match) + "/accept", &body).body);
 }
 
 ProfileMatch ProfileService::Decline(std::int64_t match)

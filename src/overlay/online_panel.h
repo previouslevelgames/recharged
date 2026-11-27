@@ -41,6 +41,9 @@ struct OnlinePanelActions
     // The set's (OnlinePanelSet::match): accept or decline its challenge,
     // Ready to play!, withdraw or cancel it, play it again.
     bool accept = false, decline = false, ready = false, cancel = false, rematch = false;
+    // With an accept or a rematch that is the player's turn: the stadium they
+    // picked (empty: none).
+    std::string stadium;
 
     bool Any() const
     {
@@ -61,6 +64,10 @@ struct OnlinePanelState
     // When the search's setup asked for the search (ImGui::GetTime()), until
     // the pages show it running; negative: not waiting for one.
     double search_sent = -100.0;
+    // The stadium the player picks for their set's rematch (OnlinePanelSet::
+    // you_pick), and the set it is for.
+    std::int64_t pick_for = 0;
+    std::string pick_stadium;
 };
 
 // The key of the setup of a search for a random opponent (OnlinePanelState::

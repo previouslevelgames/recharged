@@ -393,6 +393,17 @@ void TestSet()
     CHECK(!model.set.can_accept && model.set.can_decline);
     CHECK(OnlinePanelWaiting(model) == 1); // to decline, or to accept after the match
     context.in_match = false;
+    // A rematch that is the player's turn: their accept picks its stadium.
+    CHECK(!model.set.you_pick);
+    auto rematch = Set("challenged", "challenged", "invited");
+    rematch.rematch_of = 76;
+    rematch.first_pick = "you";
+    rematch.rules.stadium = "the_palace";
+    model = MakeOnlinePanelModel({}, rematch, context);
+    CHECK(model.set.can_accept && model.set.you_pick && model.set.stadium == "the_palace");
+    rematch.first_pick = "opponent";
+    model = MakeOnlinePanelModel({}, rematch, context);
+    CHECK(model.set.can_accept && !model.set.you_pick);
 
     // The player's challenge.
     model = MakeOnlinePanelModel({}, Set("challenged", "challenger", "invited"), context);
@@ -441,10 +452,20 @@ void TestSet()
     model = MakeOnlinePanelModel({}, set, context);
     CHECK(model.set.stage == Stage::Ended && model.set.title == "You won the set" && model.set.tone == Tone::Good);
     CHECK(model.set.won == 2 && model.set.lost == 1 && model.set.can_rematch);
+    // The rematch is the other player's turn: the player picks its stadium
+    // after a set that was the opponent's (none without turns).
+    CHECK(!model.set.you_pick);
+    set.first_pick = "you";
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.can_rematch && !model.set.you_pick);
+    set.first_pick = "opponent";
+    set.rules.stadium = "crater_field";
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.can_rematch && model.set.you_pick && model.set.stadium == "crater_field");
     set.opponent_online = false;
     set.opponent.online = false;
     model = MakeOnlinePanelModel({}, set, context);
-    CHECK(!model.set.can_rematch);
+    CHECK(!model.set.can_rematch && !model.set.you_pick);
     set.state = "disputed";
     model = MakeOnlinePanelModel({}, set, context);
     CHECK(model.set.stage == Stage::Ended && model.set.title == "The results differ" && model.set.tone == Tone::Bad);

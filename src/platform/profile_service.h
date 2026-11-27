@@ -340,6 +340,11 @@ struct ProfileMatch
     bool opponent_online = false; // the opponent has Recharged open
     std::int64_t go_at = 0, playing_at = 0; // unix seconds, 0: not yet
     std::int64_t rematch_of = 0; // the set this one plays again
+    // The set's turn (servers from 1.3.3): "you" or "opponent", the player who
+    // drafts first in its games and picked its stadium (a challenge's
+    // challenger; each rematch the other player than the set before it).
+    // Empty without turns (a tournament's set, an older server).
+    std::string first_pick;
     bool random = false;         // a search sent it (a random opponent, servers 1.2.3 on)
     // A finished set one player gave up: "you" or "opponent"; empty without a
     // forfeit (and from servers before forfeits).
@@ -704,9 +709,12 @@ public:
     int UploadMiis(const std::vector<UploadedMii>& miis);
     // The launcher's Ready to play! (or taking it back).
     ProfileMatch ReadyToPlay(std::int64_t match, bool ready);
-    // The ended set again: the same opponent and rules.
-    ProfileMatch Rematch(std::int64_t match);
-    ProfileMatch Accept(std::int64_t match);
+    // The ended set again: the same opponent and rules. `stadium`: the one
+    // the player picked, when the rematch is their turn (servers from 1.3.3;
+    // empty: the ended set's). The accept of a rematch that is the player's
+    // turn picks it the same way.
+    ProfileMatch Rematch(std::int64_t match, const std::string& stadium = {});
+    ProfileMatch Accept(std::int64_t match, const std::string& stadium = {});
     ProfileMatch Decline(std::int64_t match);
     ProfileMatch Cancel(std::int64_t match);
     // The game's proof that it is logged in to WFC as `profile_id`.

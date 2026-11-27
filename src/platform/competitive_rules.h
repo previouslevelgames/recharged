@@ -23,6 +23,11 @@ struct ChargedCompetitiveRules
     // against one of them.
     unsigned opponents[8];
     int opponent_count;
+    // The set's turn (ProfileMatch::first_pick): 1 this player drafts first,
+    // 0 the opponent, -1 the game's own. The player with the first pick is on
+    // the side that drafts first: at home with Defence priority, away without
+    // it (tweak patches 0079, 0081, 0084).
+    int first_pick;
 };
 
 // The game's WFC login and competitive state, read by the host after a game
@@ -149,12 +154,18 @@ typedef bool (*ChargedConfigureCompetitiveFunction)(const ChargedCompetitiveRule
 namespace mscharged::platform
 {
 struct MatchRules;
+struct ProfileMatch;
 struct ProfilePlayer;
 
 // The module's rules for a match against `opponent`, or nullopt with `error`
-// naming a rule this build does not know (the server is newer).
+// naming a rule this build does not know (the server is newer). Without a
+// turn (first_pick -1).
 std::optional<ChargedCompetitiveRules> ModuleRules(const MatchRules& rules, const ProfilePlayer& opponent,
                                                    std::string* error = nullptr);
+// The set's turn for ChargedCompetitiveRules::first_pick: 1 the player's, 0
+// the opponent's, -1 none (a tournament's set, whose bracket gives the side,
+// or a server before turns).
+int FirstPickOf(const ProfileMatch& match);
 // "3 minutes, best of 3, random stadium, No Mega Strikes, Field Tilt" (the
 // skill only matters against the CPU, so it isn't said).
 std::string DescribeRules(const MatchRules& rules);

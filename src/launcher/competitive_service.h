@@ -151,7 +151,8 @@ public:
     // could not start. These act on the match `match_id` (the one the player
     // saw), and do nothing when another one is current by the time they run.
     void ReadyToPlay(std::int64_t match_id, bool ready);
-    void Accept(std::int64_t match_id);
+    // `stadium`: picked for a rematch that is the player's turn (empty: none).
+    void Accept(std::int64_t match_id, const std::string& stadium = {});
     void Decline(std::int64_t match_id);
     void CancelMatch(std::int64_t match_id);
     // The flag beside the player's name: "auto", "none" or a country's two

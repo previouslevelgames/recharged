@@ -306,6 +306,8 @@ void CompetitiveHost::PlaySet(std::int64_t set)
     {
         std::lock_guard<std::mutex> lock(mutex_);
         set_ = set;
+        set_first_pick_.clear();
+        set_stadium_.clear();
         next_match_ = {};
     }
     Kick();
@@ -322,6 +324,8 @@ std::optional<CompetitiveHost::SetStatus> CompetitiveHost::CurrentSet()
         set_opponent_avatar_ = match_->opponent.avatar_url;
         set_opponent_mii_ = match_->opponent.mii_data;
         set_games_ = match_->rules.games;
+        set_first_pick_ = match_->tournament.id ? std::string() : match_->first_pick;
+        set_stadium_ = match_->rules.stadium;
     }
     if (set_opponent_.empty()) return std::nullopt;
     SetStatus status;
@@ -358,8 +362,13 @@ std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
             set_opponent_avatar_ = match_->opponent.avatar_url;
         set_opponent_mii_ = match_->opponent.mii_data;
             set_games_ = match_->rules.games;
+            set_first_pick_ = match_->tournament.id ? std::string() : match_->first_pick;
+            set_stadium_ = match_->rules.stadium;
         }
         end.match = set_;
+        // The rematch is the other player's turn.
+        end.rematch_turn = set_first_pick_ == "opponent" ? 1 : set_first_pick_ == "you" ? 0 : -1;
+        end.stadium = set_stadium_;
         end.opponent = set_opponent_;
         end.opponent_avatar = set_opponent_avatar_;
         end.opponent_mii = set_opponent_mii_;
@@ -495,12 +504,13 @@ void CompetitiveHost::CallOff(std::int64_t match)
     Kick();
 }
 
-void CompetitiveHost::PlayAgain(std::int64_t match, bool rematch)
+void CompetitiveHost::PlayAgain(std::int64_t match, bool rematch, const std::string& stadium)
 {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         again_match_ = match;
         again_rematch_ = rematch;
+        again_stadium_ = rematch ? stadium : std::string();
     }
     Kick();
 }
@@ -619,14 +629,17 @@ void CompetitiveHost::Work(ProfileService& api)
     // match check below sees it go).
     std::int64_t answer = 0, again = 0;
     bool accept = false, rematch = false;
+    std::string answer_stadium, again_stadium;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         api.SetActivity(activity_, match_kind_, screen_, set_game_);
         answer = answer_match_;
         accept = answer_accept_;
+        answer_stadium = answer_stadium_;
         answer_match_ = 0;
         again = again_match_;
         rematch = again_rematch_;
+        again_stadium = again_stadium_;
         again_match_ = 0;
     }
     // A forfeit goes first: the game waits for it to leave its match.
@@ -698,9 +711,10 @@ void CompetitiveHost::Work(ProfileService& api)
         std::optional<std::string> notice;
         try
         {
-            const auto answered = accept ? api.Accept(answer) : api.Decline(answer);
+            const auto answered = accept ? api.Accept(answer, answer_stadium) : api.Decline(answer);
             Said(std::string(accept ? "accepted" : "declined") + " the challenge of match " + std::to_string(answer)
-                 + " in the game (" + answered.stage + ")");
+                 + " in the game (" + answered.stage
+                 + (answer_stadium.empty() ? std::string() : ", stadium " + answered.rules.stadium) + ")");
         }
         catch (const ProfileError& e)
         {
@@ -721,9 +735,10 @@ void CompetitiveHost::Work(ProfileService& api)
         std::optional<std::string> notice;
         try
         {
-            const auto asked = rematch ? api.Rematch(again) : api.ReadyToPlay(again, true);
+            const auto asked = rematch ? api.Rematch(again, again_stadium) : api.ReadyToPlay(again, true);
             Said((rematch ? "asked for a rematch of match " : "ready again for match ") + std::to_string(again)
-                 + " in the game (match " + std::to_string(asked.id) + ", " + asked.stage + ")");
+                 + " in the game (match " + std::to_string(asked.id) + ", " + asked.stage
+                 + (again_stadium.empty() ? std::string() : ", stadium " + asked.rules.stadium) + ")");
         }
         catch (const ProfileError& e)
         {
@@ -756,11 +771,16 @@ void CompetitiveHost::Work(ProfileService& api)
         // A challenge to this player: the card's, while the game is not a set's.
         std::optional<Invitation> invitation;
         if (current && current->state == "challenged" && current->side == "challenged")
-            invitation = Invitation{current->id, current->opponent.name, current->opponent.avatar_url,
+            invitation = Invitation{current->id,
+                                    current->opponent.name,
+                                    current->opponent.avatar_url,
                                     current->opponent.mii_data,
                                     texts::T("menus.sets.rules", {{"rule_set", current->rule_set},
                                                                   {"rules", DescribeRules(current->rules)}}),
-                                    current->rematch_of != 0, current->random};
+                                    current->rematch_of != 0,
+                                    current->random,
+                                    FirstPickOf(*current),
+                                    current->rules.stadium};
         // This game's set as the server ended it (the opponent called it off,
         // or closed Recharged), before the match it no longer is goes.
         std::string set_ended;
@@ -774,7 +794,8 @@ void CompetitiveHost::Work(ProfileService& api)
         {
             std::string error;
             rules = ModuleRules(current->rules, current->opponent, &error);
-            if (!rules) Said(error);
+            if (rules) rules->first_pick = FirstPickOf(*current);
+            else Said(error);
         }
         std::unique_lock<std::mutex> lock(mutex_);
         invitation_ = set_ ? std::nullopt : invitation;
@@ -999,12 +1020,13 @@ std::optional<CompetitiveHost::Invitation> CompetitiveHost::PendingInvitation()
     return invitation_;
 }
 
-void CompetitiveHost::Answer(std::int64_t match, bool accept)
+void CompetitiveHost::Answer(std::int64_t match, bool accept, const std::string& stadium)
 {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         answer_match_ = answered_match_ = match;
         answer_accept_ = accept;
+        answer_stadium_ = accept ? stadium : std::string();
     }
     Kick();
 }

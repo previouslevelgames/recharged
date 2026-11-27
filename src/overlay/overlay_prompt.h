@@ -23,6 +23,13 @@ struct OverlayPrompt
     };
     Kind kind = Kind::SetOver;
     std::string kicker, title, detail; // "SET OVER", "You won the set", the rules or why it stopped
+    // Whose turn the set is or its rematch would be ("Mario picked the
+    // stadium and drafts first"), a line under the detail; empty: none.
+    std::string turn;
+    // Its first answer picks the stadium (a rematch that is the player's
+    // turn): a row to choose it under that button, on this key ("random" or
+    // a stadium's, as the rules have it); empty: no row.
+    std::string stadium;
     OnlinePanelRow opponent; // name, image key, initials, tint as in the rows; status optional
     // The series as this game counted it (best of `games`).
     bool has_score = false;

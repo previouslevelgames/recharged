@@ -26,14 +26,17 @@ works as on the Wii, with friend codes, ranked matches and rankings.
    launcher starts one, a game that already runs goes on without closing. No
    intro, no menus, no friend codes to trade, no searching. You pick your
    captain and sidekicks in the game's own draft, just like on the Wii; the
-   draft shows you both by your full Recharged names. In a tournament the
-   player at home drafts first, or the player away when the set has no
-   defence priority.
+   draft shows you both by your full Recharged names. In a challenge the
+   challenger drafts first (they picked the stadium); in a tournament the
+   player at home, or the player away when the set has no defence priority.
 5. You play the series under the set's rules, for example best of 3, three
    minutes per game, no Mega Strikes.
 6. The game stays open after the series and shows the result. Ask for a
    rematch there, and the next set goes on in the same game, or move on to
-   your next set.
+   your next set. Each rematch is the other player's turn: they pick the
+   stadium and draft first, and the side changes with it. A set that ended
+   without a result (a player left, or the games didn't meet) has no rematch:
+   challenge them again.
 
 A *set* is your series of games against one opponent. While you wait or play,
 your Discord status shows it: waiting for an opponent, or in a set against Bob

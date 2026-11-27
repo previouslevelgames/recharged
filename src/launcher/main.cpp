@@ -5789,9 +5789,40 @@ private:
                            match.rule_set.empty() ? texts::T("launcher.challenge.a_set") : match.rule_set.c_str());
         ImGui::Dummy({0, Dp(2)});
         TextWrappedColored(fonts.caption, color::muted, (platform::DescribeRules(match.rules) + ".").c_str());
+        // Whose turn the set is: a rematch that is the player's picks its
+        // stadium here (the ended set's to start with).
+        const bool pick = asked && rematch && match.first_pick == "you" && match.tournament.id == 0;
+        if (pick || (asked && match.first_pick == "opponent"))
+        {
+            ImGui::Dummy({0, Dp(2)});
+            TextWrappedColored(fonts.caption, color::muted,
+                               pick ? std::string(texts::T("launcher.challenge.your_pick")).c_str()
+                                    : texts::T("launcher.challenge.their_pick", {{"name", them}}).c_str());
+        }
+        if (pick && challenge_stadium_for_ != match.id)
+        {
+            challenge_stadium_for_ = match.id;
+            challenge_stadium_ = match.rules.stadium;
+        }
         ImGui::EndGroup();
         ImGui::SetCursorScreenPos({top.x, std::max(top.y + disc + Dp(4), ImGui::GetItemRectMax().y)});
         ImGui::Dummy({0, Dp(18)});
+        if (pick && view == ChallengeView::Invite)
+        {
+            const auto& stadiums = platform::StadiumChoices();
+            std::vector<const char*> names;
+            int chosen = 0;
+            for (std::size_t n = 0; n < stadiums.size(); ++n)
+            {
+                names.push_back(stadiums[n].label);
+                if (challenge_stadium_ == stadiums[n].key) chosen = int(n);
+            }
+            TextColored(fonts.body, color::text, texts::T("match_setup.preset_editor.stadium"));
+            ImGui::Dummy({0, Dp(4)});
+            CheatCombo("##rematch_stadium", chosen, names);
+            challenge_stadium_ = stadiums[std::size_t(chosen)].key;
+            ImGui::Dummy({0, Dp(18)});
+        }
 
         // What happens, or what holds it up.
         const bool blocked = !set_blocker_.empty();
@@ -5862,7 +5893,7 @@ private:
                     challenge_accepted_ = match.id;
                     challenge_errors_ = status.error_serial;
                     set_start_error_.clear();
-                    competitive_->Accept(match.id);
+                    competitive_->Accept(match.id, pick ? challenge_stadium_ : std::string());
                 }
                 focus();
             }
@@ -14120,6 +14151,9 @@ private:
     // the one accepted here and the last failure before its Accept, and why
     // the set's game could not start.
     std::int64_t challenge_declined_ = 0, challenge_accepted_ = 0;
+    // The stadium the player picks for a rematch that is their turn, and its set.
+    std::int64_t challenge_stadium_for_ = 0;
+    std::string challenge_stadium_;
     std::uint64_t challenge_errors_ = 0;
     std::string set_start_error_;
     std::optional<platform::AlertSound> alert_sound_;

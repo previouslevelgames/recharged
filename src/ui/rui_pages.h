@@ -168,6 +168,7 @@ struct PageActions
     overlay::OnlinePanelActions online;
     overlay::RankedActions ranked;
     int answer = 0;    // the prompt: 1 its first button, 2 its second
+    std::optional<std::string> prompt_stadium; // the prompt's stadium row stepped: its new key
     bool forfeit = false; // the online match is left
     bool close = false; // the Recharged menu closes
     bool back = false;  // back a page (CANCEL)

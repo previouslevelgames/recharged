@@ -653,14 +653,21 @@ level is only for the CPU).
    press **Ready to play!** again.
 4. After the series both games report the result and stay in the online menu,
    with a card: **Rematch** challenges your opponent again by the same rules,
-   and once they accept, the next set goes on into RANKED. A set that stopped
+   and once they accept, the next set goes on into RANKED. The rematch is the
+   other player's turn: whoever drafted second in the set picks the stadium
+   on the card (or in the launcher's dialog) with their **Rematch** or
+   **Accept**, and drafts first; the side changes with the first pick (at
+   home with defence priority, away without it). A new challenge is its
+   challenger's turn (they set up the stadium). A forfeited set has a rematch
+   too. A set that stopped
    (a message in the game, or the games didn't meet) offers **Play it again**,
    your Ready to play! for it. **Not now** (B) leaves it; closing a set's game
    opens the launcher again. When one player leaves the set (**Back** in the
    search, **Not ready**, or closing the game), it is called off for both: the
    other game hears it within seconds, leaves the search and the online menus
-   for the main menu, nobody else is met, and its card tells who left, with
-   **Rematch** to ask them again. Both can challenge someone else at once.
+   for the main menu, nobody else is met, and a message tells who left: such a
+   set has no rematch, challenge them again. Both can challenge someone else
+   at once.
    A game broken off during the match (a game closed or lost its connection)
    counts at its score then once a third of it was played and a goal was
    scored: a third of its clock, or for a goal limit a third of the goals by

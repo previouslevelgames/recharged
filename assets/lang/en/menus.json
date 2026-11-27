@@ -423,7 +423,9 @@
     "accept": "Accept",
     "decline": "Decline",
     "note": "Accept, and your game goes straight to the set.",
-    "random_note": "They searched for an opponent by these rules. Accept, and your game goes straight to the set."
+    "random_note": "They searched for an opponent by these rules. Accept, and your game goes straight to the set.",
+    "your_pick": "Your turn: you pick the stadium and draft first.",
+    "their_pick": "{{name}} picked the stadium and drafts first."
   },
   "set_end": {
     "over_kicker": "SET OVER",
@@ -431,6 +433,8 @@
     "lost": "You lost the set",
     "draw": "A draw",
     "rematch_asks_note": "A rematch asks {{name}} to play the same set again.",
+    "rematch_your_pick": "Rematch: your turn to pick the stadium and draft first.",
+    "rematch_their_pick": "Rematch: {{name}}'s turn to pick the stadium and draft first.",
     "not_now": "Not now",
     "stopped_kicker": "SET STOPPED",
     "stopped": "The set stopped",
@@ -446,12 +450,9 @@
     "gone_home": "{{name}} took the ball and went home…",
     "gone_lineup": "{{name}} saw your lineup and fled the pitch…",
     "gone_kritters": "{{name}} heard the Kritters were coming and ran…",
-    "opponent_closed_reason": "{{name}}'s game closed before your games met, so the set stopped.",
-    "opponent_left_reason": "{{name}} left before your games met, so the set stopped.",
     "you_left_title": "You left the set against {{name}}",
     "stopped_title": "The set against {{name}} stopped",
     "failed_reason": "A message in the game ended it.",
-    "you_left_reason": "You left the search; {{name}}'s game was told.",
     "not_ready_reason": "{{name}} isn't ready any more, or your games didn't meet in time.",
     "rematch": "Rematch",
     "rematch_note": "The same set again: {{name}} gets the challenge.",
@@ -459,6 +460,7 @@
   },
   "sets": {
     "rules": "{{rule_set}}: {{rules}}",
+    "your_pick": "Your turn: you pick the stadium and draft first.",
     "challenges_you": "{{name}} challenges you",
     "answer_later": "Answer once your match ends.",
     "accept_to_start": "Accept, and the set starts.",
