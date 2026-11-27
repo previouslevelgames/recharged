@@ -437,7 +437,7 @@ void Requests()
         CHECK(lists.recent.size() == 1 && lists.recent[0].id == 8 && lists.recent[0].online && !lists.recent[0].busy
               && lists.recent[0].activity == "match" && lists.recent[0].match_kind == "cpu"
               && lists.recent[0].last_online == 1793000000 && !lists.recent[0].is_friend);
-        // Nobody else is named, only counted; Do not disturb as the player sees it (servers from 1.3.4).
+        // Nobody else is named, only counted; Do not disturb as the player sees it (servers from 1.3.3).
         CHECK(lists.available_count == 3 && lists.recent[0].do_not_disturb && !lists.friends[0].do_not_disturb);
         CHECK(lists.friends.size() == 1 && lists.friends[0].id == 9 && lists.friends[0].is_friend
               && !lists.friends[0].online && lists.friends[0].activity.empty() && !lists.friends[0].last_online);
@@ -876,7 +876,7 @@ void FeedChallengeRules()
     std::filesystem::remove_all(folder);
     const auto session = ProfileSessionFile(folder, "feed.ini");
     const std::string me = R"({"id":7,"name":"Nelly","discord":"nelly"})";
-    // A server before 1.3.4: who is available comes as a list, counted.
+    // A server before 1.3.3: who is available comes as a list, counted.
     const std::string lists = R"({"online":[],"recent":[],"friends":[],"available":[{"id":5},{"id":6}]})";
     const std::string none = R"({"match":null})";
     const std::vector<Exchange> exchanges{
