@@ -855,7 +855,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 }
             }
         }
-        // The sound's volume, off while a live replay catches up in turbo
+        // The sound's volume, off while a replay plays faster than real time
         // (replaySoundHeld): its sound would only rush along.
         bool replaySoundHeld=false;
         auto applyVolume=[&] {
@@ -3401,12 +3401,17 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             ChargedReplayStatus status{};
             if(!replayStatus(&status,sizeof status))return;
             const auto now=std::chrono::steady_clock::now();
-            const bool catchingUp=status.live && status.behind>50;
-            // Catching up in turbo: the sound off, and the hint counts down
-            // how far behind the match it still is.
+            // Live, more than a second behind the stream: catching up (twice
+            // as fast, or turbo), until back within its usual half second.
+            const bool catchingUp=status.live && (status.behind>50 || (liveCatchingUp && status.behind>30));
+            // The sound is off while the replay plays faster than real time:
+            // catching up (from before its first step when the spectator came
+            // late), or at the viewer's 2x or 4x. In turbo the hint counts
+            // down how far behind the match it still is.
             const bool turbo=status.live && status.turbo;
-            if(turbo!=replaySoundHeld) {
-                replaySoundHeld=turbo;
+            const bool fast=!status.finished && (status.speed>0 || turbo || catchingUp);
+            if(fast!=replaySoundHeld) {
+                replaySoundHeld=fast;
                 applyVolume();
             }
             if(!turbo) liveCatchUp={};

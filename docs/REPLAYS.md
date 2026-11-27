@@ -57,7 +57,8 @@ The game goes straight into the match, without the menus. While it plays:
 | **Left** | D-pad left | Slower again; at normal speed it pauses the replay |
 
 The speed shows in the corner for a few seconds as the match begins and after
-each change; while the replay is paused it stays, and **Right** goes on. When the replay ends, *Replay finished* appears and the game
+each change; while the replay is paused it stays, and **Right** goes on. The
+sound is off while it plays faster than normal. When the replay ends, *Replay finished* appears and the game
 closes a few seconds later; close the window to stop sooner. A replay started
 from a file does not open the launcher again.
 
@@ -65,10 +66,12 @@ A replay never reads or writes your save. A Cup match plays back as a
 single match, so watching it does not change your Cup.
 
 A match watched live (the online server's **Watch** link) plays a moment
-behind the players. If it is more than a few seconds behind, for example when
-you join a match that is already under way, it catches up as fast as your
-computer can: the sound is off, cutscenes that can be skipped are skipped,
-and the corner shows how far behind it still is and about when it is live.
+behind the players. When it is more than a second behind, it plays faster
+until it is live again, with the sound off. If it is more than a few seconds
+behind, for example when you join a match that is already under way, it
+catches up as fast as your computer can: cutscenes that can be skipped are
+skipped, and the corner shows how far behind it still is and about when it
+is live.
 
 Cutscenes play as the players saw them: a part of one a player skipped
 (a goal's celebration, its replay) is skipped in the replay too, at the same
