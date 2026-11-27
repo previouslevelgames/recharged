@@ -41,6 +41,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -100,12 +101,32 @@ constexpr std::size_t kLiveRingBytes = 1u << 18;
 // A live replay plays a moment behind the stream: the stream comes in bursts
 // (the players' games send every 100 ms), so after it ran out it waits until
 // kLiveBufferSteps have arrived (it never reads a step that has not arrived
-// whole); with more ahead it plays faster until it has caught up, up to
-// kLiveMostSteps a step.
+// whole); with more ahead it plays faster until it has caught up: twice as
+// fast from kLiveFastFrom on, and from kTurboFrom on (a spectator who came
+// late, or a stream that stood still) as fast as this computer can (turbo),
+// until it is less than kTurboUntil behind.
 constexpr int kLiveBufferSteps = 15; // 0.3 s
 constexpr int kLiveFastFrom = 25;    // 0.5 s behind: twice as fast
-constexpr int kLiveFasterFrom = 250; // 5 s: four times, as fast as a replay plays
-constexpr int kLiveMostSteps = 4;
+constexpr int kTurboFrom = 250;      // 5 s: turbo
+constexpr int kTurboUntil = 50;      // 1 s: twice as fast again
+// Turbo: a fixed update's tick takes steps until they have taken their share
+// of the time, kTurboShare, measured as they run: three times what the rest
+// (the picture, the program) took since the last step, so a slower computer
+// takes fewer and still draws, and a tick that follows another at once (the
+// update catching up with its clock after a slow frame) takes one step, as a
+// match does; at most kTurboMostBurst in one tick. It leaves kLiveFastFrom
+// steps ahead.
+constexpr double kTurboShare = 0.75;
+constexpr double kTurboMostBurst = 0.1; // seconds
+constexpr int kTurboMostSteps = 4000;   // in one tick (80 s of a match)
+// Meanwhile the parts of cutscenes a player may skip are skipped, and the
+// wipes before and after them (the match stands still) run this many times
+// faster.
+constexpr float kTurboWipeSpeed = 8.0f;
+// The whole steps of a live stream are counted as they arrive, at most this
+// many at a look (a spectator who came late has them counted in a few).
+constexpr int kMostCounted = 8192;
+using SteadyClock = std::chrono::steady_clock;
 
 // [replays] record (the host, before original main).
 bool sRecordEnabled = true;
@@ -166,6 +187,24 @@ std::uint32_t sProgressStep = 0;
 int sStalledFrames = 0;
 // The steps the replay has waited for this computer's loading (StillLoading).
 int sLoadWait = 0;
+// Live: a reader of its own at the end of the whole steps that have arrived
+// (its Step() counts them), and whether the replay catches up in turbo.
+StreamReader sArrived;
+bool sTurbo = false;
+// Turbo: the time its steps may still take (seconds, below 0 after a long
+// step), when its last step ended (or its tick began), and whether a tick of
+// it runs; its start and how far the replay had read then.
+double sTurboTime = 0.0;
+SteadyClock::time_point sStepEnded{};
+bool sTurboTick = false;
+SteadyClock::time_point sTurboBegan{};
+std::uint32_t sTurboFromStep = 0;
+// For its log: the time its steps took, how many, and the ticks it waited
+// for this computer's loading.
+double sTurboStepSeconds = 0.0;
+double sTurboStillSeconds = 0.0; // between its ticks for longer than a frame: cutscenes, loading
+std::uint32_t sTurboSteps = 0;
+std::uint32_t sTurboHeldTicks = 0;
 
 // Cutscenes (tweak patch 0072): the part of one a player may skip now (-1
 // none), how long it has played, whether the test or the replay pressed in it,
@@ -296,11 +335,85 @@ void LiveStep()
     sLiveSent = steps.size();
 }
 
+double Seconds(SteadyClock::duration duration)
+{
+    return std::chrono::duration<double>(duration).count();
+}
+
+// Live: the steps that have arrived whole since the last look, counted, and
+// how many of them are ahead of the game's.
+int LiveAhead()
+{
+    const std::size_t size = sLiveSize.load(std::memory_order_acquire);
+    sReader.Grow(size);
+    sArrived.Grow(size);
+    sArrived.SkipWholeSteps(kMostCounted);
+    const std::uint32_t read = sReader.Step();
+    const int ahead = sArrived.Step() > read ? int(std::min(sArrived.Step() - read, std::uint32_t(1) << 30)) : 0;
+    sStatus.behind = unsigned(ahead);
+    return ahead;
+}
+
+// Turbo begins, or ends (caught up, or paused).
+void SetTurbo(bool on, bool paused = false)
+{
+    if (on == sTurbo) return;
+    sTurbo = on;
+    sStatus.turbo = on ? 1 : 0;
+    sTurboTime = 0.0;
+    sStepEnded = {};
+    sTurboTick = false;
+    const SteadyClock::time_point now = SteadyClock::now();
+    char line[256];
+    if (on)
+    {
+        sTurboBegan = now;
+        sTurboFromStep = sReader.Step();
+        sTurboStepSeconds = sTurboStillSeconds = 0.0;
+        sTurboSteps = sTurboHeldTicks = 0;
+        std::snprintf(line, sizeof line, "catching up with the live match as fast as this computer can, %.1f s behind",
+                      double(sStatus.behind) / 50.0);
+    }
+    else if (paused)
+        std::snprintf(line, sizeof line, "paused while catching up, %.1f s behind", double(sStatus.behind) / 50.0);
+    else
+    {
+        const double took = Seconds(now - sTurboBegan);
+        const double played = double(sReader.Step() - sTurboFromStep) / 50.0;
+        std::snprintf(line, sizeof line,
+                      "caught up: %.1f s of the match in %.1f s (%.1f times as fast), %.1f s behind; %u fast steps took "
+                      "%.1f s (%.2f ms each), %.1f s without steps (cutscenes, %.1f s of it loading)",
+                      played, took, took > 0.0 ? played / took : 0.0, double(sStatus.behind) / 50.0, sTurboSteps,
+                      sTurboStepSeconds, sTurboSteps ? 1000.0 * sTurboStepSeconds / sTurboSteps : 0.0,
+                      sTurboStillSeconds, 0.02 * sTurboHeldTicks);
+    }
+    Log(line);
+}
+
+// A tick of turbo: its share of the time the rest took since the last step,
+// and the steps it may take; mscharged_tweak_replay_tick_over ends it once
+// they took that share.
+int TurboTick(int ahead)
+{
+    const SteadyClock::time_point now = SteadyClock::now();
+    if (sStepEnded != SteadyClock::time_point{})
+    {
+        const double rest = Seconds(now - sStepEnded);
+        sTurboTime = std::min(sTurboTime + kTurboShare / (1.0 - kTurboShare) * rest, kTurboMostBurst);
+        if (rest > 0.1) sTurboStillSeconds += rest;
+    }
+    sStepEnded = now;
+    sTurboTick = true;
+    return std::clamp(ahead - kLiveFastFrom, 1, kTurboMostSteps);
+}
+
 // The replay ends: at its end, or once its last step played.
 void FinishPlaying()
 {
     if (sFinishedPlaying) return;
     sFinishedPlaying = true;
+    sTurbo = sTurboTick = false;
+    sStatus.turbo = 0;
     char line[200];
     std::snprintf(line, sizeof line, "played %u steps, %u of %u checksums matched%s%s", sReader.Step(),
                   sStatus.checked - sStatus.differences, sStatus.checked, sStatus.error[0] ? ": " : "",
@@ -651,6 +764,7 @@ bool mscharged_tweak_replay_read_packet(int machine, unsigned int checksum, unsi
 
 int mscharged_tweak_replay_extra_updates(void)
 {
+    sTurboTick = false;
     // The speed the host asked for, from this step on.
     const int speed = sSpeed.load(std::memory_order_relaxed);
     const int extra = kExtraSteps[(speed < -1 ? -1 : speed > 2 ? 2 : speed) + 1];
@@ -659,25 +773,61 @@ int mscharged_tweak_replay_extra_updates(void)
     else if (sLoadWait < kMostLoadWait)
     {
         ++sLoadWait;
+        if (sTurbo) ++sTurboHeldTicks;
         return -1;
     }
     if (!sLiveReplay) return extra;
     // Live: the steps that have arrived whole set the pace.
     const bool complete = sLiveComplete.load(std::memory_order_acquire);
-    sReader.Grow(sLiveSize.load(std::memory_order_acquire));
-    const int ahead = sReader.StepsAhead(kLiveFasterFrom + 1);
-    sStatus.behind = unsigned(ahead);
+    const int ahead = LiveAhead();
     if (!ahead)
     {
+        SetTurbo(false);
         sLiveBuffering = true;
         return complete ? 0 : -1; // its end (the router's read ends the replay), or waits
     }
     if (sLiveBuffering && ahead < kLiveBufferSteps && !complete) return -1;
     sLiveBuffering = false;
+    if (speed < 0 || ahead < kTurboUntil) SetTurbo(false, speed < 0);
+    else if (ahead > kTurboFrom) SetTurbo(true);
+    if (sTurbo) return TurboTick(ahead) - 1;
     int steps = extra + 1;
-    if (speed >= 0)
-        steps = std::max(steps, ahead > kLiveFasterFrom ? kLiveMostSteps : ahead > kLiveFastFrom ? 2 : 1);
+    if (speed >= 0) steps = std::max(steps, ahead > kLiveFastFrom ? 2 : 1);
     return std::min(steps, ahead) - 1;
+}
+
+bool mscharged_tweak_replay_tick_over(void)
+{
+    if (!mscharged_tweak_replay_playing()) return false;
+    // A step began a load (a cutscene's animations, a picture from the disc):
+    // the steps after it wait from the next tick on (StillLoading), as they
+    // would at a tick's start; a fast replay would play on into it.
+    if (sLoadWait < kMostLoadWait && StillLoading())
+    {
+        sTurboTick = false;
+        return true;
+    }
+    if (!sTurboTick) return false;
+    // The step that just ended takes its time from the share.
+    const SteadyClock::time_point now = SteadyClock::now();
+    const double step = Seconds(now - sStepEnded);
+    sTurboTime -= step;
+    sTurboStepSeconds += step;
+    ++sTurboSteps;
+    sStepEnded = now;
+    if (sTurboTime > 0.0) return false;
+    sTurboTick = false;
+    return true;
+}
+
+bool mscharged_tweak_replay_turbo(void)
+{
+    return sTurbo && mscharged_tweak_replay_playing();
+}
+
+float mscharged_tweak_replay_wipe_speed(void)
+{
+    return mscharged_tweak_replay_turbo() ? kTurboWipeSpeed : 1.0f;
 }
 
 bool mscharged_tweak_replay_read_event(unsigned char* size, void* data)
@@ -825,6 +975,20 @@ bool mscharged_tweak_presentation_skip(bool inside, int part, float deltaT)
     else if (deltaT > 0.0f && deltaT < 0.5f)
         sPartTime += deltaT;
     if (!sPlaying || part < 0 || part >= kMostParts) return false;
+    // Catching up in turbo (or about to, at a cutscene before its steps), a
+    // live replay skips every part a player may skip: watching it would only
+    // put it further behind.
+    if (sLiveReplay && (sTurbo || LiveAhead() > kTurboFrom))
+    {
+        if (!sPartPressed)
+        {
+            sPartPressed = true;
+            char line[96];
+            std::snprintf(line, sizeof line, "skips part %d of a cutscene to catch up", part);
+            Log(line);
+        }
+        return true;
+    }
     const std::uint32_t at = sSkipAt[part].load(std::memory_order_relaxed);
     if (!at || sPartTime * 100.0f + 0.5f < float(at - 1)) return false;
     if (!sPartPressed)
@@ -958,6 +1122,7 @@ __attribute__((visibility("default"))) int charged_configure_live_replay(const v
         sPlaying = false;
         return 0;
     }
+    sArrived = sReader;
     sLiveReplay = true;
     sPlaying = true;
     sStartTaken = sStarted = sFinishedPlaying = false;
@@ -1013,11 +1178,12 @@ __attribute__((visibility("default"))) int charged_replay_status(ChargedReplaySt
     // ends there, as its game then waits for the other machine's screens
     // after the match, which a replay does not have, and asks for no more.
     if (mscharged_tweak_replay_playing() && sStatus.total && sReader.Step() >= sStatus.total) FinishPlaying();
-    // A live one once all its stream has arrived and played.
-    if (mscharged_tweak_replay_playing() && sLiveReplay && sLiveComplete.load(std::memory_order_acquire))
+    // A live one: how far behind it is now (also while no step runs, in a
+    // cutscene or a load), and its end once all its stream has arrived and played.
+    if (mscharged_tweak_replay_playing() && sLiveReplay)
     {
-        sReader.Grow(sLiveSize.load(std::memory_order_acquire));
-        if (sStarted && sReader.Step() && !sReader.StepsAhead(1)) FinishPlaying();
+        const int ahead = LiveAhead();
+        if (sLiveComplete.load(std::memory_order_acquire) && sStarted && sReader.Step() && !ahead) FinishPlaying();
     }
     // One whose match takes no more steps while some are left (not paused,
     // not waiting for a live stream's next ones).

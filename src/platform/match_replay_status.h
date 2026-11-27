@@ -20,6 +20,7 @@ struct ChargedReplayStatus
     char error[160];        // why the replay stopped early, or empty
     int live;               // a live stream (charged_configure_live_replay)
     unsigned behind;        // live: the steps that have arrived and not played yet
+    int turbo;              // live: catching up as fast as this computer can, its sound off
 };
 
 // [replays] record: whether matches are recorded (before original main).

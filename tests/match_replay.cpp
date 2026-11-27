@@ -502,6 +502,10 @@ void LiveStreams()
     StreamReader reader;
     std::size_t have = start.size() + 1 + random() % 40;
     Require(reader.Open(live.data(), have, error), "the start opens the live stream: " + error);
+    // A reader of its own keeps count of the whole steps that have arrived,
+    // moving on in portions of any size, never into a step halfway.
+    StreamReader arrived;
+    Require(arrived.Open(live.data(), have, error) && arrived.Position() == start.size(), "a second reader opens it");
     std::size_t read_steps = 0;
     std::size_t packet = 0;
     while (read_steps < 1200)
@@ -510,6 +514,11 @@ void LiveStreams()
         std::size_t whole = 0;
         while (whole + read_steps < 1200 && start.size() + boundaries[read_steps + whole + 1] <= have) ++whole;
         Require(std::size_t(ahead) == whole, "the steps ahead are those that arrived whole");
+        arrived.Grow(have);
+        while (arrived.SkipWholeSteps(1 + int(random() % 50)) > 0) {}
+        Require(arrived.Step() == read_steps + whole && arrived.Error().empty()
+                    && arrived.Position() == start.size() + boundaries[arrived.Step()],
+                "the other reader counts the steps that arrived whole");
         for (int step = 0; step < ahead; ++step)
             for (int machine = 0; machine < 2; ++machine, ++packet)
             {

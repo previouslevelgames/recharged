@@ -587,6 +587,8 @@
     "replay_finished": "Replay finished",
     "watch_live": "Watching live",
     "watch_catching_up": "Watching live, catching up",
+    "watch_turbo": "Catching up: {{behind}} behind",
+    "watch_turbo_eta": "Catching up: {{behind}} behind, live in about {{seconds}} s",
     "watch_waiting": "Game over: waiting for the match's next game",
     "watch_next_game": "The next game begins: following the match",
     "watch_over": "The match is over",

@@ -855,8 +855,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 }
             }
         }
-        mscharged::platform::SetNativeAIOutputGain(launch.settings.mute ? 0.0f :
-            float(launch.settings.master_volume)/100.0f);
+        // The sound's volume, off while a live replay catches up in turbo
+        // (replaySoundHeld): its sound would only rush along.
+        bool replaySoundHeld=false;
+        auto applyVolume=[&] {
+            mscharged::platform::SetNativeAIOutputGain(launch.settings.mute || replaySoundHeld ? 0.0f :
+                float(launch.settings.master_volume)/100.0f);
+        };
+        applyVolume();
         mscharged::platform::SessionLogLine(launch.settings.fullscreen ? "Startup: switching to fullscreen"
                                                                         : "Startup: setting the window size");
         Check(SDL_SetWindowFullscreen(host.window,launch.settings.fullscreen), "Requested launch window mode rejected");
@@ -1260,6 +1266,22 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // Online games' replays to the WFC server: streamed as they are played
         // and sent after each game when it asks (online_replays.h), once the
         // match reports run.
+        // RECHARGED_TEST_LIVE_BEHIND=<seconds> with --replay: the replay plays
+        // as a match watched live that far behind its stream, which grows as
+        // the match would (tests of catching up, without a server): its whole
+        // steps' ends every 100 ms of the match, as the players' games send.
+        struct {
+            double behind=-1.0;
+            std::vector<std::size_t> ends;
+            std::size_t first=0,fed=0;
+            std::chrono::steady_clock::time_point start{};
+            ChargedFeedLiveReplayFunction feed=nullptr;
+        } liveTest;
+        if(const char* value=std::getenv("RECHARGED_TEST_LIVE_BEHIND"); value && *value && !liveWatch) {
+            char* end=nullptr;
+            const double seconds=std::strtod(value,&end);
+            if(end!=value && seconds>=0.0 && seconds<3600.0) liveTest.behind=seconds;
+        }
 #ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
         // Online games are recorded for the server whether or not this PC keeps
         // replays: streamed while played, sent when the server asks.
@@ -1297,6 +1319,36 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     mscharged::platform::FindNativeModuleSymbol(module,"charged_set_replay_speed"));
                 SDL_AddEventWatch(ReplaySpeedKeys,nullptr);
                 line+="watching a match live, none recorded";
+            } else if(!replayStream.empty() && liveTest.behind>=0.0) {
+                mscharged::replay::StreamReader reader;
+                std::string error;
+                Check(reader.Open(replayStream.data(),replayStream.size(),error),
+                      ("This replay cannot be played: "+error).c_str());
+                liveTest.ends.push_back(reader.Position());
+                while(reader.SkipWholeSteps(5)>0) liveTest.ends.push_back(reader.Position());
+                liveTest.first=liveTest.fed=std::min(liveTest.ends.size()-1,std::size_t(liveTest.behind*10.0));
+                const auto configureLive=reinterpret_cast<ChargedConfigureLiveReplayFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_live_replay"));
+                liveTest.feed=reinterpret_cast<ChargedFeedLiveReplayFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_feed_live_replay"));
+                Check(configureLive && liveTest.feed && replayStatus
+                      && configureLive(replayStream.data(),unsigned(liveTest.ends[liveTest.fed]),
+                                       unsigned(replayStream.size())),
+                      "This build's game module cannot play this match live");
+                if(liveTest.fed+1==liveTest.ends.size()) liveTest.feed(nullptr,0,1); // all of it at once
+                // Its players' skips, as the server would pass them on.
+                if(const auto feedSkip=reinterpret_cast<ChargedFeedLiveSkipFunction>(
+                       mscharged::platform::FindNativeModuleSymbol(module,"charged_feed_live_skip")))
+                    for(unsigned n=0;n<replaySetup.skip_count;++n)
+                        feedSkip(replaySetup.skips[n].section,replaySetup.skips[n].after);
+                liveTest.start=std::chrono::steady_clock::now();
+                sReplaySpeedSetter=reinterpret_cast<ChargedSetReplaySpeedFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_set_replay_speed"));
+                SDL_AddEventWatch(ReplaySpeedKeys,nullptr);
+                char text[96];
+                std::snprintf(text,sizeof text,"playing one as if live, %.1f s behind its stream, none recorded",
+                              double(liveTest.first)/10.0);
+                line+=text;
             } else if(!replayStream.empty()) {
                 const auto configureReplay=reinterpret_cast<ChargedConfigureReplayFunction>(
                     mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_replay"));
@@ -2623,8 +2675,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             case GameSetting::Mute:
                 if(change.setting==GameSetting::Mute) launch.settings.mute=on;
                 else launch.settings.master_volume=std::clamp(change.value,0,100);
-                mscharged::platform::SetNativeAIOutputGain(launch.settings.mute ? 0.0f :
-                    float(launch.settings.master_volume)/100.0f);
+                applyVolume();
                 save=[volume=launch.settings.master_volume,mute=launch.settings.mute](mscharged::Settings& s) {
                     s.master_volume=volume;
                     s.mute=mute;
@@ -3324,28 +3375,75 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // A live match: catching up shown as it changes; at a game's end the
         // next one, or the match's end.
         bool liveCatchingUp=false,liveWaitingShown=false,liveBrokeShown=false;
+        // Turbo (a live match far behind, as fast as this computer can): the
+        // steps at its last look, how fast it gains on the stream, its hint.
+        struct {
+            std::chrono::steady_clock::time_point at{};
+            unsigned steps=0;
+            double gain=0.0;
+            std::string text;
+        } liveCatchUp;
+        std::string liveBehindShown;
         std::chrono::steady_clock::time_point liveLoggedAt{};
         auto observeReplays=[&] {
             takeReplays();
             if(replayStream.empty() || !replayStatus)return;
+            // The test's live stream grows as the match goes on (RECHARGED_TEST_LIVE_BEHIND).
+            if(liveTest.feed && liveTest.fed+1<liveTest.ends.size()) {
+                const double played=std::chrono::duration<double>(std::chrono::steady_clock::now()-liveTest.start).count();
+                const std::size_t to=std::min(liveTest.ends.size()-1,liveTest.first+std::size_t(played*10.0));
+                if(to>liveTest.fed) {
+                    liveTest.feed(replayStream.data()+liveTest.ends[liveTest.fed],
+                                  unsigned(liveTest.ends[to]-liveTest.ends[liveTest.fed]),to+1==liveTest.ends.size());
+                    liveTest.fed=to;
+                }
+            }
             ChargedReplayStatus status{};
             if(!replayStatus(&status,sizeof status))return;
             const auto now=std::chrono::steady_clock::now();
             const bool catchingUp=status.live && status.behind>50;
-            if(status.speed!=replaySpeedShown || (status.steps && !replayStepsSeen) || catchingUp!=liveCatchingUp) {
+            // Catching up in turbo: the sound off, and the hint counts down
+            // how far behind the match it still is.
+            const bool turbo=status.live && status.turbo;
+            if(turbo!=replaySoundHeld) {
+                replaySoundHeld=turbo;
+                applyVolume();
+            }
+            if(!turbo) liveCatchUp={};
+            else if(liveCatchUp.at==std::chrono::steady_clock::time_point{} || now-liveCatchUp.at>=std::chrono::milliseconds(500)) {
+                // Twice a second: how far behind, and how soon live at the
+                // pace of the last looks (the stream grows by 50 steps a second).
+                if(liveCatchUp.at!=std::chrono::steady_clock::time_point{}) {
+                    const double seconds=std::chrono::duration<double>(now-liveCatchUp.at).count();
+                    const double gain=double(status.steps-liveCatchUp.steps)/seconds-50.0;
+                    liveCatchUp.gain=liveCatchUp.gain>0.0 ? 0.6*liveCatchUp.gain+0.4*gain : gain;
+                }
+                liveCatchUp.at=now;
+                liveCatchUp.steps=status.steps;
+                const std::string behind=mscharged::replay::MatchLength(status.behind);
+                liveCatchUp.text=liveCatchUp.gain>1.0
+                    ? texts::T("menus.messages.watch_turbo_eta",{{"behind",behind},
+                          {"seconds",std::to_string(int(double(status.behind)/liveCatchUp.gain+0.5))}})
+                    : texts::T("menus.messages.watch_turbo",{{"behind",behind}});
+            }
+            if(status.speed!=replaySpeedShown || (status.steps && !replayStepsSeen) || catchingUp!=liveCatchingUp
+               || liveCatchUp.text!=liveBehindShown) {
                 replayStepsSeen=status.steps!=0;
                 replaySpeedShown=status.speed;
                 liveCatchingUp=catchingUp;
+                liveBehindShown=liveCatchUp.text;
                 replayHint=mscharged::runtime::HostOverlay::Hint{{"Left","Right"},status.speed<0
                     ? std::string(texts::T("menus.messages.replay_paused"))
+                    : turbo ? liveCatchUp.text
                     : catchingUp ? std::string(texts::T("menus.messages.watch_catching_up"))
                     : status.live && status.speed==0 ? std::string(texts::T("menus.messages.watch_live"))
                     : status.speed==0 ? std::string(texts::T("menus.messages.replay_normal"))
                     : texts::T("menus.messages.replay_fast",{{"factor",status.speed==1?"2":"4"}})};
                 replayHintUntil=now+std::chrono::seconds(5);
                 if(hostOverlay)hostOverlay->SetHint(replayHint);
-            } else if(replayHint && replayHintUntil && now>=*replayHintUntil && status.speed>=0) {
-                // Paused, the hint stays: it says how to go on.
+            } else if(replayHint && replayHintUntil && now>=*replayHintUntil && status.speed>=0 && !turbo) {
+                // Paused, the hint stays: it says how to go on; catching up
+                // too, as it counts down.
                 replayHint.reset();
                 if(hostOverlay)hostOverlay->SetHint(std::nullopt);
             }
@@ -3403,7 +3501,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         mscharged::platform::SessionLogLine("Replay: the match's next game cannot be opened: "+error);
                 }
 #endif
-                std::string line="Replay: ended after "+std::to_string(status.steps)+" of "+std::to_string(status.total)
+                // A live one has no count of its steps until it ends.
+                std::string line="Replay: ended after "+std::to_string(status.steps)
+                    +(status.live ? std::string() : " of "+std::to_string(status.total))
                     +" steps; "+std::to_string(status.checked-status.differences)+" of "+std::to_string(status.checked)
                     +" checks matched the recording";
                 if(status.differences)line+=" (the first difference at step "+std::to_string(status.first_difference)+")";

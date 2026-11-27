@@ -318,9 +318,19 @@ public:
     // reads, and never into a step that has not arrived whole. Only between
     // steps.
     int StepsAhead(int most) const;
+    // Moves on over the whole steps ahead, at most `most`, as StepsAhead
+    // counts them: the steps moved over. For a reader of its own that keeps
+    // up with what a live stream has brought (its Step() then counts the
+    // whole steps that have arrived), never the one the game reads.
+    int SkipWholeSteps(int most);
+    // The bytes read from Open's start on.
+    std::size_t Position() const { return at_; }
 
 private:
     bool Need(std::size_t count);
+    // One step, every machine's packet, its contents dropped; false where
+    // the bytes end first.
+    bool SkipStep();
 
     const std::uint8_t* data_ = nullptr;
     std::size_t size_ = 0;

@@ -64,6 +64,12 @@ from a file does not open the launcher again.
 A replay never reads or writes your save. A Cup match plays back as a
 single match, so watching it does not change your Cup.
 
+A match watched live (the online server's **Watch** link) plays a moment
+behind the players. If it is more than a few seconds behind, for example when
+you join a match that is already under way, it catches up as fast as your
+computer can: the sound is off, cutscenes that can be skipped are skipped,
+and the corner shows how far behind it still is and about when it is live.
+
 Cutscenes play as the players saw them: a part of one a player skipped
 (a goal's celebration, its replay) is skipped in the replay too, at the same
 moment.

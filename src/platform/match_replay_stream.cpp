@@ -582,27 +582,41 @@ bool StreamReader::Open(const std::uint8_t* data, std::size_t size, std::string&
     return true;
 }
 
+bool StreamReader::SkipStep()
+{
+    std::uint8_t scratch[kMaxDataSize > kRecordSize ? kMaxDataSize : kRecordSize];
+    for (int machine = 0; machine < setup_.machine_count; ++machine)
+    {
+        PacketHeader header;
+        if (!Header(machine, header)) return false;
+        for (unsigned event = 0; event < header.events; ++event)
+        {
+            unsigned size = 0;
+            if (!Event(scratch, size)) return false;
+        }
+        if (!Data(scratch, header.data_size)) return false;
+        std::uint8_t connected = 0;
+        for (int player = 0; player < setup_.player_counts[machine]; ++player)
+            if (!Record(machine, player, scratch, connected)) return false;
+    }
+    return true;
+}
+
 int StreamReader::StepsAhead(int most) const
 {
     if (!data_ || !error_.empty() || events_left_ || data_left_ || records_left_) return 0;
     StreamReader probe = *this;
-    std::uint8_t scratch[kMaxDataSize > kRecordSize ? kMaxDataSize : kRecordSize];
     int steps = 0;
-    for (; steps < most; ++steps)
-        for (int machine = 0; machine < setup_.machine_count; ++machine)
-        {
-            PacketHeader header;
-            if (!probe.Header(machine, header)) return steps;
-            for (unsigned event = 0; event < header.events; ++event)
-            {
-                unsigned size = 0;
-                if (!probe.Event(scratch, size)) return steps;
-            }
-            if (!probe.Data(scratch, header.data_size)) return steps;
-            std::uint8_t connected = 0;
-            for (int player = 0; player < setup_.player_counts[machine]; ++player)
-                if (!probe.Record(machine, player, scratch, connected)) return steps;
-        }
+    while (steps < most && probe.SkipStep()) ++steps;
+    return steps;
+}
+
+int StreamReader::SkipWholeSteps(int most)
+{
+    // Counted on a copy first: a step that has not arrived whole would break
+    // this reader halfway through it.
+    const int steps = StepsAhead(most);
+    for (int step = 0; step < steps; ++step) SkipStep();
     return steps;
 }
 
