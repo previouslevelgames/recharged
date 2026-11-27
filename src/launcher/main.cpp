@@ -11890,9 +11890,9 @@ private:
         EndCard();
     }
 
-    // Replays: whether matches are kept ([replays] record), the newest ones
-    // to watch again and their folder; a replay's match stats in place of
-    // the list.
+    // Replays: whether matches are kept ([replays] record, the header's
+    // switch), the newest ones to watch again and their folder; a replay's
+    // match stats in place of the list.
     void ReplaysPage()
     {
         if (replay_stats_open_)
@@ -11900,7 +11900,10 @@ private:
             ReplayStatsView();
             return;
         }
-        PageHeader(texts::T("settings.replays.title"), texts::T("settings.replays.about"));
+        if (PageHeader(texts::T("settings.replays.title"), texts::T("settings.replays.about"),
+                       texts::T("settings.replays.record.name"), texts::T("settings.replays.record.about"),
+                       "##replays_record", &draft_.replays_record))
+            dirty_ = true;
         ReplaysCard();
     }
     static constexpr std::size_t kReplaysListed = 1000;
@@ -11940,12 +11943,6 @@ private:
         }
         const auto& listings = replays_.listings;
         BeginCard("##replays", nullptr);
-        if (BeginRows("##replays_rows"))
-        {
-            Row(texts::T("settings.replays.record.name"), texts::T("settings.replays.record.about"));
-            if (Toggle("##replays_record", &draft_.replays_record)) dirty_ = true;
-            EndRows();
-        }
         auto* draw = ImGui::GetWindowDrawList();
         const float width = ImGui::GetContentRegionAvail().x;
         // Every replay on one line, newest first, the line a button that starts

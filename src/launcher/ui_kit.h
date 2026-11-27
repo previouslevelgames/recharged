@@ -196,6 +196,11 @@ void BeginSubRows();
 void EndSubRows();
 void EndRows();
 void PageHeader(const char* title, const char* description);
+// The header of a page that is one feature, on or off: its switch at the
+// title line's right end with `label` beside it, `about` as their tooltip.
+// True when it was switched.
+bool PageHeader(const char* title, const char* description, const char* label, const char* about, const char* id,
+                bool* value);
 void Spinner(ImVec2 center, float radius, ImU32 color);
 // Letter-spaced text (overlines and small headings).
 void DrawTracked(ImDrawList* draw, ImFont* font, ImVec2 position, ImU32 color, const char* text, float tracking);

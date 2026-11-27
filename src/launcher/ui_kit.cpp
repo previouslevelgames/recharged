@@ -1748,6 +1748,32 @@ void PageHeader(const char* title, const char* description)
     TextWrappedColored(fonts.body, color::muted, description);
     ImGui::Dummy({0, Dp(8)});
 }
+
+bool PageHeader(const char* title, const char* description, const char* label, const char* about, const char* id,
+                bool* value)
+{
+    const auto& fonts = CurrentFonts();
+    const ImVec2 start = ImGui::GetCursorPos();
+    const float right = start.x + ImGui::GetContentRegionAvail().x;
+    TextColored(fonts.title, color::text, title);
+    const float below = ImGui::GetCursorPosY();
+    // The switch, centred on the title's line, and its label left of it.
+    const ImVec2 size = Dp(48, 28);
+    ImGui::SetCursorPos({right - size.x, start.y + (FontSize(fonts.title) - size.y) * 0.5f});
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const bool switched = Toggle(id, value);
+    const bool hovered = ImGui::IsItemHovered();
+    const ImVec2 text = TextSize(fonts.label, label);
+    const ImVec2 label_at{at.x - Dp(12) - text.x, at.y + (size.y - text.y) * 0.5f};
+    DrawLabel(ImGui::GetWindowDrawList(), fonts.label, label_at, Col(Mix(color::muted, color::text, 0.7f)), label);
+    if (about && (hovered || ImGui::IsMouseHoveringRect(label_at, Add(label_at, text))))
+        ImGui::SetTooltip("%s", about);
+    ImGui::SetCursorPos({start.x, below});
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(4));
+    TextWrappedColored(fonts.body, color::muted, description);
+    ImGui::Dummy({0, Dp(8)});
+    return switched;
+}
 void Spinner(ImVec2 center, float radius, ImU32 color)
 {
     auto* draw = ImGui::GetWindowDrawList();
