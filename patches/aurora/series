@@ -128,3 +128,4 @@
 0132-graphics-validation-leaves-out-shader-checks.patch
 0133-time-the-native-gx-phases.patch
 0134-switch-the-desktop-picture-while-the-game-runs.patch
+0135-unselected-tev-swap-entries-stay-out-of-pipeline-keys.patch

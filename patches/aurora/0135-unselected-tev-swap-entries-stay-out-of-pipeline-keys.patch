@@ -1,0 +1,47 @@
+From: mscharged-port
+Subject: Unselected TEV swap table entries stay out of the pipeline key
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: pipeline identity. Apply after 0134.
+
+A pipeline's key held the whole TEV swap table, although the generated
+shader reads only the entries its stages select (tevSwapRas, tevSwapTex).
+The Mii library changes entry 1 while it draws Mii icons, so every menu draw
+on a screen with Mii icons was a new key for an already known shader and
+compiled again (the game's Select a Mii screen compiled 11 of them). Entries
+no active stage selects now keep their GXInit values in the key, as unused
+colour channels and constant selectors already do. The shaders are the same;
+no recorded configuration changes key.
+
+diff --git a/lib/gx/gx.cpp b/lib/gx/gx.cpp
+index 31fdcfe..1a07adf 100644
+--- a/lib/gx/gx.cpp
++++ b/lib/gx/gx.cpp
+@@ -491,6 +491,28 @@ void populate_pipeline_config(PipelineConfig& config, const GXState& state, bool
+     config.shaderConfig.tevStages[i] = state.tevStages[i];
+   }
+   config.shaderConfig.tevStageCount = state.numTevStages;
++  // The shader reads only the swap table entries its stages select
++  // (tevSwapTable[tevSwapRas/tevSwapTex]). Code such as the Mii library sets
++  // other entries and leaves them changed; those keep their GXInit values in
++  // the key, so the same shader is not compiled again under another key.
++  {
++    static constexpr std::array<TevSwap, MaxTevSwap> initial{
++        TevSwap{},
++        TevSwap{GX_CH_RED, GX_CH_RED, GX_CH_RED, GX_CH_ALPHA},
++        TevSwap{GX_CH_GREEN, GX_CH_GREEN, GX_CH_GREEN, GX_CH_ALPHA},
++        TevSwap{GX_CH_BLUE, GX_CH_BLUE, GX_CH_BLUE, GX_CH_ALPHA},
++    };
++    std::array<bool, MaxTevSwap> selected{};
++    for (u8 i = 0; i < state.numTevStages; ++i) {
++      selected[state.tevStages[i].tevSwapRas] = true;
++      selected[state.tevStages[i].tevSwapTex] = true;
++    }
++    for (u32 i = 0; i < MaxTevSwap; ++i) {
++      if (!selected[i]) {
++        config.shaderConfig.tevSwapTable[i] = initial[i];
++      }
++    }
++  }
+   for (u8 i = 0; i < state.numIndStages; ++i) {
+     config.shaderConfig.indStages[i] = state.indStages[i];
+   }
