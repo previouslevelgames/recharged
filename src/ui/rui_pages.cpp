@@ -571,13 +571,13 @@ void DrawRandom(const PageModel& model, PageState& state, List& list, PageAction
     if (!online.note.empty()) list.Note(online.note.c_str());
 }
 
-// A record as "won – lost", with the share won when games were played.
-std::string GamesText(const platform::StatsRecord& record)
+// A record as sets "won – lost", with the share won once a set was decided.
+std::string SetsText(const platform::StatsRecord& record)
 {
-    const std::string won = std::to_string(record.games_won), lost = std::to_string(record.games_lost);
-    const int decided = record.games_won + record.games_lost;
+    const std::string won = std::to_string(record.series_won), lost = std::to_string(record.series_lost);
+    const int decided = record.series_won + record.series_lost;
     if (decided == 0) return T("menus.profile.record", {{"won", won}, {"lost", lost}});
-    const int share = int((100.0 * record.games_won / decided) + 0.5);
+    const int share = int((100.0 * record.series_won / decided) + 0.5);
     return T("menus.profile.record_percent", {{"won", won}, {"lost", lost}, {"percent", std::to_string(share)}});
 }
 
@@ -603,12 +603,13 @@ void DrawProfile(const PageModel& model, PageState& state, List& list, PageActio
     else if (!online.stats) list.Note(T("menus.common.loading"));
     else
     {
-        // RANKED opens its page (this season and today); friend matches are
-        // the sets and matches between friends.
+        // Sets won and lost: RANKED (it opens its page, this season and
+        // today) and unranked (friends, quick matches, the game's friendly
+        // online; the server's "friends").
         if (const auto* ranked = online.stats->Mode("ranked"))
-            if (list.Row(T("menus.profile.ranked"), GamesText(ranked->all).c_str())) actions.open = PageId::Ranked;
-        if (const auto* friends = online.stats->Mode("friends"))
-            list.Row(T("menus.profile.friend_matches"), GamesText(friends->all).c_str());
+            if (list.Row(T("menus.profile.ranked"), SetsText(ranked->all).c_str())) actions.open = PageId::Ranked;
+        if (const auto* unranked = online.stats->Mode("friends"))
+            list.Row(T("menus.profile.unranked"), SetsText(unranked->all).c_str());
     }
 
     list.Caption(T("menus.profile.friends"));

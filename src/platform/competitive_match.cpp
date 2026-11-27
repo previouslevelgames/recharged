@@ -22,8 +22,8 @@
 // The game shows its players by their Mii names (10 characters, also what
 // the network carries). During a set, its two players' rows on the RANKED
 // search and draft screen show their profile names instead
-// (charged_configure_display_names, tweak patch 0059), made to fit the row;
-// nothing sent changes.
+// (charged_configure_display_names, tweak patch 0059), made to fit the row,
+// and no RANKED rank or record: a set is unranked. Nothing sent changes.
 //
 // A set whose rules have Mirror match lets both players draft one captain
 // (tweak patch 0061), and its games dress the away team as the offline tweak
@@ -219,20 +219,6 @@ struct ShownName
 ShownName sShown[8]{};
 unsigned sNextShown = 0;
 
-// A row's name text and the rank text right of it (feOnlinePlayerRow's NAME
-// and RANK), as last drawn: where the rank begins and where the name's origin
-// is, in the screen's units, and the name's unit there. The name's room ends a
-// little before the rank. Only compared with the texts drawn, never read.
-constexpr float kRankGap = 10.0f; // in the name's units
-struct NameRoom
-{
-    const void* name;
-    const void* rank;
-    float rank_left, name_left, name_unit;
-    bool rank_seen, name_seen;
-};
-NameRoom sRooms[16]{};
-unsigned sNextRoom = 0;
 
 bool SameMii(const unsigned short* name, const unsigned char* mii, const unsigned short* other_name,
              const void* other_mii)
@@ -357,27 +343,8 @@ const unsigned short* ShownFor(int who, const nlFont* font, float room)
     return shown.text;
 }
 
-NameRoom* RoomOf(const void* name)
-{
-    for (NameRoom& room : sRooms)
-        if (room.name == name) return &room;
-    return nullptr;
-}
-
-// The room of a name text: its box, and for a name from the left (the rows')
-// at most to the rank beside it, as last drawn.
-float RoomFor(const TLTextInstance* name, const NameRoom* room)
-{
-    const float box = name->m_OverloadedAttributes.BoxSize.x;
-    if (!room || !room->rank || !room->rank_seen || !room->name_seen || room->name_unit <= 0.0f
-        || (name->m_DrawOptions & 0x3) != nlTextBox::AlignLeft)
-        return box;
-    const float beside = (room->rank_left - room->name_left) / room->name_unit - kRankGap;
-    return beside > 0.0f && beside < box ? beside : box;
-}
-
-// A matrix the front end draws flat text with: no perspective.
-bool Flat(const nlMatrix4& m) { return m.m14 == 0.0f && m.m24 == 0.0f && m.m34 == 0.0f; }
+// The room of a name text: its box (a set's rows show no rank beside it).
+float RoomFor(const TLTextInstance* name) { return name->m_OverloadedAttributes.BoxSize.x; }
 } // namespace
 
 extern "C" __attribute__((visibility("default"))) bool charged_configure_competitive(const ChargedCompetitiveRules* rules,
@@ -500,7 +467,6 @@ extern "C" __attribute__((visibility("default"))) void charged_configure_display
         sNames[who][n] = 0;
     }
     ++sNamesVersion;
-    for (NameRoom& room : sRooms) room = NameRoom{};
 }
 
 // Match stats (match_stats.cpp): the set's players' profile names on the sides
@@ -693,30 +659,19 @@ extern "C" __attribute__((visibility("default"))) void charged_competitive_end_s
     mscharged_tweak_set_end();
 }
 
-extern "C" void mscharged_competitive_show_name(void* name, void* rank, const unsigned short* mii_name,
+extern "C" void mscharged_competitive_show_name(void* name, void* rank, void* record, const unsigned short* mii_name,
                                                 const unsigned char* mii_data)
 {
     auto* text = static_cast<TLTextInstance*>(name);
-    if (!text || !mii_name || !mii_data) return;
+    // Play RANKED's walk is no set: its rows stay the game's.
+    if (!text || !mii_name || !mii_data || sRankedWalk) return;
     const int who = SetPlayer(mii_name, mii_data);
     if (who < 0) return;
-    const nlFont* font = FontOf(text);
-    if (!font) return;
-    NameRoom* room = RoomOf(text);
-    if (!room)
-    {
-        room = &sRooms[sNextRoom++ % std::size(sRooms)];
-        *room = NameRoom{text};
-    }
-    // The rank beside it, while shown (a guest's row has none).
-    const auto* rankText = static_cast<const TLTextInstance*>(rank);
-    const void* beside = rankText && rankText->IsVisible() ? rank : nullptr;
-    if (room->rank != beside)
-    {
-        room->rank = beside;
-        room->rank_seen = false;
-    }
-    if (const unsigned short* shown = ShownFor(who, font, RoomFor(text, room))) text->SetString(shown);
+    // A set is unranked: no RANKED rank or record on its players' rows.
+    for (void* stat : {rank, record})
+        if (stat) static_cast<TLTextInstance*>(stat)->SetVisible(false);
+    if (const nlFont* font = FontOf(text))
+        if (const unsigned short* shown = ShownFor(who, font, RoomFor(text))) text->SetString(shown);
 }
 
 extern "C" bool mscharged_competitive_fit_text(void* text, void* matrix)
@@ -724,37 +679,14 @@ extern "C" bool mscharged_competitive_fit_text(void* text, void* matrix)
     auto* instance = static_cast<TLTextInstance*>(text);
     if (!instance || !matrix) return false;
     const nlMatrix4& drawn = *static_cast<const nlMatrix4*>(matrix);
-    // A rank beside a set player's name: where it begins (from its alignment;
-    // one row).
-    for (NameRoom& room : sRooms)
-        if (room.rank && room.rank == instance)
-        {
-            const nlFont* font = FontOf(instance);
-            const unsigned short* string = instance->GetString();
-            room.rank_seen = false;
-            if (!font || !string || !Flat(drawn)) continue;
-            const float width = float(Width(font, string));
-            const unsigned align = unsigned(instance->m_DrawOptions & 0x3);
-            const float left = align == nlTextBox::AlignRight ? -width : align == nlTextBox::AlignCenter ? -width / 2.0f
-                                                                                                         : 0.0f;
-            room.rank_left = left * drawn.m11 + drawn.m41;
-            room.rank_seen = width > 0.0f;
-        }
     if (instance->m_OverloadFlags & 0x8) return false;
     const ShownName* shown = nullptr;
     for (const ShownName& name : sShown)
         if (instance->m_wcUserString == name.text) shown = &name;
     if (!shown || !shown->text[0]) return false;
-    NameRoom* room = RoomOf(instance);
-    if (room)
-    {
-        room->name_left = drawn.m41;
-        room->name_unit = drawn.m11;
-        room->name_seen = Flat(drawn);
-    }
     const nlFont* font = FontOf(instance);
     const float width = float(Width(font, shown->text));
-    const float fits = RoomFor(instance, room);
+    const float fits = RoomFor(instance);
     if (font != shown->font || fits <= 0.0f || width <= fits) return false;
     // Smaller about the text's origin, which its alignment keeps in the box
     // (left, centre or right): the name's one row then spans its room.

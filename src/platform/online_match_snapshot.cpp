@@ -29,6 +29,8 @@
 
 #include <cstring>
 
+extern "C" bool mscharged_competitive_set_game(void); // competitive_match.cpp
+
 namespace
 {
 ChargedOnlineMatchSnapshot sSeries{}; // the series under way, or the last one
@@ -123,7 +125,9 @@ void Begin()
     sSeriesClosed = false;
     GameInfoManager* info = nlSingleton<GameInfoManager>::Instance();
     sSeries.profile_id = ProfileId();
-    sSeries.ranked = IsOnlineRankedMatch() ? 1 : 0;
+    // A Recharged set's games meet in RANKED but are unranked: they put no
+    // points on its boards (tweak patch 0082).
+    sSeries.ranked = IsOnlineRankedMatch() && !mscharged_competitive_set_game() ? 1 : 0;
     sSeries.best_of = info && info->GetCurrentSettings() ? info->GetCurrentSettings()->NumGames : 0;
     sSeries.side = GetLocalNetworkPlayingSide() == 1 ? 1 : 0;
     for (int side = 0; side < 2; ++side)

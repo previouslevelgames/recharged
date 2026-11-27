@@ -5,9 +5,10 @@ The game shows its online players by their Mii names, at most 10 characters
 (also what the network carries). During a set, the rows of the RANKED search
 and draft screen (UpdateOnlinePlayerRow) ask the module
 (src/platform/competitive_match.cpp) for its two players' profile names,
-which the host gives it; any other row keeps its Mii name. FERender draws
-such a name that is wider than its room (left of the row's rank) smaller, in
-one row. Nothing sent over the network changes.
+which the host gives it; any other row keeps its Mii name. A set is
+unranked, so its players' rows show no RANKED rank or record. FERender draws
+such a name that is wider than its box smaller, in one row. Nothing sent over
+the network changes.
 
 diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
 --- a/include/mscharged_competitive.h
@@ -21,10 +22,10 @@ diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
 +// its online players by their Mii names (at most 10 characters, also what the
 +// network carries). An online player row's name text `name` (a
 +// TLTextInstance), set to the row's Mii name `mii_name` (`mii_data` its
-+// RFLStoreData), and the rank text `rank` right of it: during a set, one of
-+// its two players gets their profile name instead, which shows in the room
-+// left of the rank; anybody else keeps the Mii name.
-+void mscharged_competitive_show_name(void* name, void* rank, const unsigned short* mii_name,
++// RFLStoreData), and its RANKED rank and record texts: during a set, one of
++// its two players gets their profile name instead, and no rank or record (a
++// set is unranked); anybody else keeps the Mii name and both.
++void mscharged_competitive_show_name(void* name, void* rank, void* record, const unsigned short* mii_name,
 +                                     const unsigned char* mii_data);
 +// The front end draws text `text` (a TLTextInstance) with `matrix` (its
 +// nlMatrix4): true when it shows such a profile name that is wider than its
@@ -49,16 +50,18 @@ diff --git a/src/Game/FE/feOnlinePlayerRow.cpp b/src/Game/FE/feOnlinePlayerRow.c
  
  static const char* sOnlinePlayerSearchSlides[5] = { "SEARCHING", "CONNECTING", "INVITE", "ADD", "OFF" };
  static const char* sOnlinePlayerStatusSlides[12] = {
-@@ -17,6 +20,16 @@
+@@ -17,6 +20,18 @@
  };
  static const char* sOnlinePlayerSideSlides[4] = { "HOME", "HOME", "AWAY", "GUEST" };
  
 +#if defined(MSCHARGED_TWEAKS)
-+// Competitive play: a set's player by their profile name, beside the rank.
++// Competitive play: a set's player by their profile name, without RANKED's
++// rank and record.
 +static void ShowCompetitiveName(TLInstance* part, FEOnlinePlayerRow* row)
 +{
 +    mscharged_competitive_show_name(FEFinder<TLTextInstance, 3>::FindOrDefault(part, "NAME"),
-+        FEFinder<TLTextInstance, 3>::FindOrDefault(part, "STATS", "Slide1", "RANK", "RANK"), row->mName,
++        FEFinder<TLTextInstance, 3>::FindOrDefault(part, "STATS", "Slide1", "RANK", "RANK"),
++        FEFinder<TLTextInstance, 3>::FindOrDefault(part, "STATS", "Slide1", "RECORD", "RECORD"), row->mName,
 +        row->mMiiData);
 +}
 +#endif
@@ -66,7 +69,7 @@ diff --git a/src/Game/FE/feOnlinePlayerRow.cpp b/src/Game/FE/feOnlinePlayerRow.c
  const char* GetOnlineCaptainSlideName(unsigned int captain)
  {
      switch (captain)
-@@ -117,6 +130,10 @@
+@@ -117,6 +132,10 @@
      record = FEFinder<TLTextInstance, 3>::FindOrDefault(over, "STATS", "Slide1", "RECORD", "RECORD");
      record->SetString(description);
      record->SetVisible(show && !row->mGuest);

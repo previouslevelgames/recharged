@@ -39,7 +39,9 @@ works as on the Wii, with friend codes, ranked matches and rankings.
    without a result (a player left, or the games didn't meet) has no rematch:
    challenge them again.
 
-A *set* is your series of games against one opponent. While you wait or play,
+A *set* is your series of games against one opponent. Sets are unranked:
+they count in your stats (**MY PLAYER PROFILE**, *Unranked*), not on the
+RANKED leaderboards, which only **RANKED MATCH** plays for. While you wait or play,
 your Discord status shows it: waiting for an opponent, or in a set against Bob
 with the score.
 

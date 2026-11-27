@@ -221,7 +221,7 @@
     "no_stats": "This server keeps no records yet.",
     "record": "{{won}} – {{lost}}",
     "record_percent": "{{won}} – {{lost}}  ·  {{percent}} %",
-    "friend_matches": "Friend matches",
+    "unranked": "Unranked",
     "friends": "FRIENDS",
     "no_friends": "No friends yet: add players from their page.",
     "ranked": "Ranked"

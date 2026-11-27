@@ -47,7 +47,7 @@ struct ChargedOnlineMatchSnapshot
     // (kChargedOnlineForfeit); 0 the online session ended without one.
     int stopped_by;
     unsigned profile_id; // the WFC profile of the Mii online, 0 unknown
-    int ranked;          // a ranked series; else one between friends
+    int ranked;          // a ranked series (RANKED's points); else unranked
     int best_of;         // games in the series
     int side;            // this machine's team: 0 home, 1 away
     char mii[2][48];     // the Mii names of home and away, UTF-8
