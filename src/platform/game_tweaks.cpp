@@ -40,9 +40,11 @@ bool sTrainingAwayGoalie = true;
 bool sTrainingSkipGoal;
 int sTrainingAwaySkill = -1;
 bool sTrainingPlayAway;
-// Strikers 101's FREE PLAY (tweak patch 0092): its button's text, the
-// host's (charged_configure_training_texts), empty for the module's English.
+// Strikers 101's FREE PLAY (tweak patch 0092) and the pause menu's TRAINING
+// OPTIONS (tweak patch 0095): their buttons' texts, the host's
+// (charged_configure_training_texts), empty for the module's English.
 unsigned short sFreePlayText[33];
+unsigned short sTrainingOptionsText[33];
 // Competitive play: a set's game (competitive_match.cpp) passes the title as
 // Skip intro does, and its menus' sounds are silent while it passes them.
 bool sSetStart;
@@ -259,13 +261,18 @@ __attribute__((visibility("default"))) void charged_configure_training_opponent(
 }
 
 // Host entry (Training): the texts of Training's buttons in the game, in the
-// player's language: Strikers 101's FREE PLAY (UTF-16, at most 32 units;
-// null for the module's English).
-__attribute__((visibility("default"))) void charged_configure_training_texts(const unsigned short* free_play)
+// player's language: Strikers 101's FREE PLAY and the pause menu's TRAINING
+// OPTIONS (UTF-16, at most 32 units each; null for the module's English).
+__attribute__((visibility("default"))) void charged_configure_training_texts(const unsigned short* free_play,
+                                                                             const unsigned short* options)
 {
-    std::size_t at = 0;
-    for (; free_play && free_play[at] && at + 1 < std::size(sFreePlayText); ++at) sFreePlayText[at] = free_play[at];
-    sFreePlayText[at] = 0;
+    const auto copy = [](const unsigned short* text, unsigned short (&to)[33]) {
+        std::size_t at = 0;
+        for (; text && text[at] && at + 1 < std::size(to); ++at) to[at] = text[at];
+        to[at] = 0;
+    };
+    copy(free_play, sFreePlayText);
+    copy(options, sTrainingOptionsText);
 }
 
 // Host entry: the H key was pressed (any thread). A match takes it in its
@@ -590,6 +597,11 @@ bool mscharged_tweak_training_skip_goal(void)
 const unsigned short* mscharged_tweak_training_free_play_text(void)
 {
     return sFreePlayText[0] ? sFreePlayText : nullptr;
+}
+
+const unsigned short* mscharged_tweak_training_options_text(void)
+{
+    return sTrainingOptionsText[0] ? sTrainingOptionsText : nullptr;
 }
 
 bool mscharged_tweak_take_training_start(int* captain, int* stadium)

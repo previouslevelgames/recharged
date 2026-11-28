@@ -171,6 +171,31 @@ std::unique_ptr<mscharged::platform::CompetitiveHost>* sCompetitive=nullptr;
 std::function<void()>* sReplayExit=nullptr;
 std::atomic<ChargedSetReplaySpeedFunction> sReplaySpeedSetter{nullptr};
 std::atomic<int> sReplaySpeed{0};
+
+// Training's options ([gameplay] training_*: the launcher's, and the TRAINING
+// page's as they change) handed to the game module, which uses them from its
+// next frame; `start`: Start training's match from the title (only at the
+// start: the module takes it once). False when the module has no Training.
+bool ConfigureTraining(void* module,const mscharged::Settings& s,bool start)
+{
+    auto* configureTraining=reinterpret_cast<void(*)(int,bool,int,int)>(
+        mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training"));
+    if(!configureTraining) return false;
+    const auto& item=mscharged::kTrainingItemKinds[std::size_t(
+        std::max(mscharged::TrainingIndex(mscharged::kTrainingItems,s.training_item),0))];
+    configureTraining(item.type,start,mscharged::TrainingIndex(mscharged::kTrainingCaptains,s.training_captain),
+        mscharged::TrainingIndex(mscharged::kTrainingStadiums,s.training_stadium));
+    // And how many of it, and whether a single one is always giant.
+    if(auto* configureItem=reinterpret_cast<void(*)(int,bool)>(
+           mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_item")))
+        configureItem(item.count,item.giant);
+    if(auto* configureOpponent=reinterpret_cast<void(*)(int,int,bool,bool,int,bool)>(
+           mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_opponent")))
+        configureOpponent(mscharged::TrainingIndex(mscharged::kTrainingCaptains,s.training_away_captain),
+            s.training_away_fielders,s.training_away_goalie,s.training_skip_goals,
+            mscharged::TrainingIndex(mscharged::kTrainingSkills,s.training_away_skill),s.training_side=="away");
+    return true;
+}
 // The tweaks that change only the menus, the HUD and how fast the title is
 // passed: a replay keeps the viewer's (as the module does, match_replay.cpp).
 constexpr unsigned kReplayViewerTweaks=mscharged::GameTweakBit(mscharged::GameTweak::SkipIntro)
@@ -1151,33 +1176,16 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 configureRecolour(mscharged::TexturePackRecolourHook(reinterpret_cast<ChargedPresenceSnapshotFunction>(
                     mscharged::platform::FindNativeModuleSymbol(module,"charged_presence_snapshot"))));
             // Training: the item of the team that trains, and Start training's match.
-            if(auto* configureTraining=reinterpret_cast<void(*)(int,bool,int,int)>(
-                   mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training"))) {
-                const auto& s=launch.settings;
-                const auto& item=mscharged::kTrainingItemKinds[std::size_t(
-                    std::max(mscharged::TrainingIndex(mscharged::kTrainingItems,s.training_item),0))];
-                configureTraining(item.type,
-                    launch.start_training,mscharged::TrainingIndex(mscharged::kTrainingCaptains,s.training_captain),
-                    mscharged::TrainingIndex(mscharged::kTrainingStadiums,s.training_stadium));
-                // And how many of it, and whether a single one is always giant.
-                if(auto* configureItem=reinterpret_cast<void(*)(int,bool)>(
-                       mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_item")))
-                    configureItem(item.count,item.giant);
-                if(auto* configureOpponent=reinterpret_cast<void(*)(int,int,bool,bool,int,bool)>(
-                       mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_opponent")))
-                    configureOpponent(mscharged::TrainingIndex(mscharged::kTrainingCaptains,s.training_away_captain),
-                        s.training_away_fielders,s.training_away_goalie,s.training_skip_goals,
-                        mscharged::TrainingIndex(mscharged::kTrainingSkills,s.training_away_skill),
-                        s.training_side=="away");
-                if(launch.start_training)
-                    mscharged::platform::SessionLogLine(("Start training: "+s.training_captain+" in "
-                        +s.training_stadium).c_str());
-            }
+            if(ConfigureTraining(module,launch.settings,launch.start_training) && launch.start_training)
+                mscharged::platform::SessionLogLine(("Start training: "+launch.settings.training_captain+" in "
+                    +launch.settings.training_stadium).c_str());
             // And its buttons' texts in the game (Strikers 101's FREE PLAY).
-            if(auto* configureTrainingTexts=reinterpret_cast<void(*)(const unsigned short*)>(
+            if(auto* configureTrainingTexts=reinterpret_cast<void(*)(const unsigned short*,const unsigned short*)>(
                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_texts"))) {
                 const std::u16string freePlay=mscharged::platform::ScreenName(texts::T("menus.training.free_play"));
-                configureTrainingTexts(reinterpret_cast<const unsigned short*>(freePlay.c_str()));
+                const std::u16string options=mscharged::platform::ScreenName(texts::T("menus.training.options"));
+                configureTrainingTexts(reinterpret_cast<const unsigned short*>(freePlay.c_str()),
+                                       reinterpret_cast<const unsigned short*>(options.c_str()));
             }
             // No HUD (issue #58): the HUD key shows or hides the match HUD, whatever show_hud says.
             mscharged::platform::SetHudKey(reinterpret_cast<void(*)()>(
@@ -2672,6 +2680,13 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             settings.sound_volumes=launch.settings.sound_volumes;
             settings.reopen_launcher=mscharged::platform::LauncherReopenOn();
             settings.reopen_known=mscharged::platform::LauncherReopenKnown();
+            settings.training_item=std::max(mscharged::TrainingIndex(mscharged::kTrainingItems,
+                launch.settings.training_item),0);
+            settings.training_fielders=launch.settings.training_away_fielders;
+            settings.training_goalie=launch.settings.training_away_goalie;
+            settings.training_skip_goals=launch.settings.training_skip_goals;
+            settings.training_skill=std::max(mscharged::TrainingIndex(mscharged::kTrainingSkills,
+                launch.settings.training_away_skill),0);
             buildAdvanced(settings);
         };
         auto applyOption=[&](const mscharged::overlay::GameOptionChange& change) {
@@ -2931,6 +2946,58 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 }
                 save=[on](mscharged::Settings& s) { s.discord_status=on; };
                 break;
+            // A training match's options (the TRAINING page): the module has
+            // them for its next frame, and the next start.
+            case GameSetting::TrainingItem:
+                if(change.value>=0 && std::size_t(change.value)<mscharged::kTrainingItems.size()) {
+                    const std::string item=mscharged::kTrainingItems[std::size_t(change.value)];
+                    launch.settings.training_item=item;
+                    save=[item](mscharged::Settings& s) { s.training_item=item; };
+                }
+                break;
+            case GameSetting::TrainingFielders: {
+                const int fielders=std::clamp(change.value,0,4);
+                launch.settings.training_away_fielders=fielders;
+                save=[fielders](mscharged::Settings& s) { s.training_away_fielders=fielders; };
+                break;
+            }
+            case GameSetting::TrainingGoalie:
+                launch.settings.training_away_goalie=on;
+                save=[on](mscharged::Settings& s) { s.training_away_goalie=on; };
+                break;
+            case GameSetting::TrainingSkipGoals:
+                launch.settings.training_skip_goals=on;
+                save=[on](mscharged::Settings& s) { s.training_skip_goals=on; };
+                break;
+            case GameSetting::TrainingSkill:
+                if(change.value>=0 && std::size_t(change.value)<mscharged::kTrainingSkills.size()) {
+                    const std::string skill=mscharged::kTrainingSkills[std::size_t(change.value)];
+                    launch.settings.training_away_skill=skill;
+                    save=[skill](mscharged::Settings& s) { s.training_away_skill=skill; };
+                }
+                break;
+            }
+            switch(change.setting) {
+            case GameSetting::TrainingItem:
+            case GameSetting::TrainingFielders:
+            case GameSetting::TrainingGoalie:
+            case GameSetting::TrainingSkipGoals:
+            case GameSetting::TrainingSkill:
+                ConfigureTraining(module,launch.settings,false);
+                // The item and the opponent's skill count at once.
+                if(menuCommand && (change.setting==GameSetting::TrainingItem
+                                   || change.setting==GameSetting::TrainingSkill)) {
+                    const ChargedMenuCommand command{CHARGED_MENU_TRAINING,
+                        change.setting==GameSetting::TrainingItem ? 1 : 0,0};
+                    menuCommand(&command,sizeof command);
+                }
+                mscharged::platform::SessionLogLine("Training: "+launch.settings.training_item+", "
+                    +std::to_string(launch.settings.training_away_fielders)+" opponent fielders, goalie "
+                    +(launch.settings.training_away_goalie ? "on" : "off")+", skill "
+                    +launch.settings.training_away_skill+", skip goals "
+                    +(launch.settings.training_skip_goals ? "on" : "off")+" (TRAINING page)");
+                break;
+            default: break;
             }
             // The menus' Advanced page shows what is saved (most of it counts
             // from the next start).

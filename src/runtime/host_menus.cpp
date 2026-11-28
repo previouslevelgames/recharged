@@ -571,11 +571,15 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
         if (!newHands_[pad].empty()) std::swap(hands_[pad], newHands_[pad]);
 
     // The game's buttons the module took: the pause menu's Audio and Visual
-    // Options (SETTINGS on SOUND or DISPLAY over it), the main menu's globe
-    // (the ONLINE hub over the wheel).
+    // Options (SETTINGS on SOUND or DISPLAY over it) and a training match's
+    // TRAINING OPTIONS (the training page, also over the game's own pause
+    // menu), the main menu's globe (the ONLINE hub over the wheel).
     if (known_) {
         if (taken_ && menu_.taken != *taken_ && pages_.empty()) {
-            if (menu_.taken_menu == CHARGED_MENU_PAUSE && scene == CHARGED_MENU_PAUSE) {
+            if (menu_.taken_menu == CHARGED_MENU_PAUSE && menu_.taken_button == 4 && PauseUnder()) {
+                Push(ui::PageId::Training, 0, {}, Origin::Pause);
+                channel_ = menu_.taken_pad;
+            } else if (menu_.taken_menu == CHARGED_MENU_PAUSE && scene == CHARGED_MENU_PAUSE) {
                 Push(ui::PageId::Settings, menu_.taken_button == 2 ? ui::kSettingsSound : ui::kSettingsDisplay, {},
                      Origin::Pause);
                 channel_ = menu_.taken_pad;
@@ -587,7 +591,7 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
         taken_ = menu_.taken;
     }
     // The pause menu gone (resumed, quit) under its pages: they go too.
-    if (Opened(Origin::Pause) && scene != CHARGED_MENU_PAUSE) ClearPages();
+    if (Opened(Origin::Pause) && !PauseUnder()) ClearPages();
     // The match menu without its match (over, left, forfeited): it goes.
     if (!menu_.network_match) forfeitAsked_ = false;
     if (!menu_.network_match && std::any_of(pages_.begin(), pages_.end(), [](const Page& page) {
@@ -668,7 +672,7 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
     if (leaving_ && now - leavingAt_ > std::chrono::milliseconds(250)) shown_ = leaving_ = false;
     // (Not over a network match: it plays on behind.)
     const bool wantBlur = shown_ && !leaving_ && !menu_.network_match
-        && (scene == CHARGED_MENU_PAUSE || RechargedOpen());
+        && (PauseUnder() || RechargedOpen());
     if (wantBlur != blurred_) {
         aurora_set_video_output_blur(wantBlur);
         blurred_ = wantBlur;
@@ -833,7 +837,8 @@ HostMenus::ModelNeeds HostMenus::Needs() const
     const ui::PageId top = pages_.empty() ? ui::PageId::Menu : pages_.back().id;
     needs.leaderboard = top == ui::PageId::Leaderboard || top == ui::PageId::Ranked || top == ui::PageId::Profile;
     needs.stats = top == ui::PageId::Profile;
-    needs.settings = !pages_.empty() && pages_.back().id == ui::PageId::Settings;
+    needs.settings = !pages_.empty()
+        && (pages_.back().id == ui::PageId::Settings || pages_.back().id == ui::PageId::Training);
     return needs;
 }
 
@@ -919,8 +924,7 @@ bool HostMenus::DrawTopPage(const Tv& tv, const ui::Fonts& fonts, const ui::Inpu
 {
     const auto sound = [this](ui::Sound s) { Play(s); };
     Page& page = pages_.back();
-    const int scene = menu_.menu;
-    const bool pauseUnder = scene == CHARGED_MENU_PAUSE;
+    const bool pauseUnder = PauseUnder();
     const auto& categories = ui::PageCategories(page.id);
     const float iw = tv.half - ui::kBezel;
     const float top = tv.contentTop, bottom = tv.screenBottom - 14.0f;
@@ -996,7 +1000,11 @@ void HostMenus::DrawPauseButtons(const Frame& frame, const Tv& tv, const ui::Fon
                       .y;
             halfWidth = (button.max_x - button.min_x) * 0.5f * ui::kDesignPerUnit;
         }
-        const char* label = button.label[0] ? button.label : FallbackLabel(action);
+        // A training match's Statistics are its TRAINING OPTIONS (the
+        // module's button says so too, in Recharged's words).
+        const char* label = menu_.training && action == 4 ? texts::T("menus.training.options")
+            : button.label[0]                             ? button.label
+                                                          : FallbackLabel(action);
         ui::DrawPlate(tv.body, fonts.plate, halfWidth, mid, label, button.hovered != 0);
     }
 }
@@ -1070,7 +1078,7 @@ void HostMenus::Draw(float width, float height, const ui::Fonts& fonts)
     // The picture behind darkens: over the blurred match as the game's own
     // pause dims it, over the front end's menus a little, over a network
     // match (playing on) less.
-    const int shade = menu_.network_match ? 40 : scene == CHARGED_MENU_PAUSE || RechargedOpen() ? 110 : 60;
+    const int shade = menu_.network_match ? 40 : PauseUnder() || RechargedOpen() ? 110 : 60;
     ImGui::GetBackgroundDrawList()->AddRectFilled({0, 0}, {width, height},
                                                   IM_COL32(4, 6, 10, int(float(shade) * frame.dim)));
     const Tv tv = LayOut(frame, now);

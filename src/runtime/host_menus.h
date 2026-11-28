@@ -63,7 +63,7 @@ public:
         bool online = false;      // Online and Ranked: an online page is in the stack
         bool leaderboard = false; // the leaderboard shows (its data is fetched)
         bool stats = false;       // the player's records show (they are fetched)
-        bool settings = false;    // the settings: the Settings page shows
+        bool settings = false;    // the settings: the Settings or Training page shows
     };
     // The host's side: each frame's model of the pages, and what to do with
     // a change of its settings and options.
@@ -142,7 +142,7 @@ private:
     enum class Origin {
         None,      // opened from another page
         Recharged, // the Recharged menu (F1, HOME) or the online match's menu
-        Pause,     // the pause menu's Audio or Visual Options
+        Pause,     // the pause menu's Audio or Visual Options, or a training match's TRAINING OPTIONS
         Anchored,  // stands in for the front end's Options scene
         Wheel,     // stands in for the main menu's globe
         TrophyRoom, // over the trophy room (TOURNAMENT)
@@ -199,6 +199,8 @@ private:
     void Apply(const ui::PageActions& actions, bool live, const overlay::GameOverlayModel& model);
     void Back();
     void Resume();
+    // The match's pause menu is under the pages (Recharged's or the game's own).
+    bool PauseUnder() const { return menu_.pause_under != 0; }
     // The prompt's page on top while it asks; gone once it doesn't.
     void ShowPrompt(Clock::time_point now);
     // The overlay's texture of a game texture, made once (0 when the game has

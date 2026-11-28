@@ -43,6 +43,7 @@ enum class PageId
     Tournaments, // over the trophy room: the newest tournament (or the player's) and the others, to open
     Tournament,  // over the trophy room: the tournament (key: its id, empty for the player's), the next set, READY and BRACKET
     Bracket,     // the tournament's bracket (the player's pool)
+    Training,    // a training match's options (the pause menu's TRAINING OPTIONS)
 };
 
 // The categories of Settings (also where the pause menu's Audio and Visual

@@ -98,6 +98,13 @@ struct ChargedMenuSnapshot
     // The game's results screen of a game (CHARGED_MENU_GAME_RESULTS) is
     // up, over the trophy room: Recharged's pages wait under it.
     int game_results;
+    // The match's pause menu is on top, at rest or on its way out, whether
+    // Recharged draws it (`menu`) or the game does (Recharged's menus off):
+    // the training page over its TRAINING OPTIONS stays until it goes.
+    int pause_under;
+    // The match is a training one (offline): its pause menu's Statistics are
+    // TRAINING OPTIONS (tweak patch 0095), which Recharged's pause menu says.
+    int training;
 };
 
 enum ChargedMenu
@@ -145,6 +152,8 @@ enum ChargedMenuCommandKind
     CHARGED_MENU_GAME_RESULTS = 15, // in the trophy room, a game's result on the cup's results screen: the
                                     // captains in `which` (eTeamID, home | away << 8), the goals in `value`
                                     // (home | away << 16)
+    CHARGED_MENU_TRAINING = 16, // a training match's options changed (the TRAINING page): `which` 0 the
+                                // opponent's skill counts at once, 1 the new item replaces the one held
 };
 
 // The trophy room: the front end's camera on the trophy of the game's cut

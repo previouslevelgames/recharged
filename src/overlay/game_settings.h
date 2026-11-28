@@ -79,6 +79,17 @@ struct GameSettingsModel
     bool verbose_console = false;
     bool log_window_shown = false; // Windows and macOS
     bool log_window = false;
+    // A training match's options (the TRAINING page, the pause menu's
+    // TRAINING OPTIONS; [gameplay] training_* in recharged.ini): the item of
+    // the team that trains (the kTrainingItems index), how many of the
+    // opponent's four fielders play, whether its goalie plays, whether a
+    // goal goes straight to the kickoff, and its skill (the kTrainingSkills
+    // index).
+    int training_item = 1;
+    int training_fielders = 0;
+    bool training_goalie = true;
+    bool training_skip_goals = true;
+    int training_skill = 1;
 };
 
 enum class GameSetting
@@ -116,6 +127,11 @@ enum class GameSetting
     IrSensitivity,     // value: 1-5
     SpeakerVolume,     // value: 0-100
     DiscordStatus,
+    TrainingItem,      // value: the kTrainingItems index
+    TrainingFielders,  // value: 0-4
+    TrainingGoalie,
+    TrainingSkipGoals,
+    TrainingSkill,     // value: the kTrainingSkills index
 };
 
 // The performance numbers' corners and the frame rates the page offers, as
