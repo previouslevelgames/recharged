@@ -357,7 +357,7 @@ does the same, and **F2** opens it on the gameplay options (`game_options`). It
 has **ONLINE**, **OPTIONS** and **QUIT RECHARGED**:
 
 - **ONLINE** (the **PLAY ONLINE** page): your set, then **QUICK PLAY** with
-  **PLAY AGAINST FRIENDS** (the friends who have Recharged open and your last
+  **PLAY FRIENDS** (the friends who have Recharged open and your last
   opponents of a set who aren't friends; a player's page challenges them or
   keeps them as a friend), **QUICK UNRANKED MATCH** (a search for an opponent),
   **RANKED MATCH** (the game's online RANKED from anywhere in its menus:

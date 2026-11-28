@@ -217,7 +217,7 @@
   },
   "play": {
     "title": "QUICK PLAY",
-    "friends": "PLAY AGAINST FRIENDS",
+    "friends": "PLAY FRIENDS",
     "random": "QUICK UNRANKED MATCH",
     "ranked": "RANKED MATCH",
     "online_count_one": "{{count}} online",

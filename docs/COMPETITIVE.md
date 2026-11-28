@@ -17,7 +17,7 @@ works as on the Wii, with friend codes, ranked matches and rankings.
    your **Sidekicks**; the RANKED leaderboards are in the
    game's Recharged Game Menu (**ONLINE** → **LEADERBOARD**).
 2. In the game, press **F1** (or HOME) for the **Recharged Game Menu**: its
-   **ONLINE** has your set; its **QUICK PLAY** → **PLAY AGAINST FRIENDS** has
+   **ONLINE** has your set; its **QUICK PLAY** → **PLAY FRIENDS** has
    your friends online and your recent opponents, and **QUICK UNRANKED MATCH**
    finds you an opponent. Challenge one there. The game shows the key in the
    corner while it is in its menus.
