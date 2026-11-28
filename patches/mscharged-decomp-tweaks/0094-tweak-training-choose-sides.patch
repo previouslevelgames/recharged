@@ -1,0 +1,91 @@
+From: mscharged-port
+Subject: Tweak: training's Choose Sides takes one side, the other shows COM
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+Training (tweak patch 0038) plays one team against the team nobody plays:
+GetTrainingSide finds the side the pads play, and with pads on both sides
+there is none, and the match is an ordinary one. Its match from the
+launcher puts the pad on its side itself, but Strikers 101's FREE PLAY
+(tweak patch 0092) goes through Domination's Choose Sides, and every
+training match has the pause menu's. There, in training's match
+(g_bTrainingMatch, offline):
+- a pad that joins one side while another pad plays the other is refused
+  (SHChooseSides2::OnControllerPointerPress); more pads on the same side
+  still join;
+- the other side shows the CPU's mark, as the challenges' opponent does
+  (the scene's own CPU components, CHOOSE_SIDES_CPU: "CPU", in Italian
+  "COM"), from the moment a pad plays a side until no pad plays any
+  (SHChooseSides2::UpdateHomeAwayVisibility, called whenever a pad joins,
+  leaves or is released, and as the scene comes in); a pad that moves to
+  the other side takes the mark across;
+- the CPU vs CPU tweak no longer keeps Done available with no pad on a
+  side: a training match needs a team to train.
+
+diff --git a/src/Game/SH/SHChooseSides.cpp b/src/Game/SH/SHChooseSides.cpp
+index 0a39bf1..69d67cb 100644
+--- a/src/Game/SH/SHChooseSides.cpp
++++ b/src/Game/SH/SHChooseSides.cpp
+@@ -698,6 +698,20 @@ void SHChooseSides2::OnControllerPointerPress(unsigned int index, void* context)
+ #endif
+     if (mPlayingSides[index] != -1 && mPlayingSides[index] != side)
+         return;
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": its match has one team played, the other nobody
++    // plays (GetTrainingSide). A pad that joins one side while another pad
++    // plays the other is refused, before the match as in its pause.
++    if (mPlayingSides[index] == -1 && g_bTrainingMatch && (mContext == FRIENDLY || mContext == PAUSE)
++        && !GameInfoManager::Instance()->IsOnline())
++    {
++        for (int i = 0; i < 4; ++i)
++        {
++            if (mPlayingSides[i] == (int)(1 - side))
++                return;
++        }
++    }
++#endif
+ 
+     TLComponentInstance* controller = GetPointerInstance(index);
+     char controllerName[16];
+@@ -987,9 +1001,11 @@ void SHChooseSides2::UpdateHomeAwayVisibility()
+ #if defined(MSCHARGED_TWEAKS)
+     // Port tweak "CPU vs CPU": in offline Domination (its Choose Sides and the
+     // pause menu's), Done stays available with no controller on a side, and
+-    // Proceed then leaves both teams to the CPU.
++    // Proceed then leaves both teams to the CPU. Not in training, whose team
++    // is the one a controller plays (Port tweak "Training").
+     if (mscharged_tweak_enabled(MSCHARGED_TWEAK_CPU_VS_CPU) && (mContext == FRIENDLY || mContext == PAUSE)
+-        && GameInfoManager::Instance()->IsInFriendlyMode() && !GameInfoManager::Instance()->IsOnline())
++        && GameInfoManager::Instance()->IsInFriendlyMode() && !GameInfoManager::Instance()->IsOnline()
++        && !g_bTrainingMatch)
+     {
+         hasPlayingSide = true;
+     }
+@@ -1028,6 +1044,28 @@ void SHChooseSides2::UpdateHomeAwayVisibility()
+         }
+         mHomeAwayEntering = true;
+     }
++
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": the team nobody plays shows the CPU's mark
++    // (CHOOSE_SIDES_CPU, as the challenges' opponent does) once a pad plays
++    // the other team, and none while no pad plays (tweak patch 0094 keeps
++    // the pads on one side).
++    if (g_bTrainingMatch && (mContext == FRIENDLY || mContext == PAUSE) && !GameInfoManager::Instance()->IsOnline())
++    {
++        bool played[2] = { false, false };
++        for (int i = 0; i < 4; ++i)
++        {
++            if (mPlayingSides[i] == 0 || mPlayingSides[i] == 1)
++                played[mPlayingSides[i]] = true;
++        }
++        for (int side = 0; side < 2; ++side)
++        {
++            const bool cpu = played[1 - side] && !played[side];
++            FEFinder<TLComponentInstance, 4>::Find<>(mSideGroups[side], "controllers", sSideGroupNames[side], "CPU")->m_bVisible = cpu;
++            FEFinder<TLComponentInstance, 4>::Find<>(mSideGroups[side], "over", sSideGroupNames[side], "CPU")->m_bVisible = cpu;
++        }
++    }
++#endif
+ }
+ 
+ const char* sSidekickSlotNames[3] = { "sk_2", "sk_1", "sk_0" };

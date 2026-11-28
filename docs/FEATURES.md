@@ -169,7 +169,7 @@ still unfinished, only `super_team = true` in `recharged.ini`:
   game's own unlock switch; the save is not changed.
 - **CPU vs CPU**: in Domination, press Done on Choose Sides without picking a
   side and the CPU plays both teams. Choose Sides in the pause menu can also
-  hand a match over to the CPU.
+  hand a match over to the CPU. Training always needs a side played.
 - **Fast terrain**: every stadium plays like the fast, dry field of Bowser
   Stadium: the same running speed, ball roll and bounce, no sliding on ice or
   mud and no slow sand in the Sand Tomb. Stadium looks and hazards stay;
