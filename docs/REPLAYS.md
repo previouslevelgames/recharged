@@ -7,11 +7,11 @@ the file to a friend who has the same game.
 
 ## What is recorded
 
-- **Recorded:** Domination matches (exhibition matches), Training, the
+- **Recorded:** Domination matches (exhibition matches), the
   matches of the Road to the Striker Cup, and online and LAN matches: each
   game of a set is a replay of its own, with every player's inputs as the
   match confirmed them.
-- **Not recorded:** the Striker Challenges, Strikers 101 and the demo matches
+- **Not recorded:** Training, the Striker Challenges, Strikers 101 and the demo matches
   of the title screen.
 
 A replay is written when its match ends, or when you close the game during

@@ -654,11 +654,13 @@ bool mscharged_tweak_replay_begin(int localMachine, int machineCount, unsigned i
         return false;
     GameInfoManager* info = Info();
     char line[120];
-    // Offline matches the replay can start again: Domination (Training's
-    // too) and the Cup's, which plays back as Domination with the recorded
-    // setup and difficulty. Network matches with the rollback, which hands
-    // over their steps as all their inputs arrive. The demo, the challenges
-    // and Strikers 101 have state of their own.
+    // Offline matches the replay can start again: Domination and the Cup's,
+    // which plays back as Domination with the recorded setup and difficulty.
+    // Network matches with the rollback, which hands over their steps as all
+    // their inputs arrive. The demo, the challenges and Strikers 101 have
+    // state of their own, and Training is practice, kept by nobody (its
+    // TRAINING OPTIONS change it as it plays, too). Training replays already
+    // kept still play.
     const bool network = machineCount > 1 || info->IsOnline();
     // An online match goes to the server whether or not this PC keeps replays
     // (the host keeps no file of it then); any other only when it does.
@@ -666,7 +668,7 @@ bool mscharged_tweak_replay_begin(int localMachine, int machineCount, unsigned i
     const bool offlineMode
         = info->mCurrentMode == GameInfoManager::GM_FRIENDLY || info->mCurrentMode == GameInfoManager::GM_CUP;
     if (network ? !mscharged_rollback_predicting() || machineCount < 2
-                : machineCount != 1 || info->mIsInStrikers101Mode || !offlineMode)
+                : machineCount != 1 || info->mIsInStrikers101Mode || !offlineMode || g_bTrainingMatch)
     {
         std::snprintf(line, sizeof line, "this match is not recorded (mode %d, %d machines%s)", info->mCurrentMode,
                       machineCount, info->IsOnline() ? ", online" : info->mIsInStrikers101Mode ? ", Strikers 101" : "");

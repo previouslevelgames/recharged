@@ -513,7 +513,7 @@ as a `.dds` file named as packs need it.
 
 ## Replays
 
-Every offline match (Domination, Training and the Cup's matches) is kept as a
+Every offline match (Domination and the Cup's matches; not Training) is kept as a
 replay: `replays/replay_<date>-<time>.msc` beside the program, about 5 KB a
 minute. Watch them in the launcher's **Replays** page, where **Keep
 replays** is `record`.
