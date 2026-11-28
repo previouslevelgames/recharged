@@ -263,5 +263,20 @@ extern "C" __attribute__((visibility("default"))) bool charged_online_match_snap
     }
     *snapshot = sSeries;
     snapshot->error = sError;
+    snapshot->playing = 0;
+    snapshot->playing_scores[0] = snapshot->playing_scores[1] = 0;
+    if (UnderWay() && online && g_pGame && g_pTeams[0] && g_pTeams[1])
+        switch (g_pGame->m_eGameState)
+        {
+        case GS_KICKOFF:
+        case GS_POST_GOAL:
+        case GS_GAMEPLAY:
+        case GS_OVERTIME:
+            snapshot->playing = sSeries.games + 1;
+            snapshot->playing_scores[0] = g_pTeams[0]->GetScore();
+            snapshot->playing_scores[1] = g_pTeams[1]->GetScore();
+            break;
+        default: break;
+        }
     return true;
 }

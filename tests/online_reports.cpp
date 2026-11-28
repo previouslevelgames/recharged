@@ -857,6 +857,133 @@ void TestDossiers()
     std::filesystem::remove_all(folder);
 }
 
+// The goals of the game being played: a `score` report each time they
+// change, to servers from 1.3.6 only, the latest waiting.
+void TestScores()
+{
+    using namespace std::chrono_literals;
+    auto s = Series(1, 3);
+    Require(OnlineScoreEvent(nullptr, s, "R4QE", kBuild, kOs, 7).empty(), "no game played, no score");
+    s.playing = 1;
+    auto event = ParseJson(OnlineScoreEvent(nullptr, s, "R4QE", kBuild, kOs, 7));
+    Require(event["event"].Text() == "score" && event["series"].Integer() == 7 && event["side"].Text() == "home"
+                && event["game"]["number"].Integer() == 1 && event["game"]["score"]["home"].Integer() == 0
+                && event["game"]["score"]["away"].Integer() == 0 && !Has(event["game"], "captains")
+                && event["reason"].IsNull(),
+            "the kickoff: game 1 at 0:0, its number and goals only");
+    auto last = s;
+    Require(OnlineScoreEvent(&last, s, "R4QE", kBuild, kOs, 7).empty(), "the same goals are no news");
+    s.playing_scores[1] = 1;
+    event = ParseJson(OnlineScoreEvent(&last, s, "R4QE", kBuild, kOs, 7));
+    Require(event["game"]["score"]["away"].Integer() == 1, "a goal: the new score");
+    // The game's end is its own report; the next game's kickoff a score again.
+    last = s;
+    Add(s, Game(0, 1));
+    s.playing = 0;
+    Require(OnlineScoreEvent(&last, s, "R4QE", kBuild, kOs, 7).empty(), "between games, no score");
+    s.playing = 1;
+    Require(OnlineScoreEvent(&last, s, "R4QE", kBuild, kOs, 7).empty(), "a game already reported, no score");
+    s.playing = 2;
+    s.playing_scores[0] = s.playing_scores[1] = 0;
+    event = ParseJson(OnlineScoreEvent(&last, s, "R4QE", kBuild, kOs, 7));
+    Require(event["game"]["number"].Integer() == 2, "the next game's kickoff");
+    s.ended = 2;
+    Require(OnlineScoreEvent(nullptr, s, "R4QE", kBuild, kOs, 7).empty(), "a series over, no score");
+    s = Series(2, 1);
+    s.playing = 1;
+    s.playing_scores[0] = 100;
+    Require(OnlineScoreEvent(nullptr, s, "R4QE", kBuild, kOs, 7).empty(), "a score out of range is not sent");
+
+    Require(OnlineServerTakesScores("1.3.6") && OnlineServerTakesScores("1.3.10") && OnlineServerTakesScores("1.4.0")
+                && OnlineServerTakesScores("2.0"),
+            "1.3.6 and later take scores");
+    Require(!OnlineServerTakesScores("1.3.5") && !OnlineServerTakesScores("1.2.99") && !OnlineServerTakesScores("")
+                && !OnlineServerTakesScores("dev"),
+            "earlier or unknown servers do not");
+
+    // A 1.3.6 server, asked once: the start, then the latest score of those
+    // that waited behind it.
+    {
+        std::mutex mutex;
+        std::condition_variable changed;
+        bool release = false;
+        std::vector<std::string> bodies;
+        int asked = 0;
+        {
+            OnlineReports reports(
+                "R4QE", kBuild, kOs,
+                [&](const std::string&, const std::string& body, const std::shared_ptr<HttpCancel>&) {
+                    std::unique_lock lock(mutex);
+                    changed.wait(lock, [&] { return release; });
+                    bodies.push_back(body);
+                    changed.notify_all();
+                    return true;
+                },
+                nullptr, 10ms,
+                [&](const std::string& path, const std::shared_ptr<HttpCancel>&) -> std::optional<std::string> {
+                    std::lock_guard lock(mutex);
+                    ++asked;
+                    return path == "/api/v1/server" ? std::optional<std::string>("{\"version\":\"1.3.6\"}")
+                                                    : std::nullopt;
+                });
+            auto game = Series(1, 3);
+            reports.Observe(game);
+            game.playing = 1;
+            for (int goals = 0; goals < 3; ++goals)
+            {
+                game.playing_scores[0] = goals;
+                reports.Observe(game);
+            }
+            {
+                std::lock_guard lock(mutex);
+                release = true;
+            }
+            changed.notify_all();
+            std::unique_lock lock(mutex);
+            Require(changed.wait_for(lock, 10s, [&] { return bodies.size() >= 2; }), "the start and a score delivered");
+        }
+        std::lock_guard lock(mutex);
+        Require(bodies.size() == 2 && ParseJson(bodies[0])["event"].Text() == "start"
+                    && ParseJson(bodies[1])["event"].Text() == "score"
+                    && ParseJson(bodies[1])["game"]["score"]["home"].Integer() == 2,
+                "only the latest of the scores that waited");
+        Require(asked == 1, "the server's version asked once");
+    }
+
+    // A 1.3.5 server takes none: the game's report goes, the scores not.
+    {
+        FakeServer server;
+        std::vector<std::string> log;
+        std::mutex logMutex;
+        {
+            OnlineReports reports(
+                "R4QE", kBuild, kOs, server.Send(),
+                [&](const std::string& line) {
+                    std::lock_guard lock(logMutex);
+                    log.push_back(line);
+                },
+                10ms,
+                [](const std::string&, const std::shared_ptr<HttpCancel>&) -> std::optional<std::string> {
+                    return "{\"version\":\"1.3.5\"}";
+                });
+            auto game = Series(1, 3);
+            game.playing = 1;
+            reports.Observe(game);
+            game.playing_scores[1] = 1;
+            reports.Observe(game);
+            game.playing = 0;
+            Add(game, Game(0, 1));
+            reports.Observe(game);
+            Require(server.WaitFor(2), "the start and the game delivered");
+            std::this_thread::sleep_for(50ms);
+            Require(server.Calls() == 2 && ParseJson(server.bodies[1])["event"].Text() == "game",
+                    "no score to an older server");
+        }
+        std::lock_guard lock(logMutex);
+        Require(std::count(log.begin(), log.end(), "Match reports: live scores off") == 1, "live scores off, logged once");
+    }
+}
+
 void TestSender()
 {
     using namespace std::chrono_literals;
@@ -1074,6 +1201,7 @@ int main()
         TestEvents();
         TestDiagnostics();
         TestHttpSend();
+        TestScores();
         TestSender();
         TestDossiers();
         TestReplayAnswers();

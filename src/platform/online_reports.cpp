@@ -9,12 +9,14 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdio>
 #include <cstring>
 #include <deque>
 #include <fstream>
 #include <iterator>
 #include <mutex>
 #include <system_error>
+#include <tuple>
 #include <utility>
 
 namespace mscharged::platform {
@@ -38,6 +40,8 @@ constexpr const char* kPhases[] = {"none", "login", "matchmaking", "prestart", "
 constexpr const char* kReportsPath = "/api/v1/wfc/reports";
 constexpr const char* kErrorsPath = "/api/v1/wfc/errors";
 constexpr const char* kDossiersPath = "/api/v1/wfc/desyncs";
+// The server's version: whether it takes the goals of the game being played.
+constexpr const char* kServerPath = "/api/v1/server";
 // Whether the opponent forfeited: asked this often after a lost connection.
 constexpr const char* kForfeitPath = "/api/v1/wfc/forfeit";
 constexpr int kForfeitQuestions = 5;
@@ -214,7 +218,14 @@ std::string Body(const ChargedOnlineMatchSnapshot& s, const std::string& release
     if (game)
     {
         out += "{\"number\":" + std::to_string(number) + ",\"score\":{\"home\":" + std::to_string(game->scores[0])
-            + ",\"away\":" + std::to_string(game->scores[1]) + "},\"captains\":";
+            + ",\"away\":" + std::to_string(game->scores[1]) + '}';
+        // A game being played: its number and goals so far, all it tells.
+        if (std::string_view(event) == "score")
+        {
+            out += "},\"reason\":null}";
+            return out;
+        }
+        out += ",\"captains\":";
         Captains(out, game->captains);
         out += ",\"stadium\":";
         AppendJsonString(out, Name(kStadiums, game->stadium));
@@ -268,6 +279,31 @@ std::vector<std::string> OnlineMatchEvents(const ChargedOnlineMatchSnapshot* las
     if (now.ended && !(same && last->ended))
         events.push_back(Body(now, release, build, os, series, "end", nullptr, 0, replays));
     return events;
+}
+
+std::string OnlineScoreEvent(const ChargedOnlineMatchSnapshot* last, const ChargedOnlineMatchSnapshot& now,
+                             const std::string& release, const std::string& build, const std::string& os,
+                             std::uint64_t series, bool replays)
+{
+    if (!now.series || !now.profile_id || now.ended || now.playing < 1 || now.playing > int(std::size(now.game))
+        || now.playing != now.games + 1)
+        return {};
+    for (const int goals : now.playing_scores)
+        if (goals < 0 || goals > 99) return {};
+    const bool told = last && last->series == now.series && last->playing == now.playing
+        && last->playing_scores[0] == now.playing_scores[0] && last->playing_scores[1] == now.playing_scores[1];
+    if (told) return {};
+    ChargedOnlineGame game{};
+    game.scores[0] = now.playing_scores[0];
+    game.scores[1] = now.playing_scores[1];
+    return Body(now, release, build, os, series, "score", &game, now.playing, replays);
+}
+
+bool OnlineServerTakesScores(const std::string& version)
+{
+    int parts[3] = {0, 0, 0};
+    if (std::sscanf(version.c_str(), "%d.%d.%d", &parts[0], &parts[1], &parts[2]) < 2) return false;
+    return std::tie(parts[0], parts[1], parts[2]) >= std::make_tuple(1, 3, 6);
 }
 
 void OnlineReplayAnswers::Note(const std::string& report, const std::string& answer)
@@ -355,6 +391,7 @@ struct OnlineReports::State {
         std::string body;
         std::uint32_t dossiers = 0;
         bool ask = false;
+        bool score = false; // the goals of the game being played
     };
     std::mutex mutex;
     std::condition_variable wake;
@@ -363,6 +400,7 @@ struct OnlineReports::State {
     std::optional<std::string> opponent_forfeit; // the forfeiter's Mii, until taken
     std::shared_ptr<HttpCancel> cancel = std::make_shared<HttpCancel>();
     std::filesystem::path folder; // the dossiers', empty: none
+    std::optional<bool> scores;   // whether the server takes them, once asked
 };
 
 std::unique_ptr<OnlineReports> OnlineReports::Start(const std::string& server, const std::string& release,
@@ -532,6 +570,32 @@ OnlineReports::OnlineReports(std::string release, std::string build, std::string
                 state->queue.pop_front();
                 continue;
             }
+            // The goals so far go to a server that takes them (1.3.6 on): its
+            // version asked once; an older one would refuse them.
+            if (post.score && !state->scores)
+            {
+                lock.unlock();
+                std::optional<std::string> answer = ask ? ask(kServerPath, state->cancel) : std::nullopt;
+                lock.lock();
+                if (state->stop) return;
+                if (answer)
+                {
+                    try
+                    {
+                        state->scores = OnlineServerTakesScores(ParseJson(*answer)["version"].Text());
+                    }
+                    catch (const std::exception&)
+                    {
+                        state->scores = false;
+                    }
+                    if (log) log(std::string("Match reports: live scores ") + (*state->scores ? "on" : "off"));
+                }
+            }
+            if (post.score && !state->scores.value_or(false))
+            {
+                state->queue.pop_front();
+                continue;
+            }
             bool delivered = false;
             for (int attempt = 0; attempt < kAttempts && !delivered; ++attempt)
             {
@@ -573,6 +637,8 @@ void OnlineReports::Observe(const ChargedOnlineMatchSnapshot& snapshot)
     if (begun) answers_->NameSeries(snapshot.series, series_);
     const auto events =
         OnlineMatchEvents(seen_ ? &last_ : nullptr, snapshot, release_, build_, os_, series_, replays_);
+    const std::string score =
+        OnlineScoreEvent(seen_ ? &last_ : nullptr, snapshot, release_, build_, os_, series_, replays_);
     // An error code shown since the last look (none before the first).
     const std::string error = snapshot.error.shown != last_.error.shown
         ? OnlineErrorReport(snapshot.error, release_, build_)
@@ -585,10 +651,20 @@ void OnlineReports::Observe(const ChargedOnlineMatchSnapshot& snapshot)
     seen_ = true;
     // A series begun: its profile is logged in, its dossiers left over can go.
     const bool dossiers = begun && snapshot.profile_id && !folder_.empty();
-    if (events.empty() && error.empty() && !dossiers && !lost) return;
+    if (events.empty() && score.empty() && error.empty() && !dossiers && !lost) return;
     {
         std::lock_guard lock(state_->mutex);
         for (const auto& event : events) state_->queue.push_back({kReportsPath, event});
+        if (!score.empty())
+        {
+            // Only the latest goals wait: an earlier score not yet sent is no
+            // news (the first one may be under way).
+            if (!state_->queue.empty())
+                state_->queue.erase(std::remove_if(std::next(state_->queue.begin()), state_->queue.end(),
+                                                   [](const State::Post& post) { return post.score; }),
+                                    state_->queue.end());
+            state_->queue.push_back({kReportsPath, score, 0, false, true});
+        }
         if (!error.empty()) state_->queue.push_back({kErrorsPath, error});
         if (dossiers) state_->queue.push_back({kDossiersPath, {}, snapshot.profile_id});
         if (lost)

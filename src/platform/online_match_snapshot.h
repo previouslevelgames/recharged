@@ -55,6 +55,12 @@ struct ChargedOnlineMatchSnapshot
     int sidekicks[2][3]; // eSidekickID of their lineups, -1 unknown
     int games;           // games ended so far
     ChargedOnlineGame game[9];
+    // While a game of the series is played (its kickoff to its end): its
+    // number (games + 1) and the goals of home and away so far, as this
+    // machine's game counts them (a rollback's correction may take one back);
+    // 0 between games and once the series ended.
+    int playing;
+    int playing_scores[2];
     // The last error code shown, in a series or not.
     ChargedOnlineError error;
 };

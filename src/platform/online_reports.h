@@ -39,6 +39,16 @@ std::vector<std::string> OnlineMatchEvents(const ChargedOnlineMatchSnapshot* las
                                            const std::string& build, const std::string& os,
                                            std::uint64_t series, bool replays = false);
 
+// The report body (JSON) of the goals of the game `now` plays, when they are
+// news to `last`: a `score` report (servers from 1.3.6 take it, for their
+// Matches page). Empty when no game is played or nothing changed.
+std::string OnlineScoreEvent(const ChargedOnlineMatchSnapshot* last, const ChargedOnlineMatchSnapshot& now,
+                             const std::string& release, const std::string& build, const std::string& os,
+                             std::uint64_t series, bool replays = false);
+
+// Whether a server of `version` ("1.3.6") takes `score` reports.
+bool OnlineServerTakesScores(const std::string& version);
+
 // What the server answered to the reports it stored that concerns replays
 // (HttpSend's `answered`): the series whose games stream to it as they are
 // played (its answer to their start), and the games whose replay it asked for
@@ -108,7 +118,9 @@ public:
     // How Start asks: a GET of http://<server><path> through `request`.
     static Ask HttpAsk(const std::string& server, Request request = {});
     // Reports through `send`, a failed one tried again after `retry`; asks
-    // through `ask` (none: no questions) every `retry` / 2.5.
+    // through `ask` (none: no questions) every `retry` / 2.5. The goals of the
+    // game being played go only to a server that takes them: `ask` tells its
+    // version once (none: they are dropped), and only the latest waits.
     // `answers` keeps what the server answered about replays (one of its own
     // when none is given).
     OnlineReports(std::string release, std::string build, std::string os, Send send, Log log,
