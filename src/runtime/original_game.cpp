@@ -421,8 +421,10 @@ void EndWithSnapshot(const std::filesystem::path& output) {
 }
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
 // RECHARGED_CAPTURE_ONLINE's sample (development: the online pages without a
-// server): a player with a set, friends and players online, presets, boards.
-void SampleOnline(mscharged::overlay::GameOverlayModel& model)
+// server): a player with a set, friends and players online, presets, boards;
+// `rematch`: the set ended (QUICK PLAY's REMATCH and its page), `request`: a
+// challenge waits for its answer (on QUICK PLAY, and in the corner's box).
+void SampleOnline(mscharged::overlay::GameOverlayModel& model,const std::string& variant)
 {
     namespace ov=mscharged::overlay;
     auto& online=model.online;
@@ -463,6 +465,38 @@ void SampleOnline(mscharged::overlay::GameOverlayModel& model)
     online.set.lost=0;
     online.set.can_cancel=true;
     online.set.cancel_label="Cancel set";
+    if(variant=="rematch") {
+        // Won 2-1, the rematch Yannick's turn.
+        online.set=ov::OnlinePanelSet{};
+        online.set.stage=ov::OnlinePanelSet::Stage::Ended;
+        auto& rematch=online.rematch;
+        rematch.shown=true;
+        rematch.match=7;
+        rematch.opponent=row("Mario","IT",ov::Presence::Free,"Main menu",ov::Tone::Good,true,1);
+        rematch.title="You won the set";
+        rematch.status="Against Mario";
+        rematch.rules="Competitive: 3 minutes, best of 3, random stadium";
+        rematch.tone=ov::Tone::Good;
+        rematch.won=2;
+        rematch.lost=1;
+        rematch.games=3;
+        rematch.you_pick=true;
+        rematch.stadium="random";
+    } else if(variant=="request") {
+        online.set=ov::OnlinePanelSet{};
+        online.set.stage=ov::OnlinePanelSet::Stage::Waiting;
+        online.set.opponent=row("Luigi","DE",ov::Presence::Free,"Main menu",ov::Tone::Good,true,2);
+        online.set.title="Your challenge to Luigi";
+        online.set.status="Waiting for Luigi to accept";
+        online.set.tone=ov::Tone::Busy;
+        online.set.can_cancel=true;
+        online.set.cancel_label="Withdraw";
+        auto& request=online.request;
+        request.waiting=true;
+        request.kicker="CHALLENGE SENT";
+        request.status="Waiting for Luigi's answer \u00b7 42 s";
+        request.opponent=online.set.opponent;
+    }
     ov::OnlinePanelSection friends;
     friends.id=ov::OnlinePanelSection::Id::Online;
     friends.aside="2 friends offline";
@@ -2282,6 +2316,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                                texts::T("menus.status.rematch_waiting",{{"name",name},{"seconds",left}})};
         };
         std::chrono::steady_clock::time_point rematchShown{};
+        // RECHARGED_CAPTURE_ONLINE=request's box: since when, and cancelled.
+        std::chrono::steady_clock::time_point sampleRequestSince{};
+        bool sampleRequestCancelled=false;
         // Online play waits for an update (the gate above): a prompt's answer
         // that would start a set (accept, rematch, play again) is not offered.
         auto onlineLocked=[&] {
@@ -3468,6 +3505,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // nothing is forfeited).
         struct {
             bool online=std::getenv("RECHARGED_CAPTURE_ONLINE")!=nullptr;
+            std::string variant=online ? std::getenv("RECHARGED_CAPTURE_ONLINE") : "";
             bool prompt=std::getenv("RECHARGED_CAPTURE_PROMPT")!=nullptr;
             bool match=std::getenv("RECHARGED_CAPTURE_MATCH_MENU")!=nullptr;
         } menuSamples;
@@ -3475,7 +3513,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::runtime::HostMenus::Host menusHost;
             menusHost.model=[&](mscharged::ui::PageModel& model,const mscharged::runtime::HostMenus::ModelNeeds& needs) {
                 buildOverlayModel(model.overlay,needs.leaderboard,needs.online,needs.settings,needs.stats);
-                if(menuSamples.online) SampleOnline(model.overlay);
+                if(menuSamples.online) SampleOnline(model.overlay,menuSamples.variant);
                 model.set_match=competitive && competitive->CurrentSet().has_value();
                 model.tournament_match=model.set_match && tournamentSetOn;
             };
@@ -4083,8 +4121,27 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 }
                 hostOverlay->SetStatus(std::move(status));
             }
+            // RECHARGED_CAPTURE_ONLINE=request without competitive play: the
+            // box of a challenge waiting a minute, until its CANCEL.
+            if(hostOverlay && !competitive && menuSamples.variant=="request" && now-rematchShown>=std::chrono::milliseconds(250)) {
+                rematchShown=now;
+                if(sampleRequestSince==std::chrono::steady_clock::time_point{}) sampleRequestSince=now;
+                const auto left=std::max<long long>(0,60-std::chrono::floor<std::chrono::seconds>(now-sampleRequestSince).count());
+                hostOverlay->SetStatus(sampleRequestCancelled || !left ? std::nullopt
+                    : std::optional(mscharged::runtime::HostOverlay::Status{mscharged::texts::T("menus.status.challenge_title"),
+                        mscharged::texts::T("menus.status.challenge_waiting",{{"name","Luigi"},{"seconds",std::to_string(left)}}),
+                        mscharged::texts::T("menus.status.cancel"),
+                        mscharged::texts::T("menus.status.cancel_hint",{{"keys","F1 / HOME"}})}));
+            }
             // A click on its CANCEL (taken from the game).
-            if(sStatusCancels.exchange(0)>0 && competitive) competitive->CancelRequest();
+            if(sStatusCancels.exchange(0)>0) {
+                if(competitive) competitive->CancelRequest();
+                else if(menuSamples.variant=="request") {
+                    sampleRequestCancelled=true;
+                    hostOverlay->ShowMessage(mscharged::texts::T("menus.messages.your_challenge_cancelled",{{"name","Luigi"}}),now);
+                    mscharged::platform::SessionLogLine("Menus: the sample challenge's CANCEL was clicked");
+                }
+            }
             if(hostOverlay) {
                 if(const auto rate=frameRate.Sample(frames,now)) hostOverlay->SetRate(*rate);
                 const auto size=aurora_get_window_size();
