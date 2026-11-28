@@ -681,6 +681,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(info.build!=mscharged::build::version)line+=" (another build: the match may play differently)";
             std::fprintf(stderr,"%s\n",line.c_str()); // the console and the log
         }
+        // A replay plays (a file, or a Watch link's live match): this program
+        // only shows a match played elsewhere, from its inputs. Nothing the
+        // viewer does reaches it (the game sees its players stand still), the
+        // system cursor shows, and nothing talks to a server but the stream:
+        // no competitive play, reports, online pages, menus or Discord status.
+        const bool spectating=!replayStream.empty();
         mscharged::platform::SessionLogLine("Game: " + std::string(release->title) + ", "
             + mscharged::ReleaseLabel(*release) + " (" + release->game_id + ")"
             + (releaseNote.empty() ? "" : ". " + releaseNote));
@@ -810,13 +816,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // The game draws its own pointer (the Wii Remote's hand) where a player
         // points, the mouse included: the system cursor stays hidden over the
         // window. A layer above that takes the mouse (ImGui) shows it again.
+        // A replay's viewer points at nothing in the game: it shows.
         const auto cursorLayer=aurora::input::register_layer({
             .label="recharged.cursor",
             .priority=aurora::input::kGameLayerPriority,
             .onEvent=[](const aurora::input::InputEvent&,void*){return aurora::input::EventResult::Pass;},
-            .pointerMode=[](void*){return aurora::input::PointerMode::Hidden;},
+            .pointerMode=spectating ? +[](void*){return aurora::input::PointerMode::Visible;}
+                                    : +[](void*){return aurora::input::PointerMode::Hidden;},
         });
-        if(cursorLayer==aurora::input::kInvalidLayerId)
+        if(cursorLayer==aurora::input::kInvalidLayerId && !spectating)
             mscharged::platform::SessionLogLine("Startup: the system cursor stays visible over the game");
         mscharged::platform::SessionLogLine("Startup: graphics ready");
         // [mods]: HD texture packs, swapped in by Aurora (host graphics only).
@@ -1084,6 +1092,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         wpad.bluetooth_search=launch.settings.bluetooth_search && !watcher;
         mscharged::platform::InitializeNativeHardwareInput(host.window,wpad,
             mscharged::platform::GetNativeSTMInput(), desktop, players);
+        if(spectating) {
+            mscharged::platform::SetNativeWpadWatchHold(true);
+            mscharged::platform::SessionLogLine("Controls: a replay plays; the game sees no player's input");
+        }
         {
             const auto& s=launch.settings;
             const std::string line="Wii Remote settings: sensor bar "+s.sensor_bar+", sensitivity "
@@ -1587,6 +1599,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 line+="off";
             else if(watcher)
                 line+="off (the game that runs from this folder shows it)";
+            else if(spectating)
+                line+="off (a replay plays)";
             else if(application.empty())
                 line+="off (this build has no Discord application)";
             else if(!presenceSnapshot)
@@ -1620,7 +1634,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // and challenge prompts start nothing online while it is closed.
         std::atomic<int> onlineGateState{0};
         std::unique_ptr<mscharged::launcher::OnlineGate> onlineGate;
-        if(auto* configureOnlineGate=reinterpret_cast<void(*)(int)>(
+        if(auto* configureOnlineGate=spectating ? nullptr : reinterpret_cast<void(*)(int)>(
                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_online_gate")))
             onlineGate=std::make_unique<mscharged::launcher::OnlineGate>(mscharged::launcher::CurrentBuild(),
                 executableDirectory,launch.update_verified,
@@ -1631,6 +1645,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     mscharged::platform::SessionLogLine(line);
                     std::fprintf(stderr,"%s\n",line.c_str());
                 });
+        if(spectating) mscharged::platform::SessionLogLine("Online: off (a replay plays)");
 #ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
         // The WFC server's match reports: the online series this computer
         // plays, and the error codes its online menus show, go to the server
@@ -1643,6 +1658,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             const std::string http=mscharged::platform::HttpUnavailable();
             if(launch.settings.online_server.empty())
                 line+="off (no online server)";
+            else if(spectating)
+                line+="off (a replay plays)";
             else if(!onlineMatchSnapshot)
                 line+="off (this build's game module records no online matches)";
             else if(!http.empty())
@@ -1945,6 +1962,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             std::string off;
             if(watcher)
                 off="watching beside the game that runs from this folder";
+            else if(spectating)
+                off="a replay plays";
             else if(wfcSnapshot && configureCompetitive)
                 competitive=mscharged::platform::CompetitiveHost::Start(launch.settings.profile_server,
                     mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
@@ -2380,7 +2399,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // The players point at its pages as at the game's menus (the same
         // pointer centre as the mouse's camera).
         std::optional<mscharged::runtime::MenuInput> menuInput;
-        if(hostOverlay && interactive) {
+        // (None while a replay plays: they pause an offline match, and their
+        // pages go online.)
+        if(hostOverlay && interactive && !spectating) {
             menuInput.emplace(host.window,desktop.kpad_sensor_height);
             menuInput->SetPauseRule([&] {
                 ChargedPresenceSnapshot game{};
@@ -3295,7 +3316,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         std::string tournamentCallHeld;
         // The trophy room showed at the last look (READY holds only there).
         bool tournamentInRoom=false;
-        {
+        if(!spectating) {
             std::string off;
             tournamentFeed=mscharged::platform::TournamentFeed::Start(launch.settings.profile_server,
                 mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),

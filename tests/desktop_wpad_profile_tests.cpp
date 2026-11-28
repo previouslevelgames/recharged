@@ -877,6 +877,76 @@ void PanelHoldCycle() {
     ShutdownDesktopWpad();
     WPADShutdown();
 }
+// A replay plays: held from before the game's first report, the game sees the
+// player stand still and point nowhere (no skip, no pause), whatever the
+// keyboard, the Nunchuk keys or the mouse do; a card still reads its presses,
+// and the panel presses nothing for the game.
+void WatchHoldCycle() {
+    using namespace mscharged::platform;
+    ConfigureWpadSDL({0,3,false,false});
+    DesktopWpadSettings settings{};
+    settings.keyboard = settings.mouse = settings.nunchuk = true;
+    settings.pointer_projection = WholeWindow;
+    SetNativeWpadWatchHold(true);
+    InitializeDesktopWpad(window, settings);
+    WPADInit();
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK && type == WPAD_DEV_FREESTYLE; },
+          "Keyboard & mouse with its Nunchuk did not connect under the replay's hold");
+    Check(WPADSetDataFormat(0, WPAD_FMT_FS_BTN_ACC_DPD) == WPAD_ERR_OK, "Freestyle format was rejected");
+    Check(WPADControlDpd(0, WPAD_DPD_STANDARD, nullptr) == WPAD_ERR_OK, "Pointer camera request was rejected");
+    Until([&] { return bool(WPADIsDpdEnabled(0)); }, "Pointer camera did not turn on");
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    const WPADFSStatus still = FreestyleReport();
+    MouseMotion(100, 100);
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN); // A
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_Z);      // 1: the game's pause
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_W);      // the Nunchuk stick up
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_E);      // a Remote shake
+    std::uint32_t pauses = 0;
+    for (int n = 0; n < 40; ++n) {
+        Service();
+        pauses |= TakeNativeWpadPausePresses();
+        const WPADFSStatus report = FreestyleReport();
+        Check(report.err == WPAD_ERR_OK && report.button == 0, "A button reached the game while a replay plays");
+        Check(report.fsStickX == 0 && report.fsStickY == 0, "The Nunchuk stick moved while a replay plays");
+        Check(report.obj[0].size == 0 && report.obj[1].size == 0, "The mouse pointed while a replay plays");
+        Check(report.accX == still.accX && report.accY == still.accY && report.accZ == still.accZ,
+              "The Remote moved while a replay plays");
+        SDL_Delay(2);
+    }
+    ++checks;
+    Check(pauses == 0, "The game's pause counted while a replay plays");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_E);
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_W);
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_Z);
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    // A card over the replay reads A; closed, the replay still holds.
+    SetNativeWpadHold(true);
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+    int a = 0;
+    Until([&] { a += TakeNativeWpadHeldPresses().a; return a == 1; }, "A card did not read A over a replay");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    SetNativeWpadHold(false);
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    Check(Report().button == 0, "A reached the game after a card closed over a replay");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    SetNativeWpadPanelHold(true);
+    Check(PressNativeWpadButton(0, WPAD_BUTTON_1) == -1, "The panel pressed the game's pause during a replay");
+    SetNativeWpadPanelHold(false);
+    // Released (a test's own end), the player's input reaches the game again.
+    SetNativeWpadWatchHold(false);
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+    Until([&] { return Report().button == WPAD_BUTTON_A; }, "A did not reach the game after the replay's hold");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    Until([&] { return FreestyleReport().obj[0].size != 0; }, "The mouse did not point after the replay's hold");
+    ShutdownDesktopWpad();
+    WPADShutdown();
+}
 void NunchukCycle() {
     connects = samples = extension_count = 0;
     mscharged::platform::ConfigureWpadSDL({0,3,false,false});
@@ -1560,6 +1630,7 @@ int main() {
         LateGamepadCycle();
         MouseKeysCycle();
         PanelHoldCycle();
+        WatchHoldCycle();
         StickDirectionCycle();
         GyroPointerChecks();
         GyroPadCycle(true);
@@ -1571,7 +1642,7 @@ int main() {
 #endif
         SDL_DestroyWindow(window); window = nullptr;
         SDL_Quit();
-        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, a late gamepad taking player 1, mouse buttons as keys (left and right click too), the host panel's hold, stick directions as buttons, the gyro pointer, shared sticks, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
+        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, a late gamepad taking player 1, mouse buttons as keys (left and right click too), the host panel's hold, a replay's hold, stick directions as buttons, the gyro pointer, shared sticks, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
         return 0;
     } catch (const std::exception& e) {
         mscharged::platform::ShutdownHotkeys();

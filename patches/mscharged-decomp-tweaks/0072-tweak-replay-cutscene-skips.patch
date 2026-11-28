@@ -16,10 +16,10 @@ keeps that in the replay and sends it beside the live stream. A replay presses
 in the same parts as far into them, the way a press from another machine
 counts (mSkipPastByPass, which sends nothing), so the game's own rules decide
 the rest as they did for the players: a score that still counts holds the
-skip. The viewer's own presses still count. RECHARGED_TEST_CUTSCENE_SKIP=
-<seconds> presses for the local player in every part, for tests of the
-players' side, only where DetectSkipPress would take a press of that player's
-pad.
+skip. The viewer's own presses never reach a replay (the host holds its
+controllers: SetNativeWpadWatchHold). RECHARGED_TEST_CUTSCENE_SKIP=<seconds>
+presses for the local player in every part, for tests of the players' side,
+only where DetectSkipPress would take a press of that player's pad.
 
 diff --git a/include/mscharged_replay.h b/include/mscharged_replay.h
 index 4b66d91..86c87d4 100644

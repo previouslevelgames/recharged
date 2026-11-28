@@ -80,6 +80,14 @@ struct NativeWpadHeldPresses
 // panel holds too).
 NativeWpadHeldPresses TakeNativeWpadHeldPresses();
 
+// A replay plays (a file or a Watch link): this computer only watches, so
+// the game sees every player stand still as under a card's hold (no buttons,
+// a centred stick, no shake) and point nowhere; nothing a player does reaches
+// the match (no skipped cutscene, no pause), and PressNativeWpadButton
+// presses nothing. Cards still read their presses. For the whole run: set
+// before the game reads its first report.
+void SetNativeWpadWatchHold(bool hold);
+
 // The host panel (src/runtime/menu_input.h), on the game's thread between
 // frames. Taken, HOME never reaches the game: its presses are the panel's.
 void SetNativeWpadHomeTaken(bool taken);
