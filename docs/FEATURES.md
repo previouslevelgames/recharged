@@ -202,7 +202,12 @@ still unfinished, only `super_team = true` in `recharged.ini`:
   five of a shell, banana or Bob-omb where the game gives that many, a giant
   one, or your captain's own) and keeps every item it uses, in a match to 10
   goals that never ends on them (leave it from the pause menu), without the
-  cheats of the saved Gameplay options. Every other match is unchanged.
+  cheats of the saved Gameplay options. In the game, Strikers 101's
+  **FREE PLAY**, at the bottom right of its lessons, starts one too: through
+  Domination's captains, sidekicks, sides (one side only: the
+  other team is the opponent) and stadium, with the launcher's other training
+  options, and leaving it goes back to the lessons. Every other match is
+  unchanged.
 - **Defence priority**: when players of both teams reach a loose
   ball in the same instant, the one the Wii game updates first takes it. It
   shuffles that order at every kickoff in a way that puts the home team

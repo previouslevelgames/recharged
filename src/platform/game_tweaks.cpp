@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <thread>
 
 namespace {
@@ -39,6 +40,9 @@ bool sTrainingAwayGoalie = true;
 bool sTrainingSkipGoal;
 int sTrainingAwaySkill = -1;
 bool sTrainingPlayAway;
+// Strikers 101's FREE PLAY (tweak patch 0092): its button's text, the
+// host's (charged_configure_training_texts), empty for the module's English.
+unsigned short sFreePlayText[33];
 // Competitive play: a set's game (competitive_match.cpp) passes the title as
 // Skip intro does, and its menus' sounds are silent while it passes them.
 bool sSetStart;
@@ -252,6 +256,16 @@ __attribute__((visibility("default"))) void charged_configure_training_opponent(
     sTrainingAwayFielders = fielders < 0 ? 0 : fielders > 4 ? 4 : fielders;
     sTrainingAwayGoalie = goalie;
     sTrainingSkipGoal = skip_goal;
+}
+
+// Host entry (Training): the texts of Training's buttons in the game, in the
+// player's language: Strikers 101's FREE PLAY (UTF-16, at most 32 units;
+// null for the module's English).
+__attribute__((visibility("default"))) void charged_configure_training_texts(const unsigned short* free_play)
+{
+    std::size_t at = 0;
+    for (; free_play && free_play[at] && at + 1 < std::size(sFreePlayText); ++at) sFreePlayText[at] = free_play[at];
+    sFreePlayText[at] = 0;
 }
 
 // Host entry: the H key was pressed (any thread). A match takes it in its
@@ -571,6 +585,11 @@ int mscharged_tweak_training_away_skill(void)
 bool mscharged_tweak_training_skip_goal(void)
 {
     return sTrainingSkipGoal;
+}
+
+const unsigned short* mscharged_tweak_training_free_play_text(void)
+{
+    return sFreePlayText[0] ? sFreePlayText : nullptr;
 }
 
 bool mscharged_tweak_take_training_start(int* captain, int* stadium)

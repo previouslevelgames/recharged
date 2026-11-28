@@ -68,6 +68,7 @@
 #include "platform/launcher_reopen.h"
 #include "bootstrap/watch_link.h"
 #include "platform/competitive_host.h"
+#include "platform/competitive_rules.h"
 #include "platform/game_folder_lock.h"
 #include "overlay/flags.h"
 #include "platform/wpad_sdl.h"
@@ -1171,6 +1172,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 if(launch.start_training)
                     mscharged::platform::SessionLogLine(("Start training: "+s.training_captain+" in "
                         +s.training_stadium).c_str());
+            }
+            // And its buttons' texts in the game (Strikers 101's FREE PLAY).
+            if(auto* configureTrainingTexts=reinterpret_cast<void(*)(const unsigned short*)>(
+                   mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_texts"))) {
+                const std::u16string freePlay=mscharged::platform::ScreenName(texts::T("menus.training.free_play"));
+                configureTrainingTexts(reinterpret_cast<const unsigned short*>(freePlay.c_str()));
             }
             // No HUD (issue #58): the HUD key shows or hides the match HUD, whatever show_hud says.
             mscharged::platform::SetHudKey(reinterpret_cast<void(*)()>(
