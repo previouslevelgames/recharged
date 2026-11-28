@@ -8,7 +8,7 @@
 namespace mscharged::platform {
 enum class NativeAXVoiceFailure {
     MissingCoefficientBank, UnknownCoefficientBank, UnsupportedSRC,
-    UnsupportedRate, UnsupportedITD, UnsupportedFilter, UnsupportedRemote,
+    UnsupportedITD, UnsupportedFilter, UnsupportedRemote,
     UnsupportedMixer, UnsupportedGain, InvalidSelfAddress, SourceChanged
 };
 class NativeAXVoiceError : public std::runtime_error {

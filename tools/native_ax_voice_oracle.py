@@ -289,7 +289,32 @@ def main():
             *result["pcm"],result["fraction"],*result["history"],result["consumed"])
         linear_evidence.append(dict(ratio=ratio,fraction=fraction,
             consumed=result["consumed"],finalFraction=result["fraction"],sourceInstructions=result["instructions"]))
+    # Ratios above 4 (the game's pitch effects ask for them): the same original
+    # words read ratio>>16 samples per output sample at any ratio. A longer
+    # synthetic clip of HIGH_RAW samples, which no case reads to its end; bank
+    # 0xffff is the linear words, 0..2 the four-tap ones.
+    HIGH_RAW=840
+    high=bytearray(b"AXHIR001")
+    high_cases=[(0x40001,0,0xffff),(0x468a6,0x1234,0xffff),(0x4bf55,0xffff,0xffff),(0x55555,0x8000,0xffff),
+                (0x80000,0,0xffff),(0x468a6,0x0240,1),(0x55555,0x9100,2),(0x80000,0xffff,0)]
+    high+=struct.pack("<II",len(high_cases),HIGH_RAW);high_evidence=[]
+    raw=[(((i*7+3)%16)-8)*4096 for i in range(HIGH_RAW)]
+    for index,(ratio,fraction,bank) in enumerate(high_cases):
+        history=[1234,-2345,3456,-4567] if index%2==0 else [-32768,32767,-32768,32767]
+        is_linear=bank==0xffff
+        result=SelectedSRC(words,ratio,fraction,history,raw,[] if is_linear else taps,0 if is_linear else bank,
+                           linear=is_linear).run()
+        assert result["consumed"]<HIGH_RAW
+        high+=struct.pack("<IHH4h96hH4hH",ratio,fraction,bank,*history,
+            *result["pcm"],result["fraction"],*result["history"],result["consumed"])
+        high_evidence.append(dict(ratio=ratio,fraction=fraction,bank=bank,consumed=result["consumed"],
+            finalFraction=result["fraction"],sourceInstructions=result["instructions"]))
     args.output.mkdir(parents=True,exist_ok=True)
+    (args.output/"highrate-oracle.bin").write_bytes(high)
+    (args.output/"highrate-scope.json").write_text(json.dumps(dict(
+        firmwareSHA256=hashlib.sha256(bytes(byte)).hexdigest(),
+        actualInstructions=["071C–0759","076D–07AE"],fullFirmwareExecution=False,
+        coefficientInput="deliberate synthetic arithmetic fixture, not authentic ROM",cases=high_evidence),indent=2)+"\n")
     (args.output/"linear-oracle.bin").write_bytes(linear)
     (args.output/"linear-scope.json").write_text(json.dumps(dict(
         firmwareSHA256=hashlib.sha256(bytes(byte)).hexdigest(),
