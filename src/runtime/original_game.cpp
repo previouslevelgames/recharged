@@ -172,29 +172,26 @@ std::function<void()>* sReplayExit=nullptr;
 std::atomic<ChargedSetReplaySpeedFunction> sReplaySpeedSetter{nullptr};
 std::atomic<int> sReplaySpeed{0};
 
-// Training's options ([gameplay] training_*: the launcher's, and the TRAINING
-// page's as they change) handed to the game module, which uses them from its
-// next frame; `start`: Start training's match from the title (only at the
-// start: the module takes it once). False when the module has no Training.
-bool ConfigureTraining(void* module,const mscharged::Settings& s,bool start)
+// Training's options ([gameplay] training_*: saved by the TRAINING page, the
+// pause menu's TRAINING OPTIONS) handed to the game module, which uses them
+// from its next frame.
+void ConfigureTraining(void* module,const mscharged::Settings& s)
 {
     auto* configureTraining=reinterpret_cast<void(*)(int,bool,int,int)>(
         mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training"));
-    if(!configureTraining) return false;
+    if(!configureTraining) return;
     const auto& item=mscharged::kTrainingItemKinds[std::size_t(
         std::max(mscharged::TrainingIndex(mscharged::kTrainingItems,s.training_item),0))];
-    configureTraining(item.type,start,mscharged::TrainingIndex(mscharged::kTrainingCaptains,s.training_captain),
-        mscharged::TrainingIndex(mscharged::kTrainingStadiums,s.training_stadium));
+    // (No Start training from the title, so no captain or stadium for it.)
+    configureTraining(item.type,false,-1,-1);
     // And how many of it, and whether a single one is always giant.
     if(auto* configureItem=reinterpret_cast<void(*)(int,bool)>(
            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_item")))
         configureItem(item.count,item.giant);
     if(auto* configureOpponent=reinterpret_cast<void(*)(int,int,bool,bool,int,bool)>(
            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_opponent")))
-        configureOpponent(mscharged::TrainingIndex(mscharged::kTrainingCaptains,s.training_away_captain),
-            s.training_away_fielders,s.training_away_goalie,s.training_skip_goals,
-            mscharged::TrainingIndex(mscharged::kTrainingSkills,s.training_away_skill),s.training_side=="away");
-    return true;
+        configureOpponent(-1,s.training_away_fielders,s.training_away_goalie,s.training_skip_goals,
+            mscharged::TrainingIndex(mscharged::kTrainingSkills,s.training_away_skill),false);
 }
 // The tweaks that change only the menus, the HUD and how fast the title is
 // passed: a replay keeps the viewer's (as the module does, match_replay.cpp).
@@ -1175,10 +1172,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_hd_recolour")))
                 configureRecolour(mscharged::TexturePackRecolourHook(reinterpret_cast<ChargedPresenceSnapshotFunction>(
                     mscharged::platform::FindNativeModuleSymbol(module,"charged_presence_snapshot"))));
-            // Training: the item of the team that trains, and Start training's match.
-            if(ConfigureTraining(module,launch.settings,launch.start_training) && launch.start_training)
-                mscharged::platform::SessionLogLine(("Start training: "+launch.settings.training_captain+" in "
-                    +launch.settings.training_stadium).c_str());
+            // Training: the item of the team that trains and its opponent.
+            ConfigureTraining(module,launch.settings);
             // And its buttons' texts in the game (Strikers 101's FREE PLAY).
             if(auto* configureTrainingTexts=reinterpret_cast<void(*)(const unsigned short*,const unsigned short*)>(
                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_texts"))) {
@@ -2983,7 +2978,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             case GameSetting::TrainingGoalie:
             case GameSetting::TrainingSkipGoals:
             case GameSetting::TrainingSkill:
-                ConfigureTraining(module,launch.settings,false);
+                ConfigureTraining(module,launch.settings);
                 // The item and the opponent's skill count at once.
                 if(menuCommand && (change.setting==GameSetting::TrainingItem
                                    || change.setting==GameSetting::TrainingSkill)) {

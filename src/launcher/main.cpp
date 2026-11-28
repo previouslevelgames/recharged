@@ -625,7 +625,7 @@ struct Options
     bool experimental_scene = false;
     bool experimental_frontend = false;
     bool experimental_options = false;
-    bool direct_game = false;  // --disc or --training without a runtime mode: the game, to play
+    bool direct_game = false;  // --disc without a runtime mode: the game, to play
     bool frame_arguments = false;
     bool scene_arguments = false;
     bool standalone_assets = false;
@@ -3663,10 +3663,9 @@ private:
         return {};
     }
 
-    void Play(bool& quit, bool training = false)
+    void Play(bool& quit)
     {
         if (!PlayBlocker().empty()) return;
-        training_ = training;
         // Unsaved changes: ask whether to start with or without them.
         if (dirty_) { play_prompt_ = true; return; }
         Start(quit);
@@ -3684,11 +3683,9 @@ private:
     void Start(bool& quit)
     {
         frontend_launch_ = GameLaunch();
-        frontend_launch_->start_training = training_;
         // A replay starts with the image it found; the game closes after it.
         if (ReplayReady())
         {
-            frontend_launch_->start_training = false;
             frontend_launch_->disc_path = pending_replay_->image;
             frontend_launch_->replay_path = pending_replay_->path;
             // A kept game of a match: the game follows the match's next one.
@@ -3926,11 +3923,6 @@ private:
         const float sidebar = size.x < Dp(1000) ? Dp(216) : Dp(244);
         DrawSidebar(sidebar, size.y);
         DrawMain({sidebar, 0}, {size.x - sidebar, size.y}, quit);
-        if (training_requested_)
-        {
-            training_requested_ = false;
-            Play(quit, true);
-        }
         if (competitive_go_)
         {
             competitive_go_ = false;
@@ -11787,124 +11779,16 @@ private:
                    NoticeKind::Success);
     }
 
-    // A choice from a list: a button with the chosen label that opens the
-    // list, the chosen one ticked. Whether another was chosen.
-    template <std::size_t Size>
-    bool ChoiceButton(const char* id, std::string& value, const std::array<const char*, Size>& keys,
-                      const char* const (&labels)[Size])
-    {
-        const int current = std::max(TrainingIndex(keys, value), 0);
-        ImGui::PushID(id);
-        if (SecondaryButton("##choice", labels[current], {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()}))
-            ImGui::OpenPopup("##choice_menu");
-        const auto& fonts = CurrentFonts();
-        const float width = Dp(220);
-        bool changed = false;
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(6, 6));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0, Dp(2)});
-        ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, Dp(10));
-        ImGui::PushStyleColor(ImGuiCol_PopupBg, Mix(color::card, color::window, 0.25f));
-        // A long list (the items) scrolls instead of leaving the window.
-        ImGui::SetNextWindowSizeConstraints({0, 0}, {FLT_MAX, ImGui::GetMainViewport()->WorkSize.y * 0.7f});
-        if (ImGui::BeginPopup("##choice_menu"))
-        {
-            auto* draw = ImGui::GetWindowDrawList();
-            for (int n = 0; n < int(Size); ++n)
-            {
-                ImGui::PushID(n);
-                const ImVec2 pos = ImGui::GetCursorScreenPos(), size{width, Dp(36)};
-                const bool pressed = ImGui::InvisibleButton("##row", size);
-                const float hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered(), 14.0f);
-                if (hover > 0.0f)
-                    draw->AddRectFilled(pos, {pos.x + size.x, pos.y + size.y}, Col(color::text, 0.06f * hover), Dp(7));
-                const bool chosen = n == current;
-                const ImU32 ink = Col(chosen ? color::accent : Mix(Mix(color::muted, color::text, 0.7f), color::text, hover));
-                DrawLabel(draw, fonts.label, {pos.x + Dp(12), pos.y + (size.y - FontSize(fonts.label)) * 0.5f}, ink,
-                          labels[n]);
-                if (chosen) DrawIcon(draw, Icon::Check, {pos.x + width - Dp(18), pos.y + size.y * 0.5f}, Dp(14), ink);
-                if (pressed)
-                {
-                    changed = !chosen;
-                    value = keys[std::size_t(n)];
-                    ImGui::CloseCurrentPopup();
-                }
-                ImGui::PopID();
-            }
-            ImGui::EndPopup();
-        }
-        ImGui::PopStyleColor();
-        ImGui::PopStyleVar(3);
-        ImGui::PopID();
-        return changed;
-    }
-
-    void TrainingRows()
-    {
-        Row(texts::T("settings.gameplay.training.item.name"), texts::T("settings.gameplay.training.item.about"));
-        if (ChoiceButton("training_item", draft_.training_item, kTrainingItems, kTrainingItemNames)) dirty_ = true;
-        Row(texts::T("settings.gameplay.training.captain.name"), texts::T("settings.gameplay.training.captain.about"));
-        if (ChoiceButton("training_captain", draft_.training_captain, kTrainingCaptains, kCaptainNames)) dirty_ = true;
-        Row(texts::T("settings.gameplay.training.stadium.name"), texts::T("settings.gameplay.training.stadium.about"));
-        if (ChoiceButton("training_stadium", draft_.training_stadium, kTrainingStadiums, kStadiumNames)) dirty_ = true;
-        Row(texts::T("settings.gameplay.training.side.name"), texts::T("settings.gameplay.training.side.about"));
-        {
-            static constexpr std::array<const char*, 2> keys{"home", "away"};
-            const char* labels[] = {texts::T("settings.gameplay.training.side.home"),
-                                    texts::T("settings.gameplay.training.side.away")};
-            if (ChoiceButton("training_side", draft_.training_side, keys, labels)) dirty_ = true;
-        }
-        Row(texts::T("settings.gameplay.training.opponent_captain.name"),
-            texts::T("settings.gameplay.training.opponent_captain.about"));
-        if (ChoiceButton("training_away_captain", draft_.training_away_captain, kTrainingCaptains, kCaptainNames))
-            dirty_ = true;
-        Row(texts::T("settings.gameplay.training.opponent_fielders.name"),
-            texts::T("settings.gameplay.training.opponent_fielders.about"));
-        {
-            static constexpr std::array<const char*, 5> keys{"0", "1", "2", "3", "4"};
-            const char* labels[] = {texts::T("settings.gameplay.training.opponent_fielders.none"), "1", "2", "3",
-                                    texts::T("settings.gameplay.training.opponent_fielders.all")};
-            std::string value = std::to_string(draft_.training_away_fielders);
-            if (ChoiceButton("training_away_fielders", value, keys, labels))
-            {
-                draft_.training_away_fielders = value[0] - '0';
-                dirty_ = true;
-            }
-        }
-        Row(texts::T("settings.gameplay.training.opponent_skill.name"),
-            texts::T("settings.gameplay.training.opponent_skill.about"));
-        if (ChoiceButton("training_away_skill", draft_.training_away_skill, kTrainingSkills, kSkillNames)) dirty_ = true;
-        Row(texts::T("settings.gameplay.training.opponent_goalie.name"),
-            texts::T("settings.gameplay.training.opponent_goalie.about"));
-        if (Toggle("##training_away_goalie", &draft_.training_away_goalie)) dirty_ = true;
-        Row(texts::T("settings.gameplay.training.skip_goals.name"),
-            texts::T("settings.gameplay.training.skip_goals.about"));
-        if (Toggle("##training_skip_goals", &draft_.training_skip_goals)) dirty_ = true;
-        const std::string blocker = PlayBlocker();
-        Row(texts::T("settings.gameplay.training.start.name"), texts::T("settings.gameplay.training.start.about"));
-        if (SecondaryButton("start_training", texts::T("settings.gameplay.training.start.button"),
-                            {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()}, blocker.empty(), Icon::Play))
-            training_requested_ = true;
-        if (!blocker.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", blocker.c_str());
-    }
-
-    // What needs files, folders or the launcher: texture packs, Training (it
-    // starts the game) and the replays. The other gameplay options are the
-    // game's OPTIONS > GAMEPLAY; the Super Team and the development switch for
-    // the menus are only in the settings file.
+    // What needs files, folders or the launcher: texture packs and the
+    // replays. The other gameplay options are the game's OPTIONS > GAMEPLAY,
+    // Training's are its pause menu's TRAINING OPTIONS (Strikers 101's FREE
+    // PLAY starts it); the Super Team and the development switch for the
+    // menus are only in the settings file.
     void ExtrasPage()
     {
         PageHeader(texts::T("settings.extras.title"), texts::T("settings.extras.about"));
 
         ModsCard();
-
-        BeginCard("##training", texts::T("settings.gameplay.training.title"), nullptr, Icon::Pitch);
-        if (BeginRows("##training_rows"))
-        {
-            TrainingRows();
-            EndRows();
-        }
-        EndCard();
     }
 
     // Replays: whether matches are kept ([replays] record, the header's
@@ -13968,12 +13852,9 @@ private:
     bool dirty_ = false;
     bool play_prompt_ = false;
     float profile_actions_ = 0.0f; // Player profile: where the rows' actions start, from the value
-    // Start training: asked on the Extras page, and the start it makes.
-    bool training_requested_ = false;
     // A set's go seen: start its game (once per set and launcher).
     bool competitive_go_ = false;
     std::int64_t competitive_started_go_ = 0; // GoKey of the set's go this launcher started the game for
-    bool training_ = false;
     NoticeKind notice_kind_ = NoticeKind::Info;
     std::string notice_;
     int page_ = PagePlay;
@@ -14399,10 +14280,10 @@ int main(int argc, char** argv)
         + unsigned(options.experimental_options);
     const bool launcher_requested = options.launcher || options.smoke_test
         || !options.screenshot.empty() || options.page_selected;
-    // --disc, or --training, starts the game without the launcher. A replay
-    // without --disc opens the launcher, which finds the image it was
-    // recorded with and starts it.
-    if (!runtime_modes && (options.launch.disc || options.launch.training) && !launcher_requested)
+    // --disc starts the game without the launcher. A replay without --disc
+    // opens the launcher, which finds the image it was recorded with and
+    // starts it.
+    if (!runtime_modes && options.launch.disc && !launcher_requested)
     {
         options.experimental_frontend = true;
         options.direct_game = true;

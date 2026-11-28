@@ -72,13 +72,11 @@ Values Encode(const Settings& s)
             {"game.folder_subfolders", s.folder_subfolders ? "true" : "false"},
             {"game.save_folder", s.save_folder}, {"game.gamecube_disc", s.gamecube_disc},
             {"game.language", s.language}, {"gameplay.super_team_side", s.super_team_side},
-            {"gameplay.training_item", s.training_item}, {"gameplay.training_captain", s.training_captain},
-            {"gameplay.training_stadium", s.training_stadium},
-            {"gameplay.training_away_captain", s.training_away_captain},
+            {"gameplay.training_item", s.training_item},
             {"gameplay.training_away_fielders", std::to_string(s.training_away_fielders)},
             {"gameplay.training_away_goalie", s.training_away_goalie ? "true" : "false"},
             {"gameplay.training_skip_goals", s.training_skip_goals ? "true" : "false"},
-            {"gameplay.training_away_skill", s.training_away_skill}, {"gameplay.training_side", s.training_side},
+            {"gameplay.training_away_skill", s.training_away_skill},
             {"display.width", std::to_string(s.width)}, {"display.height", std::to_string(s.height)},
             {"display.fullscreen", s.fullscreen ? "true" : "false"},
             {"display.fullscreen_resolution", s.fullscreen_resolution},
@@ -503,14 +501,10 @@ Settings Decode(const Values& values, bool builtin = false)
         value = it->second;
     };
     training("gameplay.training_item", s.training_item, kTrainingItems);
-    training("gameplay.training_captain", s.training_captain, kTrainingCaptains);
-    training("gameplay.training_stadium", s.training_stadium, kTrainingStadiums);
-    training("gameplay.training_away_captain", s.training_away_captain, kTrainingCaptains);
     number("gameplay.training_away_fielders", s.training_away_fielders, 0, 4);
     boolean("gameplay.training_away_goalie", s.training_away_goalie);
     boolean("gameplay.training_skip_goals", s.training_skip_goals);
     training("gameplay.training_away_skill", s.training_away_skill, kTrainingSkills);
-    choice("gameplay.training_side", s.training_side, {"home", "away"});
     return s;
 }
 
@@ -579,11 +573,15 @@ Values Parse(const std::string& contents, std::string* updated = nullptr, Values
                 // a 1.0.12 test build's Wii Remote speaker format (#60), No
                 // HUD's tweak key, now hotkeys.show_hud, the switch for the
                 // update check, which always runs since updates are enforced,
-                // and the challenge sound's, which always plays.
+                // the challenge sound's, which always plays, and the
+                // launcher's Start training's captains, stadium and side
+                // (training starts from Strikers 101's FREE PLAY).
                 drop = updated && ((OwnedSection(section) && !kept.count(full_key))
                     || full_key == "display.show_fps" || full_key == "controls.deadzone"
                     || full_key == "controls.speaker_format" || full_key == "gameplay.no_hud"
-                    || full_key == "launcher.check_updates" || full_key == "online.challenge_sound");
+                    || full_key == "launcher.check_updates" || full_key == "online.challenge_sound"
+                    || full_key == "gameplay.training_captain" || full_key == "gameplay.training_stadium"
+                    || full_key == "gameplay.training_away_captain" || full_key == "gameplay.training_side");
                 if (const auto it = replacements.find(full_key); it != replacements.end())
                 {
                     if (it->second != value)

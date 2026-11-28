@@ -316,24 +316,17 @@ struct Settings
     // gameplay.super_team_side: the team the Super Team tweak dresses as
     // robots: away, home or both.
     std::string super_team_side = "away";
-    // gameplay.training_item, training_captain, training_stadium (Training):
-    // the item the team that trains starts every kickoff with (kTrainingItems),
-    // and the captain and stadium of Start training's match.
+    // gameplay.training_item, training_away_fielders, training_away_goalie,
+    // training_skip_goals, training_away_skill (Training, the pause menu's
+    // TRAINING OPTIONS): the item the team that trains starts every kickoff
+    // with (kTrainingItems), how many of the other team's four fielders play,
+    // whether its goalie plays, whether a goal goes straight to the kickoff,
+    // and the other team's skill (kTrainingSkills).
     std::string training_item = "green_shell";
-    std::string training_captain = "mario";
-    std::string training_stadium = "tutorialfield";
-    // gameplay.training_away_captain, training_away_fielders, training_away_goalie,
-    // training_skip_goals (Training): the other team's captain (kTrainingCaptains),
-    // how many of its four fielders play, whether its goalie plays, and whether a
-    // goal goes straight to the kickoff.
-    std::string training_away_captain = "bowser";
     int training_away_fielders = 0;
     bool training_away_goalie = true;
     bool training_skip_goals = true;
-    // gameplay.training_away_skill (kTrainingSkills): the other team's skill.
     std::string training_away_skill = "rookie";
-    // gameplay.training_side: the team the player plays, home or away.
-    std::string training_side = "home";
     unsigned GameTweakMask() const
     {
         unsigned mask = 0;

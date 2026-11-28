@@ -189,25 +189,24 @@ still unfinished, only `super_team = true` in `recharged.ini`:
   music, which replaces the stadium's music until the match ends, and the HUD
   shows SUDDEN DEATH instead of "First to". A team alone one goal from
   winning changes nothing. Only sound and HUD change. On by default.
-- **Training**: **Start training** on the launcher's Extras page (or `--training`)
-  goes past the intro and the menus straight into a Domination match with
-  the chosen captain, the sidekicks of their lineup on the Teams page, and
-  the chosen stadium, on the home or the away side. The other team has the captain you choose (Bowser by
-  default), with the sidekicks of their lineup on the Teams page, but only as
-  many of its four fielders as you choose play (none by default; the rest
-  vanish at every kickoff, as in the Strikers 101 lessons), at the skill you
-  choose, and its goalie can be taken out of the goal. The match can start at the kickoff, and a
-  goal go straight to the next one, without its celebration and replay; a Mega Strike's goal keeps its own.
-  Your team starts every kickoff with the chosen item (any power-up, three or
-  five of a shell, banana or Bob-omb where the game gives that many, a giant
-  one, or your captain's own) and keeps every item it uses, in a match to 10
-  goals that never ends on them (leave it from the pause menu), without the
-  cheats of the saved Gameplay options. In the game, Strikers 101's
-  **FREE PLAY**, at the bottom right of its lessons, starts one too: through
-  Domination's captains, sidekicks, sides (one side only: the
-  other team is the opponent) and stadium, with the launcher's other training
-  options, and leaving it goes back to the lessons. Every other match is
-  unchanged.
+- **Training**: Strikers 101's **FREE PLAY**, at the bottom right of its
+  lessons, starts a training match through Domination's captains, sidekicks,
+  sides and stadium. Its sides are one side only, the other team's card shows
+  COM: the other team is the opponent. Your team starts every kickoff with the
+  chosen item (any power-up, three or five of a shell, banana or Bob-omb where
+  the game gives that many, a giant one, or your captain's own) and keeps every
+  item it uses, in a match to 10 goals that never ends on them (the HUD says
+  FREE PLAY), without the cheats of the saved Gameplay options. Only as many of the opponent's four
+  fielders as you choose play (none by default; the rest vanish at every
+  kickoff, as in the Strikers 101 lessons), at the skill you choose, and its
+  goalie can be taken out of the goal; a goal can go straight to the next
+  kickoff, without its celebration and replay (a Mega Strike's goal keeps its
+  own). The pause menu's **TRAINING OPTIONS** (in place of its Statistics)
+  set the item, the opponent's fielders, skill and goalie and the goals'
+  celebrations: at once (a goalie taken out with the ball in its hands goes
+  once it lets go), the fielders and a goalie put back from the next
+  kickoff, and they are kept for the next training. Leaving the match goes back to the lessons.
+  Every other match is unchanged.
 - **Defence priority**: when players of both teams reach a loose
   ball in the same instant, the one the Wii game updates first takes it. It
   shuffles that order at every kickoff in a way that puts the home team
