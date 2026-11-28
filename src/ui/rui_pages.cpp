@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <functional>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -67,6 +68,78 @@ void DrawQuit(const PageModel& model, List& list, PageActions& actions)
     list.Note(model.front_end ? T("menus.quit.note") : T("menus.quit.note_match"));
     if (list.Plate(T("menus.quit.quit"))) actions.quit = true;
     if (list.Plate(T("menus.common.cancel"))) actions.back = true;
+}
+
+// The names of Training's items (kTrainingItemKinds' types, -1 none to 9 the
+// captain's own power-up) and skills (kTrainingSkills), as the launcher
+// names them.
+const char* TrainingItemName(int type)
+{
+    static constexpr const char* kNames[] = {"none",   "green_shell", "red_shell",   "spiny_shell",
+                                             "freeze_shell", "banana", "bob_omb", "chain_chomp",
+                                             "mushroom", "star", "captains_ability"};
+    const int at = std::clamp(type + 1, 0, int(std::size(kNames)) - 1);
+    return T(std::string("launcher.names.items.") + kNames[at]);
+}
+
+// A training match's options (the pause menu's TRAINING OPTIONS): the item
+// of the team that trains, by kind and then how many (or one always giant),
+// and the opponent.
+void DrawTraining(const PageModel& model, List& list, PageActions& actions)
+{
+    using overlay::GameSetting;
+    using overlay::GameSettingChange;
+    const auto& settings = model.overlay.settings;
+    list.Note(T("menus.training.note"));
+    list.Caption(T("menus.training.your_team"));
+    const int item = std::clamp(settings.training_item, 0, int(kTrainingItemKinds.size()) - 1);
+    const int type = kTrainingItemKinds[std::size_t(item)].type;
+    // The kinds in the table's order, each by its first entry (one of it).
+    std::vector<int> kinds;
+    for (std::size_t n = 0; n < kTrainingItemKinds.size(); ++n)
+        if (n == 0 || kTrainingItemKinds[n].type != kTrainingItemKinds[n - 1].type) kinds.push_back(int(n));
+    int kind = 0;
+    for (std::size_t n = 0; n < kinds.size(); ++n)
+        if (kTrainingItemKinds[std::size_t(kinds[n])].type == type) kind = int(n);
+    if (const auto step = list.Cycle(T("menus.training.item"), TrainingItemName(type), T("menus.training.item_about")))
+    {
+        const int count = int(kinds.size());
+        actions.setting = GameSettingChange{GameSetting::TrainingItem, kinds[std::size_t((kind + *step + count) % count)]};
+    }
+    // How many of it, where the game gives more than one. A single one is
+    // thrown giant anyway, so there is no giant one to choose (a giant one of
+    // the settings shows as one).
+    std::vector<int> variants;
+    std::vector<std::string> labels;
+    int chosen = 0;
+    for (std::size_t n = 0; n < kTrainingItemKinds.size(); ++n)
+    {
+        const TrainingItemKind& variant = kTrainingItemKinds[n];
+        if (variant.type != type || variant.giant) continue;
+        if (int(n) == item) chosen = int(variants.size());
+        variants.push_back(int(n));
+        labels.push_back(std::to_string(variant.count));
+    }
+    if (variants.size() > 1)
+    {
+        if (const auto picked = list.Choice(T("menus.training.quantity"), labels, chosen,
+                                            T("menus.training.quantity_about")))
+            actions.setting = GameSettingChange{GameSetting::TrainingItem, variants[std::size_t(*picked)]};
+    }
+    list.Caption(T("menus.training.opponent"));
+    static const std::vector<std::string> kFielders{"0", "1", "2", "3", "4"};
+    if (const auto picked = list.Choice(T("menus.training.fielders"), kFielders,
+                                        std::clamp(settings.training_fielders, 0, 4),
+                                        T("menus.training.fielders_about")))
+        actions.setting = GameSettingChange{GameSetting::TrainingFielders, *picked};
+    SettingSwitch(list, actions, T("menus.training.goalie"), settings.training_goalie, GameSetting::TrainingGoalie,
+                  T("menus.training.goalie_about"));
+    std::vector<std::string> skills;
+    for (const char* skill : kTrainingSkills) skills.push_back(T(std::string("launcher.names.skills.") + skill));
+    CycleSetting(list, actions, T("menus.training.skill"), skills, settings.training_skill,
+                 T("menus.training.skill_about"), GameSetting::TrainingSkill);
+    SettingSwitch(list, actions, T("menus.training.skip_goals"), settings.training_skip_goals,
+                  GameSetting::TrainingSkipGoals, T("menus.training.skip_goals_about"));
 }
 
 void DrawOptions(const PageModel& model, List& list, PageActions& actions)
@@ -1044,6 +1117,7 @@ std::string PageTitle(PageId id, const std::string& key, const PageModel& model)
     case PageId::Tournaments: return T("menus.tournaments.title");
     case PageId::Tournament: return T("menus.tournament.title");
     case PageId::Bracket: return T("menus.bracket.title");
+    case PageId::Training: return T("menus.training.title");
     }
     return "";
 }
@@ -1116,6 +1190,7 @@ void DrawPage(PageId id, int category, const std::string& key, const PageModel& 
     case PageId::Bracket: DrawBracket(model, list, actions); break;
     case PageId::Match: DrawMatch(list, actions); break;
     case PageId::Forfeit: DrawForfeit(model, list, actions); break;
+    case PageId::Training: DrawTraining(model, list, actions); break;
     }
 }
 } // namespace mscharged::ui

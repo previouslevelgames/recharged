@@ -152,10 +152,6 @@ int main()
                 "--no-tweaks did not turn the tweaks off");
             Check(tweakedFile.settings.GameTweakMask() != 0 && Read(tweaked).find("skip_intro = true") != std::string::npos,
                 "--no-tweaks changed the INI");
-            LaunchOptions training; training.no_tweaks = true; training.training = true;
-            const auto trained = ResolveLaunch(tweakedFile, training);
-            Check(trained.start_training && trained.settings.GameTweakMask() == 0 && !played.start_training,
-                "--training did not start training, or changed the tweaks");
         }
         // --replay FILE, or a .msc file alone (as opening it passes it).
         Check(*Parse({"test", "--replay", "a.msc"}).replay == fs::path("a.msc")

@@ -79,9 +79,10 @@ inline constexpr std::array<GameTweakInfo, 15> kGameTweaks{{
      true},
 }};
 
-// Start training ([gameplay] training_item, training_captain, training_stadium): the
-// config's names; kTrainingItemKinds gives each item's ePowerUpType, and the
-// captains and stadiums are in the order of eTeamID and eStadiumID.
+// Training ([gameplay] training_item) and the captains and stadiums the
+// launcher names (its replays): the config's names; kTrainingItemKinds gives
+// each item's ePowerUpType, and the captains and stadiums are in the order
+// of eTeamID and eStadiumID.
 inline constexpr std::array<const char*, 28> kTrainingItems{
     "none",
     "green_shell", "green_shell_3", "green_shell_5", "giant_green_shell",

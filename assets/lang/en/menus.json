@@ -22,6 +22,26 @@
     "controller_map": "CONTROLLER MAP",
     "quit": "QUIT"
   },
+  "training": {
+    "free_play": "FREE PLAY",
+    "options": "TRAINING OPTIONS",
+    "title": "TRAINING",
+    "note": "Changes count at once, the opponent's fielders and a goalie coming back from the next kickoff.",
+    "your_team": "YOUR TEAM",
+    "item": "Item",
+    "item_about": "What your team holds at every kickoff, and keeps when it uses it.",
+    "quantity": "How many",
+    "quantity_about": "How many of it your team gets; a single one is thrown giant.",
+    "opponent": "OPPONENT",
+    "fielders": "Fielders",
+    "fielders_about": "How many of the opponent's four fielders play; the captain is the last to go.",
+    "goalie": "Goalie",
+    "goalie_about": "Whether the opponent's goalie plays.",
+    "skill": "Skill",
+    "skill_about": "How well the opponent plays.",
+    "skip_goals": "Skip goal celebrations",
+    "skip_goals_about": "A goal goes straight to the kickoff."
+  },
   "menu": {
     "title": "RECHARGED",
     "online": "ONLINE",

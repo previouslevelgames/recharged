@@ -45,7 +45,6 @@ bool ParseLaunchOption(int argc, const char* const* argv, int& index, LaunchOpti
     if (token == "--window") { options.fullscreen = false; return true; }
     if (token == "--fullscreen") { options.fullscreen = true; return true; }
     if (token == "--no-tweaks") { options.no_tweaks = true; return true; }
-    if (token == "--training") { options.training = true; return true; }
     // A watch link (the WFC server's Watch button): its ticket, as a file in
     // the temporary folder, plays like a replay file.
     if (IsWatchLink(token))
@@ -182,7 +181,6 @@ ResolvedLaunch ResolveLaunch(const ConfigFile& config, const LaunchOptions& opti
         result.settings.tweaks = {};
         result.tweaks_source = SettingSource::CommandLine;
     }
-    result.start_training = options.training;
     if (options.replay)
     {
         if (options.replay->empty()) throw std::invalid_argument("Command-line replay path is empty");

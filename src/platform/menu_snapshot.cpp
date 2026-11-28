@@ -43,6 +43,7 @@
 #include "Game/SH/SHNavigation.h"
 #include "Game/SH/SHOptions.h"
 #include "Game/SH/SHPause.h"
+#include "Game/Team.h"
 #include "NL/gl/glDraw2.h"
 #include "NL/gl/glDraw3.h"
 #include "NL/gl/glMatrix.h"
@@ -131,15 +132,16 @@ BaseSceneHandler* TopScene(const BaseGameSceneManager* manager, SceneList scene)
 // The pause menu when it is the match overlays' top scene, or null.
 PauseMenuScene* TopPauseMenu() { return static_cast<PauseMenuScene*>(TopScene(g_pOverlayManager, SCENE_PAUSE)); }
 
-// The pause menu Recharged draws: the switch on, the menu on top, its scene
-// created and no quit under way.
-PauseMenuScene* ShownPauseMenu()
+// The pause menu on top, its scene created and no quit under way.
+PauseMenuScene* RestingPauseMenu()
 {
-    if (!Replaced()) return nullptr;
     PauseMenuScene* scene = TopPauseMenu();
     if (!scene || !scene->IsSceneReady() || scene->mQuitDelay > 0.0f) return nullptr;
     return scene;
 }
+
+// The pause menu Recharged draws: the switch on, and the menu as above.
+PauseMenuScene* ShownPauseMenu() { return Replaced() ? RestingPauseMenu() : nullptr; }
 
 // The front end's Options (the main menu's OPTIONS, options_main_menu.fen)
 // Recharged draws: the switch on, the scene on top of the front end's, its
@@ -583,8 +585,9 @@ void Run(const ChargedMenuCommand& command)
         SaveLoad::StartSave(false);
         break;
     case CHARGED_MENU_RESUME:
-        // As its Resume: only from the menu at rest.
-        if (PauseMenuScene* scene = ShownPauseMenu();
+        // As its Resume: only from the menu at rest (Recharged's pages over
+        // the game's own too: the training page).
+        if (PauseMenuScene* scene = RestingPauseMenu();
             scene && scene->mInitialized && !scene->mIsInTransition && !scene->mSelectionMade)
             scene->OnSelectRESUME(nullptr);
         break;
@@ -623,6 +626,14 @@ void Run(const ChargedMenuCommand& command)
     case CHARGED_MENU_CURSORS:
         sCursors = command.value != 0;
         break;
+    case CHARGED_MENU_TRAINING:
+        // The TRAINING page's new skill (as Choose Sides applies the skills)
+        // or item (GiveTrainingItem, tweak patch 0095), in a training match.
+        if (g_pGame && GetTrainingSide() >= 0) {
+            if (command.which == 0 && info) info->ApplyDifficultySettings();
+            else if (command.which == 1) GiveTrainingItem(true);
+        }
+        break;
     case CHARGED_MENU_FORFEIT:
         // As the game leaves an online match itself (the disc lid opened):
         // the loss pending, the connections closed; both games then find the
@@ -650,14 +661,17 @@ void Run(const ChargedMenuCommand& command)
 #if defined(MSCHARGED_TWEAKS)
 bool mscharged_tweak_menu_press_taken(int menu, int button, int pad)
 {
-    if (!Replaced()) return false;
+    // A training match's TRAINING OPTIONS (in place of the Statistics, tweak
+    // patch 0095): Recharged's training page, its menus on or off.
+    const bool training = menu == CHARGED_MENU_PAUSE && button == PAUSE_MATCH_INFO;
+    if (!training && !Replaced()) return false;
     // The pause menu's Audio and Visual Options: Recharged's Settings on its
     // Sound and Display instead of the game's pages. The main menu's ONLINE:
     // Recharged's online menu (its WII ONLINE presses it again, let through,
     // as does a set's or Play RANKED's walk into the game's online screens).
     const bool pause = menu == CHARGED_MENU_PAUSE && (button == 2 || button == 3);
     const bool online = menu == CHARGED_MENU_MAIN && !sPassMainOnline && !ChargedCompetitiveWalking();
-    if (!pause && !online) return false;
+    if (!training && !pause && !online) return false;
     ++sTaken;
     sTakenMenu = menu;
     sTakenButton = button;
@@ -807,6 +821,9 @@ extern "C" __attribute__((visibility("default"))) bool charged_menu_snapshot(Cha
     // Not before its scene is loaded and created (its buttons' instances are
     // set then); a quit under way turns the picture black (the game returns
     // to its menus).
+    s.pause_under = RestingPauseMenu() ? 1 : 0;
+    if (GameInfoManager* info = GameInfoManager::Instance())
+        s.training = g_bTrainingMatch && info->IsInFriendlyMode() && !info->IsOnline() ? 1 : 0;
     if (PauseMenuScene* scene = ShownPauseMenu()) {
         ReadPause(scene, s);
     } else if (OptionsScene* options = ShownOptions()) ReadOptions(options, s);

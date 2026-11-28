@@ -5,6 +5,7 @@
 #include <chrono>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 
 namespace fs = std::filesystem;
@@ -406,35 +407,41 @@ int main()
             try { LoadConfig(path); } catch (const std::runtime_error&) { rejected = true; }
             Require(rejected, "An unknown Super Team side is rejected");
         }
-        // Training's item, captain and stadium.
+        // Training's item, and its opponent.
         {
-            Require(Settings{}.training_item == "green_shell" && Settings{}.training_captain == "mario"
-                    && Settings{}.training_stadium == "tutorialfield", "Training defaults");
+            Require(Settings{}.training_item == "green_shell", "Training defaults");
+            // Start training's keys, from before Training was the game's only,
+            // are accepted and dropped on save.
             std::ofstream(path) << "[gameplay]\ntraining_item = giant_bobomb\ntraining_captain = petey\n"
-                                   "training_stadium = lavapit\n";
+                                   "training_stadium = lavapit\ntraining_away_captain = wario\ntraining_side = away\n";
             auto loaded = LoadConfig(path);
-            Require(loaded.settings.training_item == "giant_bobomb" && loaded.settings.training_captain == "petey"
-                    && loaded.settings.training_stadium == "lavapit",
-                    "The Training settings load");
+            Require(loaded.settings.training_item == "giant_bobomb", "The Training settings load");
             auto changed = loaded.settings;
             changed.training_item = "none";
             SaveConfig(loaded, changed);
             Require(LoadConfig(path).settings.training_item == "none", "The Training settings round trip");
-            std::ofstream(path) << "[gameplay]\ntraining_stadium = lowpolystadium\n";
+            {
+                std::ifstream saved(path);
+                const std::string text((std::istreambuf_iterator<char>(saved)), std::istreambuf_iterator<char>());
+                Require(text.find("training_captain") == std::string::npos
+                            && text.find("training_stadium") == std::string::npos
+                            && text.find("training_away_captain") == std::string::npos
+                            && text.find("training_side") == std::string::npos,
+                        "Start training's keys are dropped on save");
+            }
+            std::ofstream(path) << "[gameplay]\ntraining_item = golden_shell\n";
             bool rejected = false;
             try { LoadConfig(path); } catch (const std::runtime_error&) { rejected = true; }
-            Require(rejected, "An unknown Training stadium is rejected");
-            Require(Settings{}.training_away_captain == "bowser" && Settings{}.training_away_fielders == 0
-                    && Settings{}.training_away_goalie && Settings{}.training_skip_goals
-                    && Settings{}.training_away_skill == "rookie" && Settings{}.training_side == "home",
+            Require(rejected, "An unknown Training item is rejected");
+            Require(Settings{}.training_away_fielders == 0 && Settings{}.training_away_goalie
+                    && Settings{}.training_skip_goals && Settings{}.training_away_skill == "rookie",
                     "Training opponent defaults");
-            std::ofstream(path) << "[gameplay]\ntraining_away_captain = wario\ntraining_away_fielders = 2\n"
+            std::ofstream(path) << "[gameplay]\ntraining_away_fielders = 2\n"
                                    "training_away_goalie = false\ntraining_skip_goals = true\n"
-                                   "training_away_skill = megastriker\ntraining_side = away\n";
+                                   "training_away_skill = megastriker\n";
             const auto opponent = LoadConfig(path).settings;
-            Require(opponent.training_away_captain == "wario" && opponent.training_away_fielders == 2
-                    && !opponent.training_away_goalie && opponent.training_skip_goals
-                    && opponent.training_away_skill == "megastriker" && opponent.training_side == "away",
+            Require(opponent.training_away_fielders == 2 && !opponent.training_away_goalie
+                    && opponent.training_skip_goals && opponent.training_away_skill == "megastriker",
                     "The Training opponent settings load");
             std::ofstream(path) << "[gameplay]\ntraining_away_fielders = 5\n";
             rejected = false;

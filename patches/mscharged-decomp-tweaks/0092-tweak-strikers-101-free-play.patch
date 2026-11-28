@@ -1,0 +1,410 @@
+From: mscharged-port
+Subject: Tweak: Strikers 101 has a FREE PLAY button into training
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+Training (tweak patch 0038) could start only from the launcher. Strikers
+101's list of lessons now has a FREE PLAY button at the bottom right,
+beside its BACK: the navigation's PLAY button (the Cup's PLAY NOW, the
+stadium select's), whose text is the host's
+(mscharged_tweak_training_free_play_text, English without it). No layout
+changes: the button, its slides and its place are the navigation's own,
+and its pointer region is the one the stadium select gives it
+(SetPlayButtonBounds). The scene puts the navigation's PLAY NOW text back
+as it goes.
+
+Pressed, the list plays its out slide and the game goes on as the main
+menu's Domination does (GM_FRIENDLY, no teams, no sides), marked as
+training's match (g_bTrainingMatch, after SetMode, which clears it), into
+Domination's own screens from its captains on: captains, sidekicks, sides
+and stadium, then the match. Domination's gameplay options are left out:
+training plays its own match (one to 10 goals, without cheats). The
+captains share the lessons' camera (fe_presentation's
+TransitionMainMenuToTutorial and TransitionMainMenuToGrudgeMatch both go to
+fechoosecaptains), so they come straight after the list. The list's scroll
+position is kept in the challenge data for the way back.
+
+The way back is the lessons' list too:
+- the captains' BACK, which would go to Domination's gameplay options, goes
+  back to the list, with the scroll position it had, and the game in the
+  mode the main menu's Strikers 101 gives it (GM_CHALLENGE: SetMode clears
+  the training mark);
+- a training match never ends on its goals and is left from the pause
+  menu; one from FREE PLAY goes back to the list, as a lesson does (the
+  challenge branch of the front end's return, with its
+  TransitionGameToStrikerChallenge). g_bFreePlayMatch says where the match
+  came from: the list sets it with g_bTrainingMatch, and SetMode clears
+  both. The launcher's Start training still ends in the main menu, and so
+  does a replay of a FREE PLAY match.
+
+Between the two scores, where the HUD says FIRST TO 10 (HUD_FIRST_TO), a
+training match says FREE PLAY: the host's text for the button, or FREE PLAY
+when the host gives none.
+
+diff --git a/include/Game/SH/SHChallengeSelect.h b/include/Game/SH/SHChallengeSelect.h
+index 27813ed..d78dd9a 100644
+--- a/include/Game/SH/SHChallengeSelect.h
++++ b/include/Game/SH/SHChallengeSelect.h
+@@ -53,6 +53,21 @@ public:
+     /* 0x4E0 */ unsigned short mChallengeNumbers[3][8];
+     /* 0x510 */ unsigned short mChallengeCountText[8];
+     /* 0x520 */ int mState;
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": Strikers 101's FREE PLAY, the navigation's PLAY
++    // button at the bottom right: its pointer region, whether it shows, and
++    // whether it was pressed (the list's out slide plays, then Domination's
++    // captains).
++    void InitializeFreePlay();
++    void OnFreePlayEnter(int pointerIndex, void* context);
++    void OnFreePlayLeave(int pointerIndex, void* context);
++    void OnFreePlayPressed(int pointerIndex, void* context);
++    void StartFreePlay();
++    FEPointerButton mFreePlayButton;
++    TLComponentInstance* mFreePlayInstance;
++    bool mFreePlayShown;
++    bool mFreePlayChosen;
++#endif
+ }; // size 0x524
+ 
+ #endif // GAME_SH_SHCHALLENGESELECT_H
+diff --git a/include/Game/Team.h b/include/Game/Team.h
+index 7942750..7879e0a 100644
+--- a/include/Game/Team.h
++++ b/include/Game/Team.h
+@@ -148,12 +148,16 @@ public:
+ 
+ extern cTeam* g_pTeams[];
+ #if defined(MSCHARGED_TWEAKS)
+-// Port tweak "Training": whether the match is the launcher's Start training
+-// one (the title sets it, GameInfoManager::SetMode clears it); and the side
+-// (0 home, 1 away) that trains alone in it, the one players play while nobody
+-// plays the other, -1 for none.
++// Port tweak "Training": whether the match is a training one, the launcher's
++// Start training or Strikers 101's FREE PLAY (the title or the lessons' list
++// sets it, GameInfoManager::SetMode clears it); and the side (0 home, 1 away)
++// that trains alone in it, the one players play while nobody plays the other,
++// -1 for none.
+ extern bool g_bTrainingMatch;
+ int GetTrainingSide();
++// Whether that match came from FREE PLAY (tweak patch 0092), whose list it
++// goes back to (SetMode clears it too).
++extern bool g_bFreePlayMatch;
+ #endif
+ FuzzyRuntimeBase* GetTeamFuzzyRuntime(cTeam*);
+ ScriptMachine* GetTeamScriptMachine(cTeam*);
+diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
+index 23ba2ab..d23f116 100644
+--- a/include/mscharged_tweaks.h
++++ b/include/mscharged_tweaks.h
+@@ -283,6 +283,9 @@ bool mscharged_tweak_training_play_away(void);
+ // captain that trains.
+ int mscharged_tweak_training_item_count(void);
+ bool mscharged_tweak_training_item_giant(void);
++// Strikers 101's FREE PLAY (tweak patch 0092): its button's text, the
++// host's (null: the game module's English).
++const unsigned short* mscharged_tweak_training_free_play_text(void);
+ // Enforced updates (tweak patch 0054, the host's src/launcher/online_gate.h):
+ // whether the main menu keeps Online closed, because this release is not the
+ // newest one or could not check (a check still running gets up to 3 s); then,
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index ff83854..efbed8c 100644
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -1751,6 +1751,23 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
+                 GameSceneManager::Instance()->Push(SCENE_CHOOSE_CAPTAINS_DOMINATION, SCREEN_BACK, false);
+                 FEMusic::StartStreamIfDifferent(1);
+             }
++#if defined(MSCHARGED_TWEAKS)
++            // Port tweak "Training": a match of Strikers 101's FREE PLAY (tweak
++            // patch 0092) goes back to the lessons' list, where it was, as a
++            // lesson does, in the mode the main menu's Strikers 101 gives it
++            // (GM_CHALLENGE, which clears the training marks).
++            else if (g_bTrainingMatch && g_bFreePlayMatch)
++            {
++                GameInfoManager::Instance()->SetMode(GameInfoManager::GM_CHALLENGE, 0);
++                ChallengeSelectScene* list = static_cast<ChallengeSelectScene*>(
++                    GameSceneManager::Instance()->Push(SCENE_STRIKERS_101_SELECT, SCREEN_NOTHING, false));
++                if (list != 0)
++                {
++                    list->mChallengeOffset = g_pStrikerChallenge->mChallengeOffset;
++                }
++                FrontEndPresentation::GetInstance()->Call("TransitionGameToStrikerChallenge");
++            }
++#endif
+             else
+             {
+                 FEAudio::PlayAnimAudioEvent(0x80060B2D, 0, 0, true);
+diff --git a/src/Game/FE/Overlay/OverlayHandlerHUD.cpp b/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
+index 7532873..7ad0aca 100644
+--- a/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
++++ b/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
+@@ -538,6 +538,27 @@ void HUDClock::Init(FEPresentation* presentation)
+         WideString unformatted(g_pLocalization->GetString("HUD_FIRST_TO"));
+         WideString formatted = Format(unformatted, goalLimitWide);
+         memcpy(mClockBuffer, formatted.c_str(), sizeof(mClockBuffer));
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Training": a training match, which no score ends, says
++        // FREE PLAY there (the host's text, Strikers 101's button's).
++        GameInfoManager* pInfo = nlSingleton<GameInfoManager>::Instance();
++        if (g_bTrainingMatch && pInfo->IsInFriendlyMode() && !pInfo->IsOnline())
++        {
++            const unsigned short* pFreePlay = mscharged_tweak_training_free_play_text();
++            static const unsigned short sFreePlay[] = { 'F', 'R', 'E', 'E', ' ', 'P', 'L', 'A', 'Y', 0 };
++            if (pFreePlay == 0)
++            {
++                pFreePlay = sFreePlay;
++            }
++            size_t n = 0;
++            while (pFreePlay[n] != 0 && n + 1 < sizeof(mClockBuffer) / sizeof(mClockBuffer[0]))
++            {
++                mClockBuffer[n] = pFreePlay[n];
++                n++;
++            }
++            mClockBuffer[n] = 0;
++        }
++#endif
+         m_pTextInstanceGameType->SetString(mClockBuffer);
+         m_pTextInstanceClock[0]->m_bVisible = false;
+         m_pTextInstanceClock[1]->m_bVisible = false;
+diff --git a/src/Game/GameInfo.cpp b/src/Game/GameInfo.cpp
+index 529fea0..54ba2ff 100644
+--- a/src/Game/GameInfo.cpp
++++ b/src/Game/GameInfo.cpp
+@@ -206,6 +206,7 @@ void GameInfoManager::SetMode(int mode, bool online)
+ #if defined(MSCHARGED_TWEAKS)
+     // Port tweak "Training": a mode chosen in the menus is not its match.
+     g_bTrainingMatch = false;
++    g_bFreePlayMatch = false;
+ #endif
+ }
+ 
+diff --git a/src/Game/SH/SHChallengeSelect.cpp b/src/Game/SH/SHChallengeSelect.cpp
+index 68d49bd..1756144 100644
+--- a/src/Game/SH/SHChallengeSelect.cpp
++++ b/src/Game/SH/SHChallengeSelect.cpp
+@@ -37,9 +37,25 @@
+ #include "Game/FE/feBackButton.h"
+ #include "Game/FE/feScrollBar.h"
+ #include "Game/SH/SHNavigation.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "Game/GameInfo.h"
++#include "Game/Team.h"
++#include "mscharged_tweaks.h"
++#endif
+ 
+ ChallengeSelectScene::~ChallengeSelectScene()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // The navigation's PLAY says the game's own PLAY NOW again (the stadium
++    // select shows it as it is).
++    if (mFreePlayShown)
++    {
++        if (SHNavigation* navigation = GetNavigationScene())
++        {
++            navigation->SetPlayButtonText(NAV_PLAY_NOW);
++        }
++    }
++#endif
+ }
+ 
+ ChallengeSelectScene::ChallengeSelectScene(bool tutorial)
+@@ -60,6 +76,12 @@ ChallengeSelectScene::ChallengeSelectScene(bool tutorial)
+     nlSNPrintf(mChallengeCountText, 8, (const unsigned short*)L"%d", challengeCount);
+     mBackButton.SetPopScene(false);
+     g_pStrikerChallenge->mHeadlineVariant = -1;
++#if defined(MSCHARGED_TWEAKS)
++    mFreePlayButton.mSpeakerEnabled = false;
++    mFreePlayInstance = 0;
++    mFreePlayShown = false;
++    mFreePlayChosen = false;
++#endif
+ }
+ 
+ void ChallengeSelectScene::SceneCreated()
+@@ -239,6 +261,13 @@ void ChallengeSelectScene::Update(float dt)
+         {
+             if (!mButtonsInitialized)
+             {
++#if defined(MSCHARGED_TWEAKS)
++                if (mTutorial)
++                {
++                    InitializeFreePlay();
++                }
++                else
++#endif
+                 GetNavigationScene()->SetButtons(NAVIGATION_BUTTON_BACK, true);
+                 InitializeButtons();
+                 mButtonsInitialized = true;
+@@ -247,6 +276,13 @@ void ChallengeSelectScene::Update(float dt)
+         }
+         else if (mState == CHALLENGE_SELECT_TRANSITIONING)
+         {
++#if defined(MSCHARGED_TWEAKS)
++            if (mFreePlayChosen)
++            {
++                StartFreePlay();
++                return;
++            }
++#endif
+             SHStrikerTimesBase* scene = static_cast<SHStrikerTimesBase*>(
+                 GameSceneManager::Instance()->Push(SCENE_CHALLENGE_NEWS, SCREEN_NOTHING, true));
+             g_pStrikerChallenge->mChallengeOffset = mChallengeOffset;
+@@ -294,6 +330,16 @@ void ChallengeSelectScene::Update(float dt)
+         {
+             mChallengeButtons[j].HandlePointerEvent(&event);
+         }
++#if defined(MSCHARGED_TWEAKS)
++        if (mFreePlayShown && mState == CHALLENGE_SELECT_ACTIVE)
++        {
++            mFreePlayButton.HandlePointerEvent(&event);
++            if (mFreePlayChosen)
++            {
++                return;
++            }
++        }
++#endif
+         if (mBackButton.UpdateBackButton(event, dt))
+         {
+             mState = CHALLENGE_SELECT_EXITING_BACK;
+@@ -422,3 +468,92 @@ bool ChallengeSelectScene::IsChallengeAvailable(int)
+ {
+     return true;
+ }
++
++#if defined(MSCHARGED_TWEAKS)
++// Port tweak "Training": Strikers 101's FREE PLAY. The navigation's PLAY
++// button (the Cup's PLAY NOW, at the bottom right) shows beside the BACK with
++// the host's text, and goes into a training match through Domination's own
++// screens: its captains, sidekicks, sides and stadium (its gameplay options
++// are left out: training plays its own match). The captains share the
++// lessons' camera (fechoosecaptains), so they come straight after the list's
++// out slide.
++static const unsigned short sFreePlayDefault[] = { 'F', 'R', 'E', 'E', ' ', 'P', 'L', 'A', 'Y', 0 };
++
++void ChallengeSelectScene::InitializeFreePlay()
++{
++    SHNavigation* navigation = GetNavigationScene();
++    navigation->SetButtons(NAVIGATION_BUTTON_BACK | NAVIGATION_BUTTON_PLAY, true);
++    mFreePlayInstance = navigation->GetButton(NAVIGATION_BUTTON_PLAY);
++    const unsigned short* text = mscharged_tweak_training_free_play_text();
++    if (text == NULL || text[0] == 0)
++    {
++        text = sFreePlayDefault;
++    }
++    static const char* const slides[3] = { "off", "over", "down" };
++    for (int i = 0; i < 3; ++i)
++    {
++        FEFinder<TLTextInstance, 3>::FindOrDefault(mFreePlayInstance, slides[i], "Group", "playnow")->SetString(text);
++    }
++    mFreePlayShown = true;
++
++    typedef Detail::MemFunImpl<void, void (ChallengeSelectScene::*)(int, void*)> PointerMethod;
++    typedef BindExp3<void, PointerMethod, ChallengeSelectScene*, Placeholder<0>, Placeholder<1> > PointerBinding;
++    FEPointerListener::Callback onEnter(
++        PointerBinding(MemFun(&ChallengeSelectScene::OnFreePlayEnter), this, Placeholder<0>(), Placeholder<1>()));
++    FEPointerListener::Callback onLeave(
++        PointerBinding(MemFun(&ChallengeSelectScene::OnFreePlayLeave), this, Placeholder<0>(), Placeholder<1>()));
++    FEPointerListener::Callback onPressed(
++        PointerBinding(MemFun(&ChallengeSelectScene::OnFreePlayPressed), this, Placeholder<0>(), Placeholder<1>()));
++    SetPlayButtonBounds(&mFreePlayButton, mFreePlayInstance);
++    mFreePlayButton.SetPointerEnterCallback(onEnter);
++    mFreePlayButton.SetPointerLeaveCallback(onLeave);
++    mFreePlayButton.SetPointerPressCallback(onPressed);
++}
++
++void ChallengeSelectScene::OnFreePlayEnter(int pointerIndex, void*)
++{
++    ++mPointerInsideCount;
++    if (!mFreePlayButton.HasOtherPointerState(POINTER_BUTTON_HOVER, pointerIndex))
++    {
++        mFreePlayInstance->SetActiveSlide("over", true, false);
++        FEAudio::PlayAnimAudioEvent(0xAA73EF34, 0, 0, 1);
++    }
++    mFreePlayButton.SetPointerState(POINTER_BUTTON_HOVER, pointerIndex);
++}
++
++void ChallengeSelectScene::OnFreePlayLeave(int pointerIndex, void*)
++{
++    --mPointerInsideCount;
++    mFreePlayButton.SetPointerState(POINTER_BUTTON_NORMAL, pointerIndex);
++    if (!mFreePlayButton.HasOtherPointerState(POINTER_BUTTON_HOVER, pointerIndex))
++    {
++        mFreePlayInstance->SetActiveSlide("off", true, false);
++    }
++}
++
++void ChallengeSelectScene::OnFreePlayPressed(int, void*)
++{
++    FEAudio::PlayAnimAudioEvent(0xF0AFD586, 0, 0, 1);
++    mFreePlayChosen = true;
++    mState = CHALLENGE_SELECT_TRANSITIONING;
++    GetNavigationScene()->HideButtons();
++    mPresentation->SetActiveSlide("out", true);
++}
++
++void ChallengeSelectScene::StartFreePlay()
++{
++    // As the main menu's Domination (SHMainMenu::ApplyItem), then marked as
++    // training's match (SetMode clears the mark): the list stays where it was
++    // for the way back.
++    GameInfoManager* gameInfo = GameInfoManager::Instance();
++    gameInfo->SetMode(GameInfoManager::GM_FRIENDLY, 0);
++    g_bTrainingMatch = true;
++    g_bFreePlayMatch = true;
++    gameInfo->SetTeam(0, 0);
++    gameInfo->SetTeam(1, 0);
++    gameInfo->ResetPlayingSides();
++    g_pStrikerChallenge->mChallengeOffset = mChallengeOffset;
++    FEMusic::StartStreamIfDifferent(1);
++    GameSceneManager::Instance()->Push(SCENE_CHOOSE_CAPTAINS_DOMINATION, SCREEN_FORWARD, true);
++}
++#endif
+diff --git a/src/Game/SH/SHChooseCaptains.cpp b/src/Game/SH/SHChooseCaptains.cpp
+index 141fdb5..e6d0bca 100644
+--- a/src/Game/SH/SHChooseCaptains.cpp
++++ b/src/Game/SH/SHChooseCaptains.cpp
+@@ -38,6 +38,10 @@
+ #include "NL/nlBind.h"
+ #include "NL/nlFunction.inl"
+ #include "mscharged_tweaks.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "Game/DB/GameProgress.h"
++#include "Game/SH/SHChallengeSelect.h"
++#endif
+ 
+ static int sCaptainButtonSelectionOrder[12] = { 0, 5, 3, 6, 4, 7, 1, 8, 2, 9, 10, 11 };
+ 
+@@ -431,6 +435,22 @@ void ChooseCaptainsSceneV2::Update(float dt)
+         }
+         else if (mScenePhase == PHASE_EXITING_BACK)
+         {
++#if defined(MSCHARGED_TWEAKS)
++            // Port tweak "Training": Strikers 101's FREE PLAY (tweak patch
++            // 0092) came here from the lessons' list, which shares this camera:
++            // BACK goes back to it, where it was, as the main menu's Strikers
++            // 101 left it (GM_CHALLENGE, which is no training).
++            if (g_bTrainingMatch && mSceneType == ST_DOMINATION && !GameInfoManager::Instance()->IsOnline())
++            {
++                GameInfoManager::Instance()->SetMode(GameInfoManager::GM_CHALLENGE, 0);
++                ChallengeSelectScene* list = static_cast<ChallengeSelectScene*>(
++                    GameSceneManager::Instance()->Push(SCENE_STRIKERS_101_SELECT, SCREEN_BACK, true));
++                if (list != 0)
++                    list->mChallengeOffset = g_pStrikerChallenge->mChallengeOffset;
++                FEAudio::PlayAnimAudioEvent(0xC385EFFB, 0, 0, true);
++                return;
++            }
++#endif
+             if (GameInfoManager::Instance()->IsOnline())
+                 GameSceneManager::Instance()->Push(SCENE_ONLINE_MENU, SCREEN_BACK, true);
+             else if (mSceneType != ST_STRIKER_CUP)
+diff --git a/src/Game/Team.cpp b/src/Game/Team.cpp
+index e8b63c7..938ffd0 100644
+--- a/src/Game/Team.cpp
++++ b/src/Game/Team.cpp
+@@ -1062,6 +1062,7 @@ void cTeam::ResetCharacters()
+ 
+ #if defined(MSCHARGED_TWEAKS)
+ bool g_bTrainingMatch;
++bool g_bFreePlayMatch;
+ 
+ int GetTrainingSide()
+ {

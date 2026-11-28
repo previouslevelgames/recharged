@@ -450,54 +450,6 @@
     "super_team": {
       "uses_found": "The Super Team uses {{file}} from your game folder."
     },
-    "training": {
-      "title": "Training",
-      "item": {
-        "name": "Item",
-        "about": "The item your team starts every kickoff with. It stays after you use it. A single shell, banana or Bob-omb comes out medium or giant at random, a giant one always giant."
-      },
-      "captain": {
-        "name": "Captain",
-        "about": "Start training's captain, with their sidekicks from the Teams page."
-      },
-      "stadium": {
-        "name": "Stadium",
-        "about": "Start training's stadium."
-      },
-      "side": {
-        "name": "Your team",
-        "about": "The side you play: home or away. Controller 1 plays it.",
-        "home": "Home",
-        "away": "Away"
-      },
-      "opponent_captain": {
-        "name": "Opponent captain",
-        "about": "The other team's captain, with their sidekicks from the Teams page. The same as yours plays as Bowser, or Mario against Bowser."
-      },
-      "opponent_fielders": {
-        "name": "Opponent fielders",
-        "about": "How many of the other team's four fielders play, the captain last to go; the rest vanish at every kickoff, as in the Strikers 101 lessons.",
-        "none": "None",
-        "all": "All 4"
-      },
-      "opponent_skill": {
-        "name": "Opponent skill",
-        "about": "How well the other team's players play. Training is the level of the Strikers 101 lessons, below Rookie."
-      },
-      "opponent_goalie": {
-        "name": "Opponent goalie",
-        "about": "Whether the other team's goalie plays. Off, the goal is empty."
-      },
-      "skip_goals": {
-        "name": "Skip intro and replays",
-        "about": "The match starts at the kickoff, and a goal goes straight to the next one, without its celebration and replay. A Mega Strike's goal keeps its own."
-      },
-      "start": {
-        "name": "Start training",
-        "about": "Starts the game straight into a match to 10 goals that never ends on them, past the intro and the menus.",
-        "button": "Start training"
-      }
-    },
     "mods": {
       "title": "Mods",
       "about": "Texture packs replace the game's textures with sharper ones. They change only how the game looks.",

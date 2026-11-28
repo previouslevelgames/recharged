@@ -513,7 +513,7 @@ as a `.dds` file named as packs need it.
 
 ## Replays
 
-Every offline match (Domination, Training and the Cup's matches) is kept as a
+Every offline match (Domination and the Cup's matches; not Training) is kept as a
 replay: `replays/replay_<date>-<time>.msc` beside the program, about 5 KB a
 minute. Watch them in the launcher's **Replays** page, where **Keep
 replays** is `record`.
@@ -798,7 +798,6 @@ These options override the INI for one run, without saving:
 | `--aspect 16:9\|4:3\|stretch\|auto` | Aspect ratio (`auto`: 16:9 or 4:3, whichever is closer to the screen's shape) |
 | `--frame-rate original\|display\|unlimited\|FPS` | Frame rate |
 | `--no-tweaks` | All `[gameplay]` tweaks off (the bug fixes stay) |
-| `--training` | Start training: straight into a training match |
 | `--replay FILE` | Play a replay ([replays](REPLAYS.md)); a `.msc` file alone does the same |
 | `--config FILE` | Use another INI file |
 | `--launcher` | Open the launcher even with `--disc` |
