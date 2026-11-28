@@ -83,6 +83,7 @@ bool OnlinePage(ui::PageId id)
     switch (id) {
     case ui::PageId::Online:
     case ui::PageId::Play:
+    case ui::PageId::Rematch:
     case ui::PageId::Friends:
     case ui::PageId::Random:
     case ui::PageId::Profile:

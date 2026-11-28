@@ -679,6 +679,65 @@ void MouseButton(Uint8 button, bool down) {
     e.button.x = 320; e.button.y = 224;
     Check(SDL_PushEvent(&e), "Actual SDL event queue rejected mouse input");
 }
+// A mouse button at (x, y) of the window; false when an event filter took it.
+bool MouseButtonAt(Uint8 button, bool down, float x, float y) {
+    SDL_Event e{};
+    e.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+    e.button.windowID = SDL_GetWindowID(window);
+    e.button.which = 1;
+    e.button.button = button;
+    e.button.down = down;
+    e.button.x = x; e.button.y = y;
+    return SDL_PushEvent(&e);
+}
+int sStatusClicks = 0;
+// The host's button over the game (the status box's CANCEL): a left click on
+// it never reaches the game, press or release, and its release there acts;
+// beside it, and with the right button, the mouse is the player's as before.
+void StatusButtonCycle() {
+    using namespace mscharged::platform;
+    ConfigureWpadSDL({0,3,false,false});
+    DesktopWpadSettings settings{};
+    settings.keyboard = settings.mouse = true;
+    settings.pointer_projection = WholeWindow;
+    InitializeDesktopWpad(window, settings);
+    SetHotkeys({});
+    InitializeHotkeys(window);
+    WPADInit();
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK; }, "Keyboard & mouse did not connect");
+    sStatusClicks = 0;
+    SetHotkeyClickArea(300, 200, 340, 240, [] { ++sStatusClicks; });
+    Check(!MouseButtonAt(SDL_BUTTON_LEFT, true, 320, 224), "A press on the host's button reached the game");
+    for (int n = 0; n < 10; ++n) { Service(); SDL_Delay(2); }
+    Check(Report().button == 0 && sStatusClicks == 0, "A press on the host's button pressed A or acted early");
+    Check(!MouseButtonAt(SDL_BUTTON_LEFT, false, 320, 224), "The release on the host's button reached the game");
+    Check(sStatusClicks == 1, "A click on the host's button did nothing");
+    // Pressed on it, released beside it: no click, the release stays out too.
+    Check(!MouseButtonAt(SDL_BUTTON_LEFT, true, 330, 230), "A second press on the button reached the game");
+    Check(!MouseButtonAt(SDL_BUTTON_LEFT, false, 10, 10), "The release of a press on the button reached the game");
+    Check(sStatusClicks == 1, "A press on the button released beside it acted");
+    // Beside it: A, as without the button; its right button: B.
+    Check(MouseButtonAt(SDL_BUTTON_LEFT, true, 10, 10), "A click beside the host's button was taken out");
+    Until([&] { return Report().button == WPAD_BUTTON_A; }, "A click beside the host's button did not press A");
+    Check(MouseButtonAt(SDL_BUTTON_LEFT, false, 10, 10), "A release beside the host's button was taken out");
+    Until([&] { return Report().button == 0; }, "A release beside the host's button kept A");
+    Check(MouseButtonAt(SDL_BUTTON_RIGHT, true, 320, 224), "The right button on the host's button was taken out");
+    Until([&] { return Report().button == WPAD_BUTTON_B; }, "The right button on the host's button did not press B");
+    Check(MouseButtonAt(SDL_BUTTON_RIGHT, false, 320, 224), "The right button's release was taken out");
+    Until([&] { return Report().button == 0; }, "The right button's release kept B");
+    // Without a button every click is the game's again.
+    SetHotkeyClickArea(0, 0, 0, 0, nullptr);
+    Check(MouseButtonAt(SDL_BUTTON_LEFT, true, 320, 224), "A click without the host's button was taken out");
+    Until([&] { return Report().button == WPAD_BUTTON_A; }, "A click without the host's button did not press A");
+    Check(MouseButtonAt(SDL_BUTTON_LEFT, false, 320, 224), "Its release was taken out");
+    Until([&] { return Report().button == 0; }, "Its release kept A");
+    Check(sStatusClicks == 1, "A click acted without the host's button");
+    ShutdownHotkeys();
+    ShutdownDesktopWpad();
+    WPADShutdown();
+}
 void MousePlayerCycle() {
     mscharged::platform::ConfigureWpadSDL({0,3,false,false});
     mscharged::platform::DesktopWpadSettings settings{};
@@ -1631,6 +1690,7 @@ int main() {
         MouseKeysCycle();
         PanelHoldCycle();
         WatchHoldCycle();
+        StatusButtonCycle();
         StickDirectionCycle();
         GyroPointerChecks();
         GyroPadCycle(true);
@@ -1642,7 +1702,7 @@ int main() {
 #endif
         SDL_DestroyWindow(window); window = nullptr;
         SDL_Quit();
-        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, a late gamepad taking player 1, mouse buttons as keys (left and right click too), the host panel's hold, a replay's hold, stick directions as buttons, the gyro pointer, shared sticks, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
+        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, a late gamepad taking player 1, mouse buttons as keys (left and right click too), the host panel's hold, a replay's hold, the host's button over the game, stick directions as buttons, the gyro pointer, shared sticks, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
         return 0;
     } catch (const std::exception& e) {
         mscharged::platform::ShutdownHotkeys();

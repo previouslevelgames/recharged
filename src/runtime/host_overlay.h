@@ -63,16 +63,25 @@ public:
         bool operator==(const Hint&) const = default;
     };
     void SetHint(std::optional<Hint> hint);
-    // A lasting status in the bottom-right corner (a rematch that waits for
+    // A lasting status in the bottom-right corner (a request that waits for
     // its answer): a small gold title above its text, on a plate in the
     // menus' look; above the performance numbers when they share the corner.
-    // Hidden while the menus show. None hides it.
+    // With `action`, a button under them (its label; `hint` beside it), which
+    // the host makes clickable (StatusActionArea). Hidden while the menus
+    // show. None hides it.
     struct Status {
         std::string title;
         std::string text;
+        std::string action; // the button's label, or empty for none
+        std::string hint;   // small, beside the button
         bool operator==(const Status&) const = default;
     };
     void SetStatus(std::optional<Status> status);
+    // The mouse is over the status's button: it lights up.
+    void SetStatusHover(bool hover);
+    // Where the status's button was drawn last, in surface pixels (left, top,
+    // right, bottom); none while it is not shown.
+    std::optional<std::array<float, 4>> StatusActionArea() const { return statusAction_; }
     // A live replay that catches up with its match: a screen over the whole
     // picture (the match draws nothing behind it) with a gold title, the
     // score, how far it got and when it is live, and a bar for that. Over it
@@ -105,6 +114,8 @@ private:
     std::string message_;
     std::optional<Hint> hint_, shownHint_;
     std::optional<Status> status_, shownStatus_;
+    bool statusHover_ = false, shownStatusHover_ = false;
+    std::optional<std::array<float, 4>> statusAction_;
     std::optional<CatchUp> catchUp_, shownCatchUp_;
     HostMenus* menus_ = nullptr;
     bool shownMenus_ = false;

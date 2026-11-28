@@ -29,7 +29,8 @@ enum class PageId
     Settings,    // the display (the game's match camera first), the sound, the controllers, the rest
     Quit,        // QUIT RECHARGED: are you sure?
     Online,      // the hub: the player's set, PLAY, PROFILE, LEADERBOARD (and WII ONLINE from the main menu)
-    Play,        // FRIENDS, RANDOM OPPONENT, RANKED
+    Play,        // FRIENDS, RANDOM OPPONENT, RANKED (and REMATCH <name> after a set)
+    Rematch,     // the last set this game played, asked for again
     Friends,     // the friends online and the last opponents of a set, to challenge
     Random,      // the search for an opponent, Do not disturb
     Profile,     // the player, their records and all their friends

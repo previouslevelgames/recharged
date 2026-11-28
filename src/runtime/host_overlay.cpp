@@ -142,6 +142,8 @@ void HostOverlay::SetHint(std::optional<Hint> hint) { hint_ = std::move(hint); }
 
 void HostOverlay::SetStatus(std::optional<Status> status) { status_ = std::move(status); }
 
+void HostOverlay::SetStatusHover(bool hover) { statusHover_ = hover; }
+
 void HostOverlay::SetCatchUp(std::optional<CatchUp> catchUp) { catchUp_ = std::move(catchUp); }
 
 void HostOverlay::BuildFonts(float size, float menuScale)
@@ -270,6 +272,8 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     const std::optional<Hint> hint = menus || catchUp ? std::nullopt : hint_;
     const std::optional<Status> status = menus || catchUp ? std::nullopt : status_;
     const bool showing = performance_ || opacity > 0 || menus || hint || status || catchUp;
+    // (Its button is where it was drawn last, until it is drawn no more.)
+    if (!status || status->action.empty()) statusAction_.reset();
     if (!showing) {
         if (drawn_) aurora_imgui_clear_overlay();
         drawn_ = false;
@@ -278,7 +282,7 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     // The menus are live: every frame while they show.
     if (drawn_ && !menus && !shownMenus_ && values == shownValues_ && count == shownCount_ && message_ == shownMessage_
         && opacity == shownOpacity_ && hint == shownHint_ && status == shownStatus_ && catchUp == shownCatchUp_
-        && surface_width == shownWidth_
+        && statusHover_ == shownStatusHover_ && surface_width == shownWidth_
         && surface_height == shownHeight_)
         return;
     const auto size = FpsOverlayFontSize(surface_width, surface_height);
@@ -367,18 +371,45 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
         draw->AddText(messageFont_, messageSize, {layout.text_x + edge, layout.text_y}, WithAlpha(kNumber, opacity),
                       message_.c_str());
     }
-    // The status: its gold title above its text, bottom right.
+    // The status: its gold title above its text, bottom right; its button
+    // (a gold outline, filled under the mouse) and the hint beside it under
+    // them.
     if (status) {
         const float titleSize = std::round(messageSize * 0.78f);
-        const float width = std::max(messageFont_->CalcTextSizeA(titleSize, FLT_MAX, 0, status->title.c_str()).x,
-                                     messageFont_->CalcTextSizeA(messageSize, FLT_MAX, 0, status->text.c_str()).x)
+        const auto measure = [&](float pixels, const std::string& text) {
+            return messageFont_->CalcTextSizeA(pixels, FLT_MAX, 0, text.c_str()).x;
+        };
+        const bool action = !status->action.empty();
+        const float actionSize = titleSize;
+        const float buttonPadding = std::round(actionSize * 0.9f), hintGap = std::round(messageSize * 0.6f);
+        const float buttonWidth = action ? std::ceil(measure(actionSize, status->action)) + 2 * buttonPadding : 0.0f;
+        const float buttonHeight = action ? std::round(actionSize * 1.9f) : 0.0f;
+        const float actionRow = action ? buttonWidth + (status->hint.empty() ? 0.0f
+                                                         : hintGap + measure(titleSize, status->hint))
+                                       : 0.0f;
+        const float width = std::max({measure(titleSize, status->title), measure(messageSize, status->text), actionRow})
                           + edge;
         const bool bottomRight = performance_ && *performance_ == OverlayCorner::BottomRight;
         const auto layout = LayoutOverlayStatus(surface_width, surface_height, messageSize, titleSize, width,
-                                                bottomRight ? &*performanceLayout : nullptr);
+                                                bottomRight ? &*performanceLayout : nullptr, buttonHeight);
         Plate(draw, {layout.left, layout.top}, {layout.right, layout.bottom}, messageSize, kOpacitySteps);
         draw->AddText(messageFont_, titleSize, {layout.text_x + edge, layout.title_y}, kGold, status->title.c_str());
         draw->AddText(messageFont_, messageSize, {layout.text_x + edge, layout.text_y}, kNumber, status->text.c_str());
+        if (action) {
+            const ImVec2 min{layout.text_x + edge, layout.action_y};
+            const ImVec2 max{min.x + buttonWidth, min.y + buttonHeight};
+            const float round = std::round(buttonHeight * 0.3f);
+            const float stroke = std::max(1.0f, std::round(actionSize * 0.1f));
+            if (statusHover_) draw->AddRectFilled(min, max, kGold, round);
+            else draw->AddRectFilled(min, max, IM_COL32(255, 255, 255, 18), round);
+            draw->AddRect(min, max, kGold, round, 0, stroke);
+            const float labelY = std::round(min.y + (buttonHeight - actionSize) * 0.5f);
+            draw->AddText(messageFont_, actionSize, {min.x + buttonPadding, labelY},
+                          statusHover_ ? IM_COL32(18, 20, 26, 255) : kNumber, status->action.c_str());
+            if (!status->hint.empty())
+                draw->AddText(messageFont_, titleSize, {max.x + hintGap, labelY}, kLabel, status->hint.c_str());
+            statusAction_ = std::array<float, 4>{min.x, min.y, max.x, max.y};
+        }
     }
     aurora_imgui_end_overlay();
     drawn_ = true;
@@ -387,6 +418,7 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     shownMessage_ = message_;
     shownHint_ = hint;
     shownStatus_ = status;
+    shownStatusHover_ = statusHover_;
     shownCatchUp_ = catchUp;
     shownMenus_ = menus;
     shownOpacity_ = opacity;

@@ -223,7 +223,17 @@
     "online_count_one": "{{count}} online",
     "online_count_other": "{{count}} online",
     "searching": "Searching…",
-    "on_the_way": "On the way…"
+    "on_the_way": "On the way…",
+    "rematch": "Rematch {{name}}",
+    "cancel_request": "CANCEL REQUEST"
+  },
+  "rematch": {
+    "title": "REMATCH",
+    "last_set": "LAST SET",
+    "send": "SEND REMATCH",
+    "their_pick": "{{name}}'s turn: they pick the stadium and draft first.",
+    "offline": "{{name}} is offline",
+    "gone": "No set to play again."
   },
   "friends": {
     "title": "FRIENDS",
@@ -596,6 +606,18 @@
     "rematch_match_started": "The rematch with {{name}} is called off: you started another match",
     "rematch_withdrawn": "{{name}} called off the rematch",
     "challenge_withdrawn": "{{name}}'s challenge is no longer open",
+    "rematch_cancelled": "You called off the rematch with {{name}}",
+    "your_challenge_declined": "{{name}} declined your challenge",
+    "your_challenge_no_answer": "No answer from {{name}}: your challenge is withdrawn",
+    "your_challenge_opponent_gone": "{{name}} closed Recharged: your challenge is off",
+    "your_challenge_called_off": "Your challenge to {{name}} is called off",
+    "your_challenge_match_started": "Your challenge to {{name}} is withdrawn: you started another match",
+    "your_challenge_cancelled": "You withdrew your challenge to {{name}}",
+    "your_challenge_not_sent": "Your challenge to {{name}} didn't go out: {{error}}",
+    "search_cancelled": "You stopped the search for an opponent",
+    "search_ended": "The search for an opponent stopped",
+    "search_match_started": "The search for an opponent stopped: you started another match",
+    "search_not_started": "The search for an opponent didn't start: {{error}}",
     "set_gone": "The set is no longer open.",
     "off_to_ranked": "Off to RANKED",
     "ranked_waits": "RANKED waits: go back to the main menu or the online menu, and the game takes you there",
@@ -637,6 +659,12 @@
   },
   "status": {
     "rematch_title": "REMATCH ASKED",
-    "rematch_waiting": "Waiting for {{name}}'s answer · {{seconds}} s"
+    "rematch_waiting": "Waiting for {{name}}'s answer · {{seconds}} s",
+    "challenge_title": "CHALLENGE SENT",
+    "challenge_waiting": "Waiting for {{name}}'s answer · {{seconds}} s",
+    "search_title": "QUICK UNRANKED MATCH",
+    "search_running": "Searching for an opponent · {{time}}",
+    "cancel": "CANCEL",
+    "cancel_hint": "or in QUICK PLAY ({{keys}})"
   }
 }

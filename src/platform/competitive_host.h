@@ -100,6 +100,7 @@ public:
         // opponent's; -1 without turns.
         int rematch_turn = -1;
         std::string stadium;
+        std::string rules; // "Competitive: 3 minutes, best of 3, random stadium"
     };
     std::optional<SetEnd> TakeSetEnd();
     // After a SetEnd: the same set again. `rematch`: a new set by its rules
@@ -109,22 +110,63 @@ public:
     // Ready to play! again for a set that stopped.
     void PlayAgain(std::int64_t match, bool rematch, const std::string& stadium = {},
                    const std::string& opponent = {});
-    // The rematch the player asked for in this game, while it waits for the
-    // opponent's answer (the host shows it in a lasting box), and when the
-    // game calls it off unanswered (a minute after the ask). It ends with
-    // the opponent's accept (the set goes: TakeSetStart), their decline, the
-    // wait, a match this game starts (Observe sees it load, CallOffRematch
-    // for one on its way) or the game's close; each end but the accept and
-    // the close leaves a notice (TakeNotice).
+    // A challenge the player sends from the Recharged Game Menu (a friend or
+    // a recent opponent), with its rules as OnlinePanelFeed's: it waits for
+    // the opponent's answer as a rematch does (PendingRequest). `opponent`:
+    // their name, until the server answers.
+    struct ChallengeRequest
+    {
+        std::int64_t player = 0;
+        std::int64_t rule_set = 0; // the server's rule set, or 0 for `rules` named `name`
+        MatchRules rules;
+        std::string name;
+        bool discord_friend = false;
+        std::string opponent;
+    };
+    void Challenge(ChallengeRequest request);
+    // The player's search for a random opponent (QUICK UNRANKED MATCH): it
+    // runs until it finds one (the set goes: TakeSetStart), is cancelled or
+    // stops on the server.
+    struct SearchRequest
+    {
+        std::int64_t rule_set = 0;
+        MatchRules rules;
+        std::string name;
+        std::string game; // the game's id, first four characters (R4QE)
+        bool make_available = false; // open to challenges first (give and take)
+    };
+    void Search(SearchRequest request);
+    // What the player asked for in this game and waits for (the host shows it
+    // in a lasting box with CANCEL, and on QUICK PLAY): a rematch or a
+    // challenge until the opponent's answer, at most a minute (then the game
+    // calls it off), or a search until it finds an opponent. It ends with the
+    // opponent's accept or the search's find (the set goes: TakeSetStart),
+    // their decline, the wait, the player's cancel (CancelRequest), a match
+    // this game starts (Observe sees it load, CallOffRequest for one on its
+    // way) or the game's close; each end but the accept, the find and the
+    // close leaves a notice (TakeNotice).
+    enum class RequestKind
+    {
+        Rematch,
+        Challenge,
+        Search,
+    };
     struct PendingAsk
     {
-        std::string opponent;
-        std::chrono::steady_clock::time_point deadline;
+        RequestKind kind = RequestKind::Rematch;
+        std::int64_t match = 0; // a rematch's or challenge's set, once the server took it
+        std::string opponent;   // none for a search
+        std::chrono::steady_clock::time_point since{};
+        // When the game calls it off unanswered; a search has none (max).
+        std::chrono::steady_clock::time_point deadline{};
     };
-    std::optional<PendingAsk> PendingRematch();
-    // The player goes on to another match (the Game Menu's Play RANKED): the
-    // rematch they asked for is called off.
-    void CallOffRematch();
+    std::optional<PendingAsk> PendingRequest();
+    // The player calls off what they wait for (the box's CANCEL, QUICK
+    // PLAY's): a challenge or rematch is withdrawn, a search stops.
+    void CancelRequest();
+    // The player goes on to another match (the Game Menu's Play RANKED): what
+    // they wait for is called off.
+    void CallOffRequest();
     // After a SetEnd: the player doesn't play a stopped set again now; the
     // server calls it off, so neither player keeps it.
     void CallOff(std::int64_t match);
@@ -235,19 +277,27 @@ private:
     bool again_rematch_ = false;
     std::string again_stadium_;
     std::int64_t call_off_match_ = 0; // CallOff still to send
-    // The rematch asked in this game, waiting for the opponent's answer: its
-    // set (0 until the server took the ask), the opponent, when the game
-    // calls it off unanswered, and whether a match this game started does.
+    // What the player asked for in this game and waits for (PendingRequest):
+    // its kind, its set (a rematch's or challenge's, 0 until the server took
+    // it), the opponent, since and until when, whether a match this game
+    // started calls it off, and whether the player cancelled it.
     struct Ask
     {
+        RequestKind kind = RequestKind::Rematch;
         std::int64_t match = 0;
         std::string opponent;
-        std::chrono::steady_clock::time_point deadline{};
+        std::chrono::steady_clock::time_point since{}, deadline{};
         bool match_started = false;
+        bool cancelled = false;
     };
     std::optional<Ask> ask_;
-    // The game closes while it waits: the worker's last call calls it off.
+    // A challenge and a search still to send.
+    std::optional<ChallengeRequest> challenge_send_;
+    std::optional<SearchRequest> search_send_;
+    // The game closes while it waits: the worker's last call calls it off
+    // (the challenge or rematch; a search stops).
     std::int64_t withdraw_ask_ = 0;
+    bool stop_search_on_stop_ = false;
     std::optional<std::string> notice_;
     struct Report
     {
@@ -276,6 +326,7 @@ private:
     // Its turn and stadium (ProfileMatch::first_pick, MatchRules::stadium),
     // for the rematch's.
     std::string set_first_pick_, set_stadium_;
+    std::string set_rules_; // SetEnd::rules
     std::chrono::steady_clock::time_point set_done_{};
 
     // The game's thread only.

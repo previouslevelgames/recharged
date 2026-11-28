@@ -507,8 +507,11 @@ void DrawOnline(const PageModel& model, PageState& state, List& list, PageAction
     const auto& online = model.overlay.online;
     const bool locked = online.update_lock != overlay::UpdateLock::None;
     if (locked) list.Note(overlay::UpdateLockNote(online.update_lock).c_str());
+    // A set going on or waiting; an ended one only for a tournament (the
+    // trophy room goes on from it): another's rematch is QUICK PLAY's.
+    using Stage = overlay::OnlinePanelSet::Stage;
     if (online.signed_out) DrawNoProfile(list);
-    else DrawSet(model, state, list, actions);
+    else if (online.set.stage != Stage::Ended || online.set.trophy_room) DrawSet(model, state, list, actions);
     // QUICK PLAY has the Do not disturb switch: its plate says when it is on.
     const char* busy = !online.signed_out && !online.me.available && online.me.can_set_available
         ? T("menus.you.do_not_disturb") : nullptr;
@@ -527,13 +530,23 @@ void DrawOnline(const PageModel& model, PageState& state, List& list, PageAction
 
 // PLAY: against a friend, a quick unranked match against whoever the server
 // finds, or a RANKED match; each with how it stands. How many others are
-// available is not shown. At the bottom Do not disturb, for every way of
-// being asked: only friends' challenges reach the player, and no search.
-// Give and take: Do not disturb stops the player's own search, and a search
-// makes them available.
+// available is not shown. What the player sent from this game and waits for
+// (a challenge, a rematch, a search) first, with its cancel; after a set
+// played in this game, REMATCH <name> under the three. At the bottom Do not
+// disturb, for every way of being asked: only friends' challenges reach the
+// player, and no search. Give and take: Do not disturb stops the player's
+// own search, and a search makes them available.
 void DrawPlay(const PageModel& model, List& list, PageActions& actions)
 {
     const auto& online = model.overlay.online;
+    if (const auto& request = online.request; request.waiting)
+    {
+        const Person person = PersonOf(model, request.opponent, false);
+        list.Card(request.search ? nullptr : &person, request.kicker.c_str(), request.status.c_str(), {},
+                  Tone::Busy);
+        if (list.Plate(request.search ? T("menus.you.stop_searching") : T("menus.play.cancel_request")))
+            actions.online.cancel_request = true;
+    }
     std::string friends, random;
     if (!online.signed_out)
     {
@@ -545,6 +558,12 @@ void DrawPlay(const PageModel& model, List& list, PageActions& actions)
     if (list.Plate(T("menus.play.friends"), nullptr, true, friends.c_str())) actions.open = PageId::Friends;
     if (list.Plate(T("menus.play.random"), nullptr, true, random.c_str())) actions.open = PageId::Random;
     if (list.Plate(T("menus.play.ranked"), nullptr, true, ranked)) actions.open = PageId::Ranked;
+    if (const auto& rematch = online.rematch; rematch.shown && !online.signed_out)
+    {
+        const std::string label = Upper(T("menus.play.rematch", {{"name", rematch.opponent.name}}).c_str());
+        if (list.Plate(label.c_str(), nullptr, rematch.can, rematch.can ? nullptr : rematch.blocked.c_str()))
+            actions.open = PageId::Rematch;
+    }
     if (!online.signed_out && online.me.can_set_available)
     {
         list.ToBottom();
@@ -554,6 +573,43 @@ void DrawPlay(const PageModel& model, List& list, PageActions& actions)
             if (*on && online.search.active) actions.online.stop_search = true;
         }
     }
+}
+
+// REMATCH: the last set this game played (its result, its rules) and the
+// way to ask for it again by the same rules; when it is the player's turn,
+// with the stadium they pick (the set's to start with). Sent, the menu
+// closes and the box in the corner waits for the answer.
+void DrawRematch(const PageModel& model, PageState& state, List& list, PageActions& actions)
+{
+    const auto& rematch = model.overlay.online.rematch;
+    if (!rematch.shown)
+    {
+        list.Note(T("menus.rematch.gone"));
+        return;
+    }
+    const Person opponent = PersonOf(model, rematch.opponent, false);
+    std::vector<std::string> about{rematch.status};
+    if (!rematch.rules.empty()) about.push_back(rematch.rules);
+    about.push_back(rematch.you_pick ? T("menus.sets.your_pick")
+                                     : T("menus.rematch.their_pick", {{"name", rematch.opponent.name}}));
+    list.Card(&opponent, T("menus.rematch.last_set"), rematch.title.c_str(), about, ToneOf(rematch.tone),
+              rematch.games, rematch.won, rematch.lost);
+    auto& pick = state.online;
+    if (rematch.you_pick && pick.pick_for != rematch.match)
+    {
+        pick.pick_for = rematch.match;
+        pick.pick_stadium = rematch.stadium;
+    }
+    const std::string stadium =
+        rematch.you_pick ? platform::RuleChoiceLabel(platform::StadiumChoices(), pick.pick_stadium) : std::string();
+    const char* value = !rematch.can ? rematch.blocked.c_str() : rematch.you_pick ? stadium.c_str() : nullptr;
+    if (list.Plate(T("menus.rematch.send"), nullptr, rematch.can, value))
+    {
+        actions.online.rematch = true;
+        if (rematch.you_pick) actions.online.stadium = pick.pick_stadium;
+    }
+    if (rematch.you_pick && rematch.can)
+        Choices(list, T("menus.setup.stadium"), platform::StadiumChoices(), pick.pick_stadium);
 }
 
 // A section of the online lists: a player who can be challenged now opens
@@ -805,6 +861,7 @@ void DrawSetup(const std::string& key, const PageModel& model, PageState& state,
         {
             auto challenge = overlay::MakeOnlinePanelChallenge(preset, rules, search ? 0 : row->player_id);
             challenge.discord_friend = row && row->discord;
+            if (row) challenge.opponent = row->name;
             actions.online.set_challenge_rules = preset.name;
             if (search)
             {
@@ -1100,6 +1157,7 @@ std::string PageTitle(PageId id, const std::string& key, const PageModel& model)
     case PageId::Quit: return T("menus.quit.title");
     case PageId::Online: return T("menus.online.title");
     case PageId::Play: return T("menus.play.title");
+    case PageId::Rematch: return T("menus.rematch.title");
     case PageId::Friends: return T("menus.friends.title");
     case PageId::Random: return T("menus.random.title");
     case PageId::Profile: return T("menus.profile.title");
@@ -1177,6 +1235,7 @@ void DrawPage(PageId id, int category, const std::string& key, const PageModel& 
         break;
     case PageId::Online: DrawOnline(model, state, list, actions); break;
     case PageId::Play: DrawPlay(model, list, actions); break;
+    case PageId::Rematch: DrawRematch(model, state, list, actions); break;
     case PageId::Friends: DrawFriends(model, state, list, actions); break;
     case PageId::Random: DrawRandom(model, state, list, actions); break;
     case PageId::Profile: DrawProfile(model, state, list, actions); break;

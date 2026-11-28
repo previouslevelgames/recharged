@@ -20,6 +20,7 @@ struct OnlinePanelChallenge
     std::int64_t rule_set = 0;
     // The player is a Discord friend: past their Do not disturb.
     bool discord_friend = false;
+    std::string opponent; // their name (a challenge's), for the box while it waits
 };
 
 // What the player did on the online pages this frame; the host acts on it
@@ -44,12 +45,14 @@ struct OnlinePanelActions
     // With an accept or a rematch that is the player's turn: the stadium they
     // picked (empty: none).
     std::string stadium;
+    // What the player waits for (OnlinePanelRequest) is called off.
+    bool cancel_request = false;
 
     bool Any() const
     {
         return challenge || search || stop_search || add_friend || remove_friend || add_mii_friend
             || remove_mii_friend || set_available || set_challenge_rules || accept || decline || ready || cancel
-            || rematch;
+            || rematch || cancel_request;
     }
 };
 

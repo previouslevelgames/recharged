@@ -101,6 +101,16 @@ int main()
                         && status.title_y > status.top && status.text_y >= status.title_y + title
                         && status.text_y + font < status.bottom && status.title_y == std::round(status.title_y)
                         && status.text_y == std::round(status.text_y), "Status title and text inside its panel");
+                    // With a button row (CANCEL): the same corner, taller, the
+                    // button under the text and inside the panel.
+                    const float button = std::round(title * 1.9f);
+                    const auto withButton = LayoutOverlayStatus(size[0], size[1], font, title, words,
+                                                                below ? &layout : nullptr, button);
+                    Check(withButton.right == status.right && withButton.bottom == status.bottom
+                        && (withButton.top == 0 || withButton.top < status.top)
+                        && withButton.action_y >= withButton.text_y + font
+                        && (withButton.top == 0 || withButton.action_y + button < withButton.bottom)
+                        && withButton.action_y == std::round(withButton.action_y), "Status button row inside its panel");
                 }
             }
         std::cout << checks << " host overlay layout checks passed\n";

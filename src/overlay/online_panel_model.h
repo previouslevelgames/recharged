@@ -185,6 +185,38 @@ enum class UpdateLock
     Unchecked,
 };
 
+// What the player asked for from this game and waits for (a rematch, a
+// challenge or a search; CompetitiveHost::PendingRequest): QUICK PLAY shows
+// it on top with its cancel, as the box in the corner does over the game.
+struct OnlinePanelRequest
+{
+    bool waiting = false;
+    bool search = false;
+    std::string kicker; // "CHALLENGE SENT"
+    std::string status; // "Waiting for Mario's answer · 42 s"
+    OnlinePanelRow opponent; // a rematch's or challenge's (none for a search)
+};
+
+// The last set this game played with a result (not a tournament's): QUICK
+// PLAY offers REMATCH <name>, which opens its page.
+struct OnlinePanelRematch
+{
+    bool shown = false;
+    std::int64_t match = 0; // the set played again
+    OnlinePanelRow opponent;
+    std::string title;  // "You won the set"
+    std::string status; // "Against Mario"
+    std::string rules;  // "Competitive: 3 minutes, best of 3, random stadium"
+    Tone tone = Tone::Neutral;
+    int won = 0, lost = 0, games = 0;
+    // The rematch is the player's turn: they pick its stadium, from
+    // `stadium` (the set's), and draft first.
+    bool you_pick = false;
+    std::string stadium;
+    bool can = true;     // it can be asked now
+    std::string blocked; // else why not
+};
+
 struct OnlinePanelModel
 {
     OnlinePanelPlayer me;
@@ -218,6 +250,9 @@ struct OnlinePanelModel
     // `stats_missing` for a server without them.
     std::optional<platform::PlayerStats> stats;
     bool stats_missing = false;
+    // The host's: what the player waits for, and the set to play again.
+    OnlinePanelRequest request;
+    OnlinePanelRematch rematch;
 };
 
 // What the game knows besides the server's lists and set.

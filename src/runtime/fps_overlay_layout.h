@@ -147,22 +147,25 @@ inline OverlayMessageLayout LayoutOverlayMessage(std::uint32_t surface_width, st
     return layout;
 }
 
-// A lasting status (a rematch that waits for its answer) on a dark panel in
+// A lasting status (a request that waits for its answer) on a dark panel in
 // the bottom-right corner, above the performance overlay when that has the
-// same corner: a small title line above its text.
+// same corner: a small title line above its text, and with `action_height`
+// a row under them for its button (action_y its top).
 struct OverlayStatusLayout {
     float left, top, right, bottom;
-    float text_x, title_y, text_y;
+    float text_x, title_y, text_y, action_y;
 };
 
 inline OverlayStatusLayout LayoutOverlayStatus(std::uint32_t surface_width, std::uint32_t surface_height,
-    float font_size, float title_size, float text_width, const FpsOverlayLayout* bottom_right_performance)
+    float font_size, float title_size, float text_width, const FpsOverlayLayout* bottom_right_performance,
+    float action_height = 0.0f)
 {
     const float margin = std::max(8.0f, std::round(FpsOverlayShortSide(surface_width, surface_height) * 0.015f));
     const float padding = std::round(font_size * 0.7f);
     const float vertical = std::round(font_size * 0.55f);
     const float gap = std::round(font_size * 0.25f);
-    const float height = 2 * vertical + std::round(title_size) + gap + std::round(font_size * 1.1f);
+    const float row = action_height > 0.0f ? std::round(font_size * 0.45f) + std::round(action_height) : 0.0f;
+    const float height = 2 * vertical + std::round(title_size) + gap + std::round(font_size * 1.1f) + row;
     OverlayStatusLayout layout{};
     layout.right = float(surface_width) - margin;
     layout.left = std::max(0.0f, layout.right - std::ceil(text_width) - 2 * padding);
@@ -173,6 +176,7 @@ inline OverlayStatusLayout LayoutOverlayStatus(std::uint32_t surface_width, std:
     layout.text_x = layout.left + padding;
     layout.title_y = std::round(layout.top + vertical);
     layout.text_y = std::round(layout.title_y + std::round(title_size) + gap);
+    layout.action_y = std::round(layout.text_y + std::round(font_size * 1.1f) + std::round(font_size * 0.45f));
     return layout;
 }
 

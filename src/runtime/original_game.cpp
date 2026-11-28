@@ -171,6 +171,9 @@ std::unique_ptr<mscharged::platform::CompetitiveHost>* sCompetitive=nullptr;
 std::function<void()>* sReplayExit=nullptr;
 std::atomic<ChargedSetReplaySpeedFunction> sReplaySpeedSetter{nullptr};
 std::atomic<int> sReplaySpeed{0};
+// Clicks on the CANCEL of the box that shows what the player waits for (taken
+// out of the game's events by the hotkey filter), for the host loop.
+std::atomic<int> sStatusCancels{0};
 
 // Training's options ([gameplay] training_*: saved by the TRAINING page, the
 // pause menu's TRAINING OPTIONS) handed to the game module, which uses them
@@ -2040,6 +2043,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
 #endif
         // The set this game played last, for the card that offers it again.
         std::optional<mscharged::platform::CompetitiveHost::SetEnd> afterSet;
+        // The last set this game played with a result (not a tournament's):
+        // QUICK PLAY's REMATCH <name>, for the rest of the run.
+        std::optional<mscharged::platform::CompetitiveHost::SetEnd> sessionSet;
         // A set started in this game that waits for the main menu or the
         // online menu (the player is somewhere else in the menus).
         bool setStartedHere=false;
@@ -2140,8 +2146,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // Only a set with a result (played out or forfeited) has a
                 // rematch: one a player left is over, with a message.
                 // A tournament's set: no rematch, its page says what comes next.
-                if(tournamentSetEnds && tournamentSetEnds(end->match,end->how==How::Over
-                       || end->how==How::Forfeited || end->how==How::OpponentForfeited)) {
+                const bool result=end->how==How::Over || end->how==How::Forfeited || end->how==How::OpponentForfeited;
+                const bool tournamentSet=tournamentSetEnds && tournamentSetEnds(end->match,result);
+                if(result && !tournamentSet) sessionSet=*end;
+                if(tournamentSet) {
                 } else if(end->how==How::Replaced) {
                     // A second Recharged of the player's took the set: this game has no part in it.
                     if(hostOverlay)
@@ -2240,13 +2248,38 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         } cardPrompt;
         // Counts the prompts asked: the menus get a new one only when it changes.
         int cardPromptVersion=0;
-        // A rematch the player asks for (the card after a set, or the online
-        // page's set): the game leaves the online menus for the main menu and
-        // waits there; the box in the corner says for whom and how long
-        // (CompetitiveHost::PendingRematch), the end comes as a message.
+        // A rematch the player asks for on the card after a set: the game
+        // leaves the online menus for the main menu and waits there; the box
+        // in the corner says for whom and how long
+        // (CompetitiveHost::PendingRequest), the end comes as a message.
         auto askRematch=[&](std::int64_t match,const std::string& stadium,const std::string& opponent) {
             competitive->PlayAgain(match,true,stadium,opponent);
             if(leaveOnline) leaveOnline();
+        };
+        // What the player waits for, as the box and QUICK PLAY say it: a
+        // small title, and for whom and how long (a search: since when).
+        struct RequestWords { std::string title, text; };
+        auto describeRequest=[&](const mscharged::platform::CompetitiveHost::PendingAsk& asked,
+                                 std::chrono::steady_clock::time_point now) {
+            using Kind=mscharged::platform::CompetitiveHost::RequestKind;
+            namespace texts=mscharged::texts;
+            if(asked.kind==Kind::Search) {
+                const long long seconds=std::max<long long>(0,
+                    std::chrono::floor<std::chrono::seconds>(now-asked.since).count());
+                const std::string time=std::to_string(seconds/60)+(seconds%60<10 ? ":0" : ":")
+                    +std::to_string(seconds%60);
+                return RequestWords{texts::T("menus.status.search_title"),
+                                    texts::T("menus.status.search_running",{{"time",time}})};
+            }
+            const std::string name=asked.opponent.empty()
+                ? std::string(texts::T("menus.messages.unnamed_opponent")) : asked.opponent;
+            const std::string left=std::to_string(std::max<long long>(0,
+                std::chrono::ceil<std::chrono::seconds>(asked.deadline-now).count()));
+            return asked.kind==Kind::Challenge
+                ? RequestWords{texts::T("menus.status.challenge_title"),
+                               texts::T("menus.status.challenge_waiting",{{"name",name},{"seconds",left}})}
+                : RequestWords{texts::T("menus.status.rematch_title"),
+                               texts::T("menus.status.rematch_waiting",{{"name",name},{"seconds",left}})};
         };
         std::chrono::steady_clock::time_point rematchShown{};
         // Online play waits for an update (the gate above): a prompt's answer
@@ -3096,6 +3129,65 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     context.error=true;
                 } else context.message=overlayNotice;
                 model.online=ov::MakeOnlinePanelModel(snapshot.lists,snapshot.match,context);
+                // What the player sent from this game and waits for: on top
+                // of QUICK PLAY, with its cancel.
+                const auto now=std::chrono::steady_clock::now();
+                std::optional<mscharged::platform::CompetitiveHost::PendingAsk> asked;
+                if(competitive && panelFeed) asked=competitive->PendingRequest();
+                if(asked) {
+                    using Kind=mscharged::platform::CompetitiveHost::RequestKind;
+                    auto& request=model.online.request;
+                    const auto words=describeRequest(*asked,now);
+                    request.waiting=true;
+                    request.search=asked->kind==Kind::Search;
+                    request.kicker=words.title;
+                    request.status=words.text;
+                    if(asked->match && model.online.set.match==asked->match)
+                        request.opponent=model.online.set.opponent;
+                    else {
+                        request.opponent.name=asked->opponent;
+                        request.opponent.initials=ov::Initials(asked->opponent);
+                    }
+                }
+                // The last set played here: REMATCH <name> under QUICK PLAY's
+                // three, unless another set goes on or a request waits.
+                if(sessionSet && competitive && panelFeed) {
+                    using How=mscharged::platform::CompetitiveHost::SetEnd::How;
+                    using Stage=ov::OnlinePanelSet::Stage;
+                    const auto& last=*sessionSet;
+                    const auto& set=model.online.set;
+                    auto& rematch=model.online.rematch;
+                    const std::string name=last.opponent.empty()
+                        ? std::string(texts::T("menus.messages.unnamed_opponent")) : last.opponent;
+                    const bool thisSet=set.match==last.match;
+                    rematch.shown=!asked && (set.stage==Stage::None || set.stage==Stage::Ended);
+                    rematch.match=last.match;
+                    if(thisSet) rematch.opponent=set.opponent;
+                    else {
+                        rematch.opponent.name=name;
+                        rematch.opponent.image=ov::PictureKey(last.opponent_avatar,last.opponent_mii);
+                        rematch.opponent.initials=ov::Initials(name);
+                        rematch.opponent.tint_seed=last.match;
+                    }
+                    const bool won=last.how==How::OpponentForfeited || (last.how==How::Over && last.won>last.lost);
+                    const bool lost=last.how==How::Forfeited || (last.how==How::Over && last.lost>last.won);
+                    rematch.title=won ? texts::T("menus.sets.won") : lost ? texts::T("menus.sets.lost")
+                        : texts::T("menus.sets.draw");
+                    rematch.tone=won ? ov::Tone::Good : lost ? ov::Tone::Bad : ov::Tone::Neutral;
+                    rematch.status=texts::T("menus.sets.against",{{"name",name}});
+                    rematch.rules=last.rules;
+                    rematch.won=last.won;
+                    rematch.lost=last.lost;
+                    rematch.games=last.games;
+                    rematch.you_pick=last.rematch_turn==1;
+                    rematch.stadium=last.stadium;
+                    if(context.in_match) rematch.blocked=texts::T("menus.blocked.you_in_match");
+                    else if(context.update_lock!=ov::UpdateLock::None)
+                        rematch.blocked=ov::UpdateLockReason(context.update_lock);
+                    else if(thisSet && set.opponent.presence==ov::Presence::Offline)
+                        rematch.blocked=texts::T("menus.rematch.offline",{{"name",name}});
+                    rematch.can=rematch.blocked.empty();
+                }
                 // Ranked: Play RANKED (the player's own Mii, else one they
                 // choose in the game), and the leaderboards while it is shown.
                 {
@@ -3145,8 +3237,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     rankedStage=CHARGED_SET_BOOT;
                     rankedSince=std::chrono::steady_clock::now();
                     started=true;
-                    // Off to another match: the rematch asked for is called off.
-                    if(competitive) competitive->CallOffRematch();
+                    // Off to another match: what the player waits for is called off.
+                    if(competitive) competitive->CallOffRequest();
                     hostOverlay->ShowMessage(texts::T("menus.messages.off_to_ranked"),std::chrono::steady_clock::now());
                 } else overlayNotice=texts::T("menus.notices.ranked_cannot_start");
             }
@@ -3159,37 +3251,76 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             // Online play waits for an update: the pages offer nothing that
             // goes online (the model), and nothing that would gets through.
             const bool locked=onlineLocked();
+            // A challenge, a search or a rematch sent: the menus close and the
+            // box in the corner waits for it (CompetitiveHost::PendingRequest),
+            // the game back from its online menus to the main menu.
+            bool sent=false;
+            using Kind=mscharged::platform::CompetitiveHost::RequestKind;
+            const auto asked=competitive ? competitive->PendingRequest() : std::nullopt;
+            if(online.cancel_request && competitive) competitive->CancelRequest();
             if(panelFeed) {
                 if(online.challenge && !locked) {
                     const auto& challenge=*online.challenge;
-                    panelFeed->Challenge(challenge.player,challenge.rule_set,challenge.rules,challenge.name,
-                                         challenge.discord_friend);
-                    overlayNotice=texts::T("menus.notices.challenge_sent");
+                    if(competitive) {
+                        competitive->Challenge({challenge.player,challenge.rule_set,challenge.rules,challenge.name,
+                                                challenge.discord_friend,challenge.opponent});
+                        sent=true;
+                    } else {
+                        panelFeed->Challenge(challenge.player,challenge.rule_set,challenge.rules,challenge.name,
+                                             challenge.discord_friend);
+                        overlayNotice=texts::T("menus.notices.challenge_sent");
+                    }
                 }
                 // Do not disturb stops a search first; a search makes the
                 // player available first (give and take).
                 if(online.stop_search) {
-                    panelFeed->StopSearch();
-                    overlayNotice=texts::T("menus.notices.search_stopped");
+                    if(asked && asked->kind==Kind::Search) competitive->CancelRequest();
+                    else {
+                        panelFeed->StopSearch();
+                        overlayNotice=texts::T("menus.notices.search_stopped");
+                    }
                 }
-                if(online.set_available) panelFeed->SetAvailable(*online.set_available);
-                if(online.search && !locked) {
-                    const auto& search=*online.search;
-                    panelFeed->StartSearch(search.rule_set,search.rules,search.name,std::string(release->game_id,4));
-                    overlayNotice=texts::T("menus.notices.searching");
+                const bool search=online.search && !locked;
+                if(online.set_available && !(search && competitive)) panelFeed->SetAvailable(*online.set_available);
+                if(search) {
+                    const auto& rules=*online.search;
+                    if(competitive) {
+                        competitive->Search({rules.rule_set,rules.rules,rules.name,std::string(release->game_id,4),
+                                             online.set_available.value_or(false)});
+                        sent=true;
+                    } else {
+                        panelFeed->StartSearch(rules.rule_set,rules.rules,rules.name,std::string(release->game_id,4));
+                        overlayNotice=texts::T("menus.notices.searching");
+                    }
                 }
                 if(online.add_friend) panelFeed->AddFriend(*online.add_friend);
                 if(online.remove_friend) panelFeed->RemoveFriend(*online.remove_friend);
                 if(online.add_mii_friend) panelFeed->AddMiiFriend(*online.add_mii_friend);
                 if(online.remove_mii_friend) panelFeed->RemoveMiiFriend(*online.remove_mii_friend);
                 if(online.ready && !locked) panelFeed->ReadyToPlay(set,true);
-                if(online.cancel) panelFeed->Cancel(set);
+                // The set's Withdraw of what the player waits for: its cancel.
+                if(online.cancel) {
+                    if(asked && asked->kind!=Kind::Search && asked->match==set) competitive->CancelRequest();
+                    else panelFeed->Cancel(set);
+                }
             }
             if(competitive) {
-                // An accept starts the set in this game; a rematch asks the opponent.
+                // An accept starts the set in this game; a rematch (QUICK
+                // PLAY's, of the last set played here) asks the opponent.
                 if((online.accept && !locked) || online.decline)
                     competitive->Answer(set,online.accept && !locked,online.accept ? online.stadium : std::string());
-                if(online.rematch && !locked) askRematch(set,online.stadium,model.online.set.opponent.name);
+                const auto& rematch=model.online.rematch;
+                if(online.rematch && !locked && rematch.shown && rematch.can) {
+                    competitive->PlayAgain(rematch.match,true,online.stadium,rematch.opponent.name);
+                    sent=true;
+                }
+            }
+            if(sent) {
+                // (Only from the game's online menu: elsewhere its wish to
+                // leave would wait for the next visit.)
+                ChargedMenuSnapshot menu{};
+                if(leaveOnline && menuSnapshot && menuSnapshot(&menu,sizeof menu) && menu.online_menu) leaveOnline();
+                started=true;
             }
             if(online.set_challenge_rules) {
                 challengeRules=*online.set_challenge_rules;
@@ -3932,25 +4063,55 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 mscharged::platform::SessionLogLine("Game options: changed in the overlay");
             }
 #endif
-            // The rematch the player asked for, while it waits: for whom, and
-            // the seconds until the game calls it off.
+            // What the player asked for and waits for (a rematch, a challenge,
+            // a search): for whom, and the seconds until the game calls it off
+            // (a search: how long it runs); CANCEL under it, and where else.
             if(hostOverlay && competitive && now-rematchShown>=std::chrono::milliseconds(250)) {
                 rematchShown=now;
                 std::optional<mscharged::runtime::HostOverlay::Status> status;
-                if(const auto asked=competitive->PendingRematch()) {
-                    const auto left=std::chrono::ceil<std::chrono::seconds>(asked->deadline-now).count();
-                    const std::string name=asked->opponent.empty()
-                        ? std::string(mscharged::texts::T("menus.messages.unnamed_opponent")) : asked->opponent;
-                    status=mscharged::runtime::HostOverlay::Status{mscharged::texts::T("menus.status.rematch_title"),
-                        mscharged::texts::T("menus.status.rematch_waiting",
-                            {{"name",name},{"seconds",std::to_string(std::max<long long>(0,left))}})};
+                if(const auto asked=competitive->PendingRequest()) {
+                    const auto words=describeRequest(*asked,now);
+                    std::string hint;
+                    if(menuInput) {
+                        const std::string key=mscharged::platform::HotkeyName(hotkeys[mscharged::HotkeyPanel]);
+                        const bool none=key.empty() || key==mscharged::kNoHotkey;
+                        hint=mscharged::texts::T("menus.status.cancel_hint",
+                            {{"keys",none ? std::string("HOME") : key+" / HOME"}});
+                    }
+                    status=mscharged::runtime::HostOverlay::Status{words.title,words.text,
+                        mscharged::texts::T("menus.status.cancel"),hint};
                 }
                 hostOverlay->SetStatus(std::move(status));
             }
+            // A click on its CANCEL (taken from the game).
+            if(sStatusCancels.exchange(0)>0 && competitive) competitive->CancelRequest();
             if(hostOverlay) {
                 if(const auto rate=frameRate.Sample(frames,now)) hostOverlay->SetRate(*rate);
                 const auto size=aurora_get_window_size();
+                // The status's button, in the window's coordinates (the mouse's):
+                // lit under the mouse, and its click the host's.
+                int windowWidth=0,windowHeight=0;
+                SDL_GetWindowSize(host.window,&windowWidth,&windowHeight);
+                const float toWindowX=size.native_fb_width ? float(windowWidth)/float(size.native_fb_width) : 1.0f;
+                const float toWindowY=size.native_fb_height ? float(windowHeight)/float(size.native_fb_height) : 1.0f;
+                const auto statusButton=[&]()->std::optional<std::array<float,4>> {
+                    const auto area=hostOverlay->StatusActionArea();
+                    if(!area) return std::nullopt;
+                    return std::array<float,4>{(*area)[0]*toWindowX,(*area)[1]*toWindowY,(*area)[2]*toWindowX,
+                                               (*area)[3]*toWindowY};
+                };
+                bool hover=false;
+                if(const auto button=statusButton(); button && SDL_GetMouseFocus()==host.window) {
+                    float mouseX=0,mouseY=0;
+                    SDL_GetMouseState(&mouseX,&mouseY);
+                    hover=mouseX>=(*button)[0] && mouseX<(*button)[2] && mouseY>=(*button)[1] && mouseY<(*button)[3];
+                }
+                hostOverlay->SetStatusHover(hover);
                 hostOverlay->Update(size.native_fb_width,size.native_fb_height,now);
+                if(const auto button=statusButton())
+                    mscharged::platform::SetHotkeyClickArea((*button)[0],(*button)[1],(*button)[2],(*button)[3],
+                                                            [] { sStatusCancels.fetch_add(1); });
+                else mscharged::platform::SetHotkeyClickArea(0,0,0,0,nullptr);
             }
             if(windowMemory) windowMemory->Service(now);
 #if defined(__SWITCH__)

@@ -363,7 +363,12 @@ has **ONLINE**, **OPTIONS** and **QUIT RECHARGED**:
   **RANKED MATCH** (the game's online RANKED from anywhere in its menus:
   **Play RANKED** takes the game by itself
   into a RANKED search, with your own Mii or one you choose there; from another
-  menu it goes on once you are back on the main menu or the online menu),
+  menu it goes on once you are back on the main menu or the online menu), and
+  after a set played in this game **REMATCH** with your opponent's name (the
+  set again by its rules; whose turn it is picks the stadium). A challenge, a
+  rematch or a search you send closes the menu: a box in the bottom-right
+  corner shows it until it is answered (a challenge or rematch at most a
+  minute), with **CANCEL** (a click, or **CANCEL REQUEST** on QUICK PLAY),
   **LEADERBOARD** (this season's and today's leaders and your place, with a
   player profile) and **WII ONLINE (LEGACY)** (the game's own online menu).
   **Do not disturb** sits at the bottom of **QUICK PLAY**. A player on

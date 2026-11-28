@@ -36,9 +36,61 @@ constexpr int kModeDemo = 2;
 // A set's game waits this long for its last report before it ends the set
 // anyway.
 constexpr auto kEndWait = 20s;
-// A rematch the player asked for waits this long for the opponent's answer;
-// then the game calls it off (the server would keep it for 10 minutes).
+// A rematch or challenge the player asked for waits this long for the
+// opponent's answer; then the game calls it off (the server would keep a
+// rematch for 10 minutes, a challenge for 2 hours).
 constexpr auto kRematchWait = 60s;
+
+// How a rematch or challenge the player asked for ended, as its notice.
+enum class AskEnd
+{
+    Declined,
+    NoAnswer,
+    OpponentGone,
+    CalledOff,
+    MatchStarted,
+    Cancelled,
+};
+
+std::string AskNotice(bool challenge, AskEnd end, const std::string& name)
+{
+    const texts::Arg who{"name", name};
+    switch (end)
+    {
+    case AskEnd::Declined:
+        return challenge ? texts::T("menus.messages.your_challenge_declined", {who})
+                         : texts::T("menus.messages.rematch_declined", {who});
+    case AskEnd::NoAnswer:
+        return challenge ? texts::T("menus.messages.your_challenge_no_answer", {who})
+                         : texts::T("menus.messages.rematch_no_answer", {who});
+    case AskEnd::OpponentGone:
+        return challenge ? texts::T("menus.messages.your_challenge_opponent_gone", {who})
+                         : texts::T("menus.messages.rematch_opponent_gone", {who});
+    case AskEnd::MatchStarted:
+        return challenge ? texts::T("menus.messages.your_challenge_match_started", {who})
+                         : texts::T("menus.messages.rematch_match_started", {who});
+    case AskEnd::Cancelled:
+        return challenge ? texts::T("menus.messages.your_challenge_cancelled", {who})
+                         : texts::T("menus.messages.rematch_cancelled", {who});
+    case AskEnd::CalledOff: break;
+    }
+    return challenge ? texts::T("menus.messages.your_challenge_called_off", {who})
+                     : texts::T("menus.messages.rematch_called_off", {who});
+}
+
+// A set's rules as its cards say them: the rule set and what it plays by.
+std::string SetRules(const ProfileMatch& match)
+{
+    return texts::T("menus.sets.rules", {{"rule_set", match.rule_set}, {"rules", DescribeRules(match.rules)}});
+}
+
+// The log's words for why the game calls it off.
+const char* AskEndWhy(AskEnd end)
+{
+    return end == AskEnd::Cancelled ? "the player cancelled it"
+         : end == AskEnd::MatchStarted ? "the player started another match"
+                                       : "no answer in time";
+}
 
 // The launcher's GoKey: each go of a set (it can go again after a Ready to
 // play! taken back) has its own.
@@ -115,9 +167,11 @@ void CompetitiveHost::Stop()
         // A set still waiting for this game: the opponent's game hears at once
         // that this one is gone, not only once the server gives up on it.
         withdraw_on_stop_ = set_ && !set_unready_ && set_stage_ != CHARGED_SET_PLAYING && set_stage_ != CHARGED_SET_OVER;
-        // A rematch still waiting for the opponent's answer: called off, so
-        // their game drops its question at once.
-        withdraw_ask_ = ask_ ? ask_->match : 0;
+        // A rematch or challenge still waiting for the opponent's answer:
+        // called off, so their game drops its question at once; a search
+        // stops.
+        withdraw_ask_ = ask_ && ask_->kind != RequestKind::Search ? ask_->match : 0;
+        stop_search_on_stop_ = ask_ && ask_->kind == RequestKind::Search;
         // During its match: the series with the game in play broken off, so
         // the server settles the set now and both players are free.
         if (!series_done_ && series_match_ != 0 && playing_)
@@ -127,7 +181,7 @@ void CompetitiveHost::Stop()
             reports_.push_back({series_match_, games});
             series_done_ = true;
         }
-        if (withdraw_on_stop_ || withdraw_ask_ || !reports_.empty())
+        if (withdraw_on_stop_ || withdraw_ask_ || stop_search_on_stop_ || !reports_.empty())
         {
             wake_.notify_all();
             wake_.wait_for(lock, kWithdrawWait, [this] { return withdrawn_; });
@@ -335,6 +389,7 @@ std::optional<CompetitiveHost::SetStatus> CompetitiveHost::CurrentSet()
         set_games_ = match_->rules.games;
         set_first_pick_ = match_->tournament.id ? std::string() : match_->first_pick;
         set_stadium_ = match_->rules.stadium;
+        set_rules_ = SetRules(*match_);
     }
     if (set_opponent_.empty()) return std::nullopt;
     SetStatus status;
@@ -373,8 +428,10 @@ std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
             set_games_ = match_->rules.games;
             set_first_pick_ = match_->tournament.id ? std::string() : match_->first_pick;
             set_stadium_ = match_->rules.stadium;
+            set_rules_ = SetRules(*match_);
         }
         end.match = set_;
+        end.rules = set_rules_;
         // The rematch is the other player's turn.
         end.rematch_turn = set_first_pick_ == "opponent" ? 1 : set_first_pick_ == "you" ? 0 : -1;
         end.stadium = set_stadium_;
@@ -522,19 +579,57 @@ void CompetitiveHost::PlayAgain(std::int64_t match, bool rematch, const std::str
         again_rematch_ = rematch;
         again_stadium_ = rematch ? stadium : std::string();
         // The ask waits from now; the worker learns its set from the answer.
-        if (rematch) ask_ = Ask{0, opponent, Clock::now() + kRematchWait, false};
+        if (rematch)
+        {
+            const auto now = Clock::now();
+            ask_ = Ask{RequestKind::Rematch, 0, opponent, now, now + kRematchWait};
+        }
     }
     Kick();
 }
 
-std::optional<CompetitiveHost::PendingAsk> CompetitiveHost::PendingRematch()
+void CompetitiveHost::Challenge(ChallengeRequest request)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!ask_) return std::nullopt;
-    return PendingAsk{ask_->opponent, ask_->deadline};
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const auto now = Clock::now();
+        ask_ = Ask{RequestKind::Challenge, 0, request.opponent, now, now + kRematchWait};
+        challenge_send_ = std::move(request);
+        search_send_.reset();
+    }
+    Kick();
 }
 
-void CompetitiveHost::CallOffRematch()
+void CompetitiveHost::Search(SearchRequest request)
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        ask_ = Ask{RequestKind::Search, 0, {}, Clock::now(), Clock::time_point::max()};
+        search_send_ = std::move(request);
+        challenge_send_.reset();
+    }
+    Kick();
+}
+
+std::optional<CompetitiveHost::PendingAsk> CompetitiveHost::PendingRequest()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!ask_ || ask_->cancelled) return std::nullopt;
+    return PendingAsk{ask_->kind, ask_->match, ask_->opponent, ask_->since, ask_->deadline};
+}
+
+void CompetitiveHost::CancelRequest()
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!ask_ || ask_->cancelled) return;
+        ask_->cancelled = true;
+        next_match_ = {};
+    }
+    Kick();
+}
+
+void CompetitiveHost::CallOffRequest()
 {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -619,12 +714,14 @@ void CompetitiveHost::Run()
     // called off, so the opponent's game leaves it now and both are free.
     // During the match or after it: the series goes out now, with the game
     // the close broke off, so the server settles the set at once. A rematch
-    // still waiting for the opponent's answer is called off too.
+    // or challenge still waiting for the opponent's answer is called off
+    // too, and a search stops.
     std::vector<Report> reports;
     reports.swap(reports_);
     const bool withdraw = withdraw_on_stop_;
     const std::int64_t ask = withdraw_ask_;
-    if (!withdraw && !ask && reports.empty()) return;
+    const bool stop_search = stop_search_on_stop_;
+    if (!withdraw && !ask && !stop_search && reports.empty()) return;
     const std::int64_t set = set_;
     auto cancel = std::make_shared<HttpCancel>();
     cancel_ = cancel;
@@ -637,11 +734,22 @@ void CompetitiveHost::Run()
             try
             {
                 api.Cancel(ask);
-                Said("the game closes; the rematch it asked for (match " + std::to_string(ask) + ") is called off");
+                Said("the game closes; what it asked for (match " + std::to_string(ask) + ") is called off");
             }
             catch (const ProfileError& e)
             {
                 // Answered meanwhile, or no answer: the server ends it by itself.
+                if (e.Cancelled()) throw;
+            }
+        if (stop_search)
+            try
+            {
+                api.StopSearch();
+                Said("the game closes; its search for an opponent stops");
+            }
+            catch (const ProfileError& e)
+            {
+                // No answer: the server drops the search of a player gone.
                 if (e.Cancelled()) throw;
             }
         if (withdraw)
@@ -809,6 +917,74 @@ void CompetitiveHost::Work(ProfileService& api)
         if (notice) notice_ = notice;
         next_match_ = {};
     }
+    // A challenge or a search the player sent from the Game Menu.
+    std::optional<ChallengeRequest> challenge;
+    std::optional<SearchRequest> search;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        challenge = std::move(challenge_send_);
+        challenge_send_.reset();
+        search = std::move(search_send_);
+        search_send_.reset();
+    }
+    if (challenge)
+    {
+        std::optional<ProfileMatch> sent;
+        std::optional<std::string> notice;
+        try
+        {
+            sent = challenge->rule_set > 0
+                ? api.ChallengePlayer(challenge->player, challenge->rule_set, challenge->discord_friend)
+                : api.ChallengePlayer(challenge->player, challenge->rules, challenge->name, challenge->discord_friend);
+            Said("challenged " + challenge->opponent + " in the game (match " + std::to_string(sent->id) + ")");
+        }
+        catch (const ProfileError& e)
+        {
+            if (e.Cancelled()) throw;
+            Said("the challenge to " + challenge->opponent + " was not taken: " + e.what());
+            notice = e.Status() == 0 ? texts::T("menus.messages.server_no_answer")
+                                     : texts::T("menus.messages.your_challenge_not_sent",
+                                                {{"name", challenge->opponent}, {"error", e.what()}});
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        // It waits for the opponent's answer; one that met the opponent's own
+        // challenge goes at once, and one the server did not take is over.
+        if (ask_ && ask_->kind == RequestKind::Challenge && !ask_->match)
+        {
+            if (sent && sent->state == "challenged")
+            {
+                ask_->match = sent->id;
+                if (!sent->opponent.name.empty()) ask_->opponent = sent->opponent.name;
+            }
+            else ask_.reset();
+        }
+        if (notice) notice_ = notice;
+        next_match_ = {};
+    }
+    if (search)
+    {
+        bool started = false;
+        std::optional<std::string> notice;
+        try
+        {
+            // Give and take: who looks for an opponent can be found.
+            if (search->make_available) api.SetAvailable(true);
+            api.StartSearch(search->rule_set, search->rules, search->name, search->game);
+            started = true;
+            Said("searching for an opponent in the game (" + search->name + ")");
+        }
+        catch (const ProfileError& e)
+        {
+            if (e.Cancelled()) throw;
+            Said(std::string("the search for an opponent did not start: ") + e.what());
+            notice = e.Status() == 0 ? texts::T("menus.messages.server_no_answer")
+                                     : texts::T("menus.messages.search_not_started", {{"error", e.what()}});
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!started && ask_ && ask_->kind == RequestKind::Search) ask_.reset();
+        if (notice) notice_ = notice;
+        next_match_ = {};
+    }
 
     bool fetch, report;
     unsigned profile;
@@ -823,25 +999,64 @@ void CompetitiveHost::Work(ProfileService& api)
     // The match the player accepted: its rules for the module.
     if (fetch || report)
     {
-        auto current = api.CurrentMatch();
-        // The rematch asked in this game: an answer ends it (an accept goes on
-        // below, as any set that goes); unanswered in time, or overtaken by a
-        // match this game started, the game calls it off now.
+        // A search asked in this game: the server's word on it too.
+        bool searching = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            searching = ask_ && ask_->kind == RequestKind::Search;
+        }
+        std::optional<ProfileSearch> search_now;
+        auto current = api.CurrentMatch(nullptr, searching ? &search_now : nullptr);
+        // The rematch or challenge asked in this game: an answer ends it (an
+        // accept goes on below, as any set that goes); unanswered in time,
+        // cancelled by the player, or overtaken by a match this game started,
+        // the game calls it off now. Its search: a find ends it (the set goes
+        // on below), the server's stop too; cancelled or overtaken, the game
+        // stops it.
         std::int64_t withdraw = 0;
-        bool timed_out = false;
+        bool stop_search = false;
+        bool challenge_kind = false;
+        AskEnd why = AskEnd::NoAnswer;
         std::string asked_opponent, ask_line;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            if (ask_ && ask_->match)
+            const AskEnd asked_why = !ask_                 ? AskEnd::NoAnswer
+                                   : ask_->cancelled       ? AskEnd::Cancelled
+                                   : ask_->match_started   ? AskEnd::MatchStarted
+                                                           : AskEnd::NoAnswer;
+            // (A search still to send is not on the server yet.)
+            if (ask_ && ask_->kind == RequestKind::Search && !search_send_)
+            {
+                if (search_now)
+                {
+                    if (ask_->cancelled || ask_->match_started)
+                    {
+                        stop_search = true;
+                        why = asked_why;
+                    }
+                }
+                else
+                {
+                    const bool found = current && current->state == "accepted";
+                    if (!found)
+                        notice_ = ask_->cancelled       ? texts::T("menus.messages.search_cancelled")
+                                : ask_->match_started   ? texts::T("menus.messages.search_match_started")
+                                                        : texts::T("menus.messages.search_ended");
+                    ask_line = found ? "the search found an opponent" : "the search for an opponent stopped";
+                    ask_.reset();
+                }
+            }
+            else if (ask_ && ask_->kind != RequestKind::Search && ask_->match)
             {
                 const std::string state = current && current->id == ask_->match ? current->state : std::string();
                 asked_opponent = ask_->opponent;
+                challenge_kind = ask_->kind == RequestKind::Challenge;
                 if (state == "challenged")
                 {
-                    if (ask_->match_started || Clock::now() >= ask_->deadline)
+                    if (ask_->cancelled || ask_->match_started || Clock::now() >= ask_->deadline)
                     {
                         withdraw = ask_->match;
-                        timed_out = !ask_->match_started;
+                        why = asked_why;
                     }
                 }
                 else
@@ -849,25 +1064,52 @@ void CompetitiveHost::Work(ProfileService& api)
                     const std::string name = current && !current->opponent.name.empty() ? current->opponent.name
                                                                                        : ask_->opponent;
                     if (state != "accepted")
-                        notice_ = state == "declined"  ? texts::T("menus.messages.rematch_declined", {{"name", name}})
-                                : state == "expired"   ? texts::T("menus.messages.rematch_no_answer", {{"name", name}})
-                                : state == "dissolved" ? texts::T("menus.messages.rematch_opponent_gone", {{"name", name}})
-                                                       : texts::T("menus.messages.rematch_called_off", {{"name", name}});
-                    ask_line = "the rematch (match " + std::to_string(ask_->match) + ") "
+                        notice_ = AskNotice(challenge_kind,
+                                            state == "declined"    ? AskEnd::Declined
+                                            : state == "expired"   ? AskEnd::NoAnswer
+                                            : state == "dissolved" ? AskEnd::OpponentGone
+                                                                   : AskEnd::CalledOff,
+                                            name);
+                    ask_line = std::string(challenge_kind ? "the challenge" : "the rematch") + " (match "
+                             + std::to_string(ask_->match) + ") "
                              + (state == "accepted" ? "was accepted" : "ended: " + (state.empty() ? "gone" : state));
                     ask_.reset();
                 }
             }
         }
         if (!ask_line.empty()) Said(ask_line);
+        if (stop_search)
+        {
+            bool stopped = false;
+            try
+            {
+                api.StopSearch();
+                stopped = true;
+                Said(std::string("stopped the search for an opponent: ") + AskEndWhy(why));
+            }
+            catch (const ProfileError& e)
+            {
+                // Without an answer it stops at the next check.
+                if (e.Cancelled() || e.Status() == 0) throw;
+                Said(std::string("the search for an opponent did not stop: ") + e.what());
+            }
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (ask_ && ask_->kind == RequestKind::Search)
+            {
+                if (stopped)
+                    notice_ = why == AskEnd::Cancelled ? texts::T("menus.messages.search_cancelled")
+                                                       : texts::T("menus.messages.search_match_started");
+                ask_.reset();
+            }
+        }
         if (withdraw)
         {
+            const char* what = challenge_kind ? "the challenge" : "the rematch";
             std::optional<ProfileMatch> withdrawn;
             try
             {
                 withdrawn = api.Cancel(withdraw);
-                Said("called off the rematch (match " + std::to_string(withdraw) + "): "
-                     + (timed_out ? "no answer in time" : "the player started another match"));
+                Said(std::string("called off ") + what + " (match " + std::to_string(withdraw) + "): " + AskEndWhy(why));
             }
             catch (const ProfileError& e)
             {
@@ -875,15 +1117,12 @@ void CompetitiveHost::Work(ProfileService& api)
                 // the server refused was answered meanwhile (the next check
                 // shows how).
                 if (e.Cancelled() || e.Status() == 0) throw;
-                Said("the rematch (match " + std::to_string(withdraw) + ") was not called off: " + e.what());
+                Said(std::string(what) + " (match " + std::to_string(withdraw) + ") was not called off: " + e.what());
             }
             std::lock_guard<std::mutex> lock(mutex_);
             if (ask_ && ask_->match == withdraw)
             {
-                if (withdrawn)
-                    notice_ = timed_out
-                        ? texts::T("menus.messages.rematch_no_answer", {{"name", asked_opponent}})
-                        : texts::T("menus.messages.rematch_match_started", {{"name", asked_opponent}});
+                if (withdrawn) notice_ = AskNotice(challenge_kind, why, asked_opponent);
                 ask_.reset();
             }
             if (withdrawn && current && current->id == withdraw) current = withdrawn;
