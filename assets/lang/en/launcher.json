@@ -575,7 +575,6 @@
   "replay": {
     "starting": "Starting the replay {{name}}...",
     "unreadable": "This replay cannot be played: {{error}}",
-    "no_image": "This replay needs the game image {{release}} ({{id}}). Add it to your game folder on the Game page.",
-    "waits_for_game": "Recharged already runs a game from this folder. Close it, and {{name}} starts."
+    "no_image": "This replay needs the game image {{release}} ({{id}}). Add it to your game folder on the Game page."
   }
 }

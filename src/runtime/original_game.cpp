@@ -689,9 +689,26 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         mscharged::platform::SessionLogLine("Data: "+mscharged::PathUtf8(dataDirectory));
         std::filesystem::create_directories(dataDirectory);
         // Two games of one folder would share its save, and both would take
-        // the player's competitive sets.
-        Check(mscharged::platform::LockGameFolder(dataDirectory),
-            "Recharged already runs a game from this folder. Close it first, or switch to its window.");
+        // the player's competitive sets. A game that only plays a match back
+        // (a Watch link, a replay) watches beside it instead: from a copy of
+        // the save, with the keyboard alone (the Wii Remotes and gamepads stay
+        // the other game's), without competitive play, online pages, Discord
+        // status or window memory.
+        const auto titleSaveFolder=mscharged::TitleSaveFolder(
+            mscharged::ResolveSaveFolder(launch.settings, launch.config.path, executableDirectory),
+            mscharged::ReadDiscTitleId(launch.disc_path));
+        std::filesystem::path watcherFolder;
+        if(mscharged::platform::LockGameFolder(dataDirectory))
+            mscharged::platform::RemoveEndedWatchers(dataDirectory);
+        else {
+            Check(!launch.replay_path.empty(),
+                "Recharged already runs a game from this folder. Close it first, or switch to its window.");
+            watcherFolder=mscharged::platform::PrepareWatcherFolder(dataDirectory,titleSaveFolder);
+            mscharged::platform::SessionLogLine("Watching beside the game that runs from this folder: from "
+                +mscharged::PathUtf8(watcherFolder)+", with a copy of its save; keyboard only, without competitive "
+                "play, online pages, Discord status or window memory");
+        }
+        const bool watcher=!watcherFolder.empty();
         // Aurora reads its paths as UTF-8; string() would give Windows' ANSI code page (#97).
         const auto dataPath = mscharged::PathUtf8(dataDirectory);
         AuroraConfig config{};
@@ -733,7 +750,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         config.sampleShading=antialiasing.sample_shading;
         // mods.dump_textures: Aurora saves each game texture no pack replaces
         // to data/texture_dumps, named for texture packs.
-        config.allowTextureDumps=launch.settings.dump_textures;
+        config.allowTextureDumps=launch.settings.dump_textures && !watcher;
         // The native Wii Remote driver (platform/wiimote_hid) owns physical
         // remotes, including DolphinBar mode 4 and its IR sensor bar; SDL's
         // own Wii HID driver must not open the same devices.
@@ -945,7 +962,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // Native EXI hardware precedes the original SRAM cache initializer.
         // Preserve an existing image; first run explicitly uses the native
         // virgin policy, independently of disc/locale/SC preferences.
-        mscharged::platform::InitializeNativeRTC(dataDirectory / "native-rtc.bin",
+        mscharged::platform::InitializeNativeRTC((watcher ? watcherFolder : dataDirectory) / "native-rtc.bin",
             mscharged::platform::CreateVirginRTCImage());
         __OSInitSram();
         Check(__OSSyncSram(), "Original SRAM initialization did not complete its real EXI read");
@@ -986,10 +1003,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // One isolated native title profile. UID is an explicit native IOS
         // process identity, independent of the host account/retail console.
         // Each title keeps its own storage in the save folder (the USA one
-        // the folder itself), as titles have separate homes on a Wii.
-        const auto saveFolder=mscharged::TitleSaveFolder(
-            mscharged::ResolveSaveFolder(launch.settings, launch.config.path, executableDirectory),
-            mscharged::ReadDiscTitleId(launch.disc_path));
+        // the folder itself), as titles have separate homes on a Wii. A
+        // watcher plays from its copy.
+        const auto saveFolder=watcher ? watcherFolder/"nand" : titleSaveFolder;
         const auto discBootIdentity=mscharged::platform::InitializeNativeFilesystemForDisc(
             {launch.disc_path, saveFolder, 0x1001});
         mscharged::platform::InitializeNativeSTMDevice();
@@ -1013,7 +1029,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         players.keyboard = -1;
         players.mouse_with_controller = launch.settings.mouse_pointer;
         for (int player = 0; player < 4; ++player) {
-            const auto& device = launch.settings.players[player];
+            const auto& device = watcher ? std::string(player == 0 ? "keyboard" : "off") : launch.settings.players[player];
             if (device == "keyboard") players.keyboard = player;
             else if (device.rfind("gamepad", 0) == 0) players.gamepads[device.back() - '1'] = player;
             else if (device != "off") players.remotes[device] = player;
@@ -1042,7 +1058,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         const bool speakerAtStart=wpad.remote_speaker;
         // Original WPADControlSpeaker ON: 0x08 in the European game, 0x80 in the others.
         wpad.remote_speaker_reg01=release->code==mscharged::GameCode::Europe ? 0x08 : 0x80;
-        wpad.bluetooth_search=launch.settings.bluetooth_search;
+        wpad.bluetooth_search=launch.settings.bluetooth_search && !watcher;
         mscharged::platform::InitializeNativeHardwareInput(host.window,wpad,
             mscharged::platform::GetNativeSTMInput(), desktop, players);
         {
@@ -1559,6 +1575,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             std::string line="Discord status: ";
             if(!launch.settings.discord_status)
                 line+="off";
+            else if(watcher)
+                line+="off (the game that runs from this folder shows it)";
             else if(application.empty())
                 line+="off (this build has no Discord application)";
             else if(!presenceSnapshot)
@@ -1892,7 +1910,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // display.remember_window: not in Steam's Game Mode, for a window size
         // from the command line or without a settings file.
         std::optional<mscharged::runtime::WindowMemory> windowMemory;
-        if(nativeSend && interactive && !resizeCheck && launch.settings.remember_window && launch.config.exists
+        if(nativeSend && interactive && !resizeCheck && !watcher && launch.settings.remember_window && launch.config.exists
            && launch.width_source!=mscharged::SettingSource::CommandLine && !mscharged::UnderGamescope())
             windowMemory.emplace(host.window,launch.config.path);
         // The 3D resolution the hotkeys step from, for this run.
@@ -1915,7 +1933,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         struct CompetitiveForPowerOff { ~CompetitiveForPowerOff() { sCompetitive=nullptr; } } competitiveForPowerOff;
         {
             std::string off;
-            if(wfcSnapshot && configureCompetitive)
+            if(watcher)
+                off="watching beside the game that runs from this folder";
+            else if(wfcSnapshot && configureCompetitive)
                 competitive=mscharged::platform::CompetitiveHost::Start(launch.settings.profile_server,
                     mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
                     [](const std::string& text) {
@@ -3164,7 +3184,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     : gate==Gate::Outdated ? Lock::Outdated : Lock::Unchecked);
             }
         };
-        if(menuInput) {
+        if(menuInput && !watcher) {
             std::string off;
             // The Discord friends come from the launcher (the game has no
             // Discord SDK); the feed asks which of them play.

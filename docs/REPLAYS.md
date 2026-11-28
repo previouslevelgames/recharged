@@ -65,6 +65,13 @@ from a file does not open the launcher again.
 A replay never reads or writes your save. A Cup match plays back as a
 single match, so watching it does not change your Cup.
 
+A replay or a **Watch** link also starts while you play: its window watches
+beside your game, from the same Recharged folder and settings. It runs from a
+copy of your save and takes only the keyboard (your Wii Remotes and gamepads
+stay with your game), and it has no competitive play, online pages or Discord
+status of its own. On a Mac, close the game first: macOS gives the link to the
+Recharged that already runs.
+
 A match watched live (the online server's **Watch** link) plays a moment
 behind the players. When it is more than a second behind, it plays faster
 until it is live again, with the sound off. If it is more than a few seconds

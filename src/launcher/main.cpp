@@ -3735,12 +3735,11 @@ private:
         DiscInfo needs;
         fs::path image; // once found
         bool any_revision = false; // a watch ticket: any image of the release
-        bool waits_noticed = false; // it waits for this folder's game to close (said once)
     };
     std::optional<PendingReplay> pending_replay_;
-    // Another game of this folder runs (a Watch link opened while one plays):
-    // none starts until it closed (the game would stop at once). Looked at
-    // once a second.
+    // Another game of this folder runs: Play waits until it closed (the game
+    // would stop at once); a replay or a Watch link starts anyway and watches
+    // beside it (platform/game_folder_lock.h). Looked at once a second.
     bool folder_in_use_ = false;
     std::chrono::steady_clock::time_point folder_checked_{};
 
@@ -3899,15 +3898,6 @@ private:
                 pending_replay_.reset();
                 return;
             }
-        }
-        // The game of this folder that runs first closes; the replay then starts.
-        if (folder_in_use_)
-        {
-            if (!pending_replay_->waits_noticed)
-                Notice(texts::T("launcher.replay.waits_for_game", {{"name", PathUtf8(pending_replay_->path.filename())}}),
-                       NoticeKind::Info);
-            pending_replay_->waits_noticed = true;
-            return;
         }
         pending_replay_->image = image;
         if (dirty_) play_prompt_ = true;
