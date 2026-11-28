@@ -43,11 +43,11 @@ struct ChargedOnlineMatchSnapshot
     // 0 under way, 1 decided (a side won enough games), 2 stopped before.
     int ended;
     // What stopped it (ended 2): the result that did, 2 out of sync or 4 the
-    // connection lost (as a game's ending); 0 the online session ended
-    // without one.
+    // connection lost (as a game's ending); 5 this player forfeited it
+    // (kChargedOnlineForfeit); 0 the online session ended without one.
     int stopped_by;
     unsigned profile_id; // the WFC profile of the Mii online, 0 unknown
-    int ranked;          // a ranked series; else one between friends
+    int ranked;          // a ranked series (RANKED's points); else unranked
     int best_of;         // games in the series
     int side;            // this machine's team: 0 home, 1 away
     char mii[2][48];     // the Mii names of home and away, UTF-8
@@ -55,11 +55,35 @@ struct ChargedOnlineMatchSnapshot
     int sidekicks[2][3]; // eSidekickID of their lineups, -1 unknown
     int games;           // games ended so far
     ChargedOnlineGame game[9];
+    // While a game of the series is played (its kickoff to its end): its
+    // number (games + 1) and the goals of home and away so far, as this
+    // machine's game counts them (a rollback's correction may take one back);
+    // 0 between games and once the series ended.
+    int playing;
+    int playing_scores[2];
     // The last error code shown, in a series or not.
     ChargedOnlineError error;
 };
 
 #ifdef __cplusplus
+inline constexpr int kChargedOnlineForfeit = 5;
+
+// In the game module: the player forfeits the online match being played (the
+// match menu's FORFEIT, as the game leaves it): the series under way stops,
+// forfeited.
+void ChargedOnlineSeriesForfeit();
+
+// In the game module, during an online game (from its kickoff on): the series
+// it belongs to (the module's count, as ChargedOnlineMatchSnapshot::series),
+// which game of it this is (from 1) and the WFC profile playing it. A game
+// the host has not looked at since its kickoff begins its series, as its
+// result would. False offline, before the kickoff, or without a profile.
+bool ChargedOnlineRecordingGame(unsigned& series, int& game, unsigned& profile_id);
+
+// In the game module, during an online match: the drafted Mii names of home
+// and away (UTF-8), empty where a side has none. False offline.
+bool ChargedOnlineSideMiiNames(char (&names)[2][48]);
+
 // One result the game settles (NetworkStatsManager::
 // CalculateAndReportGameResult) applied to a series under way: the game
 // module's rule, which its test runs on the host. A result for a game already

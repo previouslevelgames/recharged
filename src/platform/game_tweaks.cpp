@@ -8,6 +8,7 @@
 #error Game tweaks belong to the isolated original game module built with MSCHARGED_TWEAKS
 #endif
 #include "mscharged_tweaks.h"
+#include "platform/game_tweak_state.h"
 #include "platform/tweak_frame_state.h"
 
 #include <atomic>
@@ -15,6 +16,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <thread>
 
 namespace {
@@ -38,6 +40,15 @@ bool sTrainingAwayGoalie = true;
 bool sTrainingSkipGoal;
 int sTrainingAwaySkill = -1;
 bool sTrainingPlayAway;
+// Strikers 101's FREE PLAY (tweak patch 0092) and the pause menu's TRAINING
+// OPTIONS (tweak patch 0095): their buttons' texts, the host's
+// (charged_configure_training_texts), empty for the module's English.
+unsigned short sFreePlayText[33];
+unsigned short sTrainingOptionsText[33];
+// Competitive play: a set's game (competitive_match.cpp) passes the title as
+// Skip intro does, and its menus' sounds are silent while it passes them.
+bool sSetStart;
+bool sMenusQuiet;
 bool sPerformanceMode;
 // Enforced updates (the host's src/launcher/online_gate.h): its verdict on
 // this release in OnlineGateState's numbers, and the message the main menu's
@@ -45,7 +56,8 @@ bool sPerformanceMode;
 enum { kOnlineOpen = 0, kOnlineChecking = 1, kOnlineOutdated = 2, kOnlineUnchecked = 3 };
 std::atomic<int> sOnlineGate{kOnlineOpen};
 const unsigned short* sOnlineLockMessage;
-// The popup's text, in English: Recharged's own texts are not translated yet.
+// The popup's text, in English: Recharged's texts (bootstrap/texts.h) are the
+// host's, and the game draws this with its own font.
 const char16_t kOnlineOutdatedText[] =
     u"A newer version of Recharged is out. Online play is off until you update: close the game and start the "
     u"launcher, which installs it.";
@@ -53,6 +65,10 @@ const char16_t kOnlineUncheckedText[] =
     u"Recharged could not check for updates, so online play is off for now. Close the game and start the launcher "
     u"to check again.";
 static_assert(sizeof(char16_t) == sizeof(unsigned short), "The game's text is UTF-16");
+// The main menu's Online button (tweak patch 0097): its localization key (the
+// hash of the key's name) and its text.
+constexpr unsigned long kOnlineButtonKey = 0x1455335C;
+const char16_t kOnlineButtonText[] = u"PLAY ONLINE";
 // Wider view (display.wider_view, issue #91): the window's picture shape
 // divided by 16:9 while the wider view fills it, 1 otherwise; and whether the
 // match's stadium was drawn since the host last asked (it fills the window
@@ -180,6 +196,37 @@ __attribute__((visibility("default"))) void charged_configure_tweaks(unsigned ma
     sHudHidden = mscharged_tweak_enabled(MSCHARGED_TWEAK_NO_HUD);
 }
 
+// Host entry while the game runs (the overlay's Game options, between
+// matches): the enabled tweaks change; the title, menus and HUD keep their
+// state. Each tweak reads its bit where it acts, so most take effect from the
+// next match.
+__attribute__((visibility("default"))) void charged_set_tweaks(unsigned mask)
+{
+    sEnabled = mask;
+}
+
+// Competitive play (competitive_match.cpp, at the host's
+// charged_configure_competitive_start): the title is passed at once, as by
+// Skip intro, and the main menu then goes online by itself.
+void mscharged_tweak_set_start(void)
+{
+    sSetStart = true;
+}
+
+// Competitive play (competitive_match.cpp): while a set's game passes its
+// menus by itself, their sounds (Menus & HUD) are silent.
+void mscharged_tweak_set_menus_quiet(bool quiet)
+{
+    sMenusQuiet = quiet;
+}
+
+// Competitive play: the set is over; the title is the player's again.
+void mscharged_tweak_set_end(void)
+{
+    sSetStart = false;
+    sMenusQuiet = false;
+}
+
 // Host entry (Training): the item of the team that trains (ePowerUpType, -1
 // none, 9 its captain's power-up); with `start`, the launcher's Start training: the title is passed at
 // once, as by Skip intro, into a match of `captain` (eTeamID) in `stadium`
@@ -215,6 +262,21 @@ __attribute__((visibility("default"))) void charged_configure_training_opponent(
     sTrainingAwayFielders = fielders < 0 ? 0 : fielders > 4 ? 4 : fielders;
     sTrainingAwayGoalie = goalie;
     sTrainingSkipGoal = skip_goal;
+}
+
+// Host entry (Training): the texts of Training's buttons in the game, in the
+// player's language: Strikers 101's FREE PLAY and the pause menu's TRAINING
+// OPTIONS (UTF-16, at most 32 units each; null for the module's English).
+__attribute__((visibility("default"))) void charged_configure_training_texts(const unsigned short* free_play,
+                                                                             const unsigned short* options)
+{
+    const auto copy = [](const unsigned short* text, unsigned short (&to)[33]) {
+        std::size_t at = 0;
+        for (; text && text[at] && at + 1 < std::size(to); ++at) to[at] = text[at];
+        to[at] = 0;
+    };
+    copy(free_play, sFreePlayText);
+    copy(options, sTrainingOptionsText);
 }
 
 // Host entry: the H key was pressed (any thread). A match takes it in its
@@ -305,8 +367,14 @@ unsigned long mscharged_tweak_rev1_ingame_texture_budget(unsigned long size)
     return sRev1Data ? 0x966666 : size;
 }
 
+// Competitive play (competitive_match.cpp): the set's rules have Mirror match.
+extern "C" bool mscharged_competitive_mirror_match(void);
+
 bool mscharged_tweak_enabled(int tweak)
 {
+    // A set's draft and games play Mirror match by its rules, whatever the
+    // player's own setting: both games dress the away team alike.
+    if (tweak == MSCHARGED_TWEAK_MIRROR_MATCH && mscharged_competitive_mirror_match()) return true;
     return tweak >= 0 && tweak < 32 && (sEnabled & (1u << tweak)) != 0;
 }
 
@@ -325,6 +393,11 @@ bool mscharged_tweak_hud_hidden(void)
     return sHudHidden;
 }
 
+bool mscharged_tweak_pause_menu_replaced(void)
+{
+    return mscharged_tweak_enabled(MSCHARGED_TWEAK_OVERRIDE_RETAIL_MENUS);
+}
+
 void mscharged_tweak_report_stadium(int stadium)
 {
     sStadium = stadium;
@@ -332,6 +405,7 @@ void mscharged_tweak_report_stadium(int stadium)
 
 float mscharged_tweak_sound_volume(const char* bank, unsigned category)
 {
+    if (sMenusQuiet && SoundGroupOf(bank, category) == kMenus) return -200.0f;
     return sSoundMixed ? sSoundDecibels[SoundGroupOf(bank, category)] : 0.0f;
 }
 
@@ -383,6 +457,14 @@ const unsigned short* mscharged_tweak_take_online_lock_message(void)
     const unsigned short* message = sOnlineLockMessage;
     sOnlineLockMessage = nullptr;
     return message;
+}
+
+const unsigned short* mscharged_tweak_loc_text(unsigned long key)
+{
+    // The main menu's Online button (NINTENDO Wi-Fi CONNECTION): Nintendo's
+    // service is gone, the button opens Recharged's online play.
+    if (key == kOnlineButtonKey) return reinterpret_cast<const unsigned short*>(kOnlineButtonText);
+    return nullptr;
 }
 
 float mscharged_tweak_view_shape(void)
@@ -476,7 +558,7 @@ bool mscharged_tweak_take_title_press(void)
 
 bool mscharged_tweak_title_pending(void)
 {
-    return !sTitlePassed && (sTrainingStart || mscharged_tweak_enabled(MSCHARGED_TWEAK_SKIP_INTRO));
+    return !sTitlePassed && (sTrainingStart || sSetStart || mscharged_tweak_enabled(MSCHARGED_TWEAK_SKIP_INTRO));
 }
 
 int mscharged_tweak_training_item(void)
@@ -522,6 +604,16 @@ int mscharged_tweak_training_away_skill(void)
 bool mscharged_tweak_training_skip_goal(void)
 {
     return sTrainingSkipGoal;
+}
+
+const unsigned short* mscharged_tweak_training_free_play_text(void)
+{
+    return sFreePlayText[0] ? sFreePlayText : nullptr;
+}
+
+const unsigned short* mscharged_tweak_training_options_text(void)
+{
+    return sTrainingOptionsText[0] ? sTrainingOptionsText : nullptr;
 }
 
 bool mscharged_tweak_take_training_start(int* captain, int* stadium)
@@ -661,3 +753,44 @@ void mscharged_tweak_load_frame_state(const MschargedTweakFrameState* state)
     sOriginalFrame = state->frame;
 }
 }
+
+namespace mscharged::platform
+{
+// Match replays (match_replay.cpp): what a recording keeps and a replay sets
+// again before its match.
+unsigned EnabledTweaks()
+{
+    return sEnabled;
+}
+
+void SetEnabledTweaks(unsigned mask)
+{
+    sEnabled = mask;
+}
+
+TrainingTweakState GetTrainingTweakState()
+{
+    TrainingTweakState state;
+    state.item = sTrainingItem;
+    state.item_count = sTrainingItemCount;
+    state.item_giant = sTrainingItemGiant;
+    state.away_fielders = sTrainingAwayFielders;
+    state.away_goalie = sTrainingAwayGoalie;
+    state.away_skill = sTrainingAwaySkill;
+    state.play_away = sTrainingPlayAway;
+    state.skip_goal = sTrainingSkipGoal;
+    return state;
+}
+
+void SetTrainingTweakState(const TrainingTweakState& state)
+{
+    sTrainingItem = state.item;
+    sTrainingItemCount = state.item_count == 3 || state.item_count == 5 ? state.item_count : 1;
+    sTrainingItemGiant = state.item_giant;
+    sTrainingAwayFielders = state.away_fielders < 0 ? 0 : state.away_fielders > 4 ? 4 : state.away_fielders;
+    sTrainingAwayGoalie = state.away_goalie;
+    sTrainingAwaySkill = state.away_skill < -1 ? -1 : state.away_skill > 5 ? 5 : state.away_skill;
+    sTrainingPlayAway = state.play_away;
+    sTrainingSkipGoal = state.skip_goal;
+}
+} // namespace mscharged::platform

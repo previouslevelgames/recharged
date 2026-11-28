@@ -1,0 +1,40 @@
+From: mscharged-port
+Subject: Competitive play: a Recharged set plays fair ball contests by its rules
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+Feder's fair ball contests (0023) are on in every online match, so that
+both machines update the players in the same order. The profile server's
+rules now say whether a set plays with them (the rule fair_ball_contests):
+a challenge's or a tournament set's game (mscharged_competitive_set_game)
+plays with them only when its rules have them, whatever either player
+chose for their own games; both machines have the set's rules, so they
+still agree. A replay of such a game plays by the set's tweaks it recorded.
+Every other online match, and offline play, stays as it was.
+
+diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
+index 4feea13..24fec85 100644
+--- a/src/Game/Game.cpp
++++ b/src/Game/Game.cpp
+@@ -55,6 +55,7 @@
+ #include "mscharged_tweaks.h"
+ #if defined(MSCHARGED_TWEAKS)
+ #include "Game/DB/CharacterInfo.h"
++#include "mscharged_competitive.h"
+ #endif
+ #include "Game/Render/ElectricFence.h"
+ #include "Game/ReplayChoreo.h"
+@@ -1465,9 +1466,13 @@ void cGame::PreUpdate(float deltaTime)
+ // Port tweak "Feder's fair ball contests": every step updates the defending
+ // team's players first, each team in an order shuffled without bias. Online
+ // matches always play with it, so that both machines update the players in
+-// the same order.
++// the same order. Tweak patch 0083: a Recharged set's game, and its replay,
++// plays with it only when the set's rules have it, whatever either player
++// chose (both machines have the same rules).
+ static bool FairBallContests()
+ {
++    if (mscharged_competitive_tweak(MSCHARGED_TWEAK_FAIR_BALL_CONTESTS)) return true;
++    if (mscharged_competitive_set_game()) return false;
+     return mscharged_tweak_enabled(MSCHARGED_TWEAK_FAIR_BALL_CONTESTS) || GameInfoManager::Instance()->IsOnline();
+ }
+ 

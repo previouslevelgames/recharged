@@ -31,20 +31,30 @@ void Put(const fs::path& path, const std::string& text) { std::ofstream(path, st
 void BuiltIn()
 {
     const auto& presets = BuiltInMatchPresets();
-    Check(presets.size() == 2 && presets[0].name == "Default" && presets[1].name == "Competitive"
+    Check(presets.size() == 2 && presets[0].name == "Retail ranked" && presets[1].name == "Competitive"
               && presets[0].built_in && presets[1].built_in,
-          "Default and Competitive are the built-in presets");
-    Check(presets[0].settings == MatchSettings{}, "Default is a new save's settings");
-    MatchSettings competitive;
-    competitive.skill = 3;
-    competitive.best_of = 3;
-    competitive.goal_limit = true;
-    competitive.goals = 10;
-    competitive.stadium_cheat = 1;
-    Check(presets[1].settings == competitive, "Competitive: Superstar, best of 3, first to 10 goals, Secure");
+          "Retail ranked and Competitive are the built-in presets");
+    MatchSettings first_to_10;
+    first_to_10.goal_limit = true;
+    first_to_10.goals = 10;
+    Check(presets[0].settings == MatchSettings{} && presets[1].settings == first_to_10,
+          "Retail ranked: a new save's settings; Competitive: first to 10 goals");
+    Check(presets[0].tweaks == std::vector<std::string>{"fair_ball_contests"} && presets[0].stadium == "random"
+              && presets[1].stadium == "random"
+              && presets[1].tweaks
+                     == std::vector<std::string>{"fair_ball_contests", "fast_terrain", "no_mega_strikes",
+                                                 "thunder_island_walls"},
+          "Both Defence priority; Competitive: Fast terrain, No Mega Strikes, Thunder Island walls");
     Check(MatchSummary(presets[0].settings) == "Rookie, best of 3, 3 minutes", MatchSummary(presets[0].settings));
-    Check(MatchSummary(presets[1].settings) == "Superstar, best of 3, first to 10 goals, Secure Stadiums",
-          MatchSummary(presets[1].settings));
+    Check(MatchSummary(presets[1].settings) == "Rookie, best of 3, first to 10 goals", MatchSummary(presets[1].settings));
+    // As the profile server starts with them.
+    const auto retail = ChallengeRules(presets[0]), competitive = ChallengeRules(presets[1]);
+    Check(retail.skill == "rookie" && retail.limit == "time" && retail.time == 180 && retail.goals == 5
+              && retail.games == 3 && retail.stadium == "random"
+              && retail.tweaks == std::vector<std::string>{"fair_ball_contests"}
+              && retail.stadium_cheat == "none" && competitive.limit == "goals" && competitive.goals == 10
+              && competitive.games == 3 && competitive.tweaks.size() == 4,
+          "The server's Retail ranked and Competitive rules");
     MatchSettings odd;
     odd.skill = 7;
     odd.time = 150;
@@ -58,7 +68,7 @@ void Names()
 {
     for (const char* name : {"Tournament", "Quick 3", "x", "12345678901234567890123456789012", "Àlex's"})
         Check(ValidMatchPresetName(name), std::string("Valid name refused: ") + name);
-    for (const char* name : {"", " Quick", "Quick ", "default", "COMPETITIVE", "123456789012345678901234567890123",
+    for (const char* name : {"", " Quick", "Quick ", "retail RANKED", "COMPETITIVE", "123456789012345678901234567890123",
                              "a\"b", "a=b", "a[b", "a|b", "a\tb"})
         Check(!ValidMatchPresetName(name), std::string("Invalid name accepted: ") + name);
     Check(SameMatchPresetName("Quick", "qUICK") && !SameMatchPresetName("Quick", "Quick 2"), "Names compare without case");
@@ -92,6 +102,40 @@ void Text()
         Check(parsed && parsed->settings.powerup_cheat == cheat, "Power-up cheat " + std::to_string(cheat) + " read back");
     }
 
+    // For challenges: the stadium and the gameplay tweaks, read back; a
+    // challenge's rules from the preset (9 games play 7).
+    preset.stadium = "the_palace";
+    preset.tweaks = {"no_mega_strikes", "fast_terrain"};
+    parsed = ParseMatchPreset(MatchPresetText(preset));
+    Check(parsed && parsed->stadium == "the_palace" && parsed->tweaks == preset.tweaks, "Stadium and tweaks read back");
+    const auto rules = ChallengeRules(preset);
+    Check(rules.limit == "goals" && rules.goals == 7 && rules.time == 300 && rules.games == 7
+              && rules.stadium == "the_palace" && rules.stadium_cheat == "always_white_ball"
+              && rules.player_cheat == "always_sidekick_skillshot" && rules.powerup_cheat == "no_power_ups"
+              && rules.tweaks == std::vector<std::string>{"fast_terrain", "no_mega_strikes"} && rules.skill == "legend",
+          "A preset as a challenge's rules");
+    Check(!ParseMatchPreset("name = Mine\nstadium = moon\n"), "A stadium the game hasn't");
+    Check(!ParseMatchPreset("name = Mine\ntweaks = fast_terrain, super_team\n"), "A tweak no set has");
+    parsed = ParseMatchPreset("name = Mine\n");
+    Check(parsed && parsed->stadium == "random" && parsed->tweaks == std::vector<std::string>{"fair_ball_contests"},
+          "Without them: random, Defence priority");
+    // Defence priority on its own line; a file from before it was a rule has it.
+    parsed = ParseMatchPreset("name = Mine\ntweaks = fast_terrain\nfair_ball_contests = no\n");
+    Check(parsed && parsed->tweaks == std::vector<std::string>{"fast_terrain"}, "Defence priority taken off");
+    parsed = ParseMatchPreset("name = Mine\ntweaks = fast_terrain\n");
+    Check(parsed && parsed->tweaks == std::vector<std::string>{"fast_terrain", "fair_ball_contests"},
+          "An older file has Defence priority");
+    Check(!ParseMatchPreset("name = Mine\nfair_ball_contests = maybe\n"), "Defence priority is yes or no");
+    preset.tweaks = {"fair_ball_contests", "no_mega_strikes"};
+    const auto fair = MatchPresetText(preset);
+    parsed = ParseMatchPreset(fair);
+    Check(fair.find("tweaks = no_mega_strikes\nfair_ball_contests = yes\n") != std::string::npos && parsed
+              && parsed->tweaks == std::vector<std::string>{"no_mega_strikes", "fair_ball_contests"},
+          "Defence priority written and read back");
+    preset.stadium = "random";
+    preset.tweaks.clear();
+    s.powerup_cheat = 11;
+
     // Keys left out are a new save's; unknown keys (an earlier build's
     // home_powerups) and comments are skipped.
     parsed = ParseMatchPreset("; a comment\n# another\r\nname = Mine\r\nGOALS = 9\nwin_by = Goals\nfuture_key = 1\n"
@@ -116,7 +160,7 @@ void Text()
     Check(!ParseMatchPreset("name = Mine\nskill = godlike\n", &error) && error == "line 2: skill cannot be godlike",
           "An unknown skill: " + error);
     Check(!ParseMatchPreset("name = Mine\nminutes\n", &error) && error == "line 2: no \"key = value\"", error);
-    Check(!ParseMatchPreset("name = \"Default\"\n", &error), "A built-in preset's name in a file");
+    Check(!ParseMatchPreset("name = \"Retail ranked\"\n", &error), "A built-in preset's name in a file");
     Check(!ParseMatchPreset("name = Mine\nbest_of = 4\n"), "A series of 4");
     Check(!ParseMatchPreset("name = Mine\nplayer_cheat = Classic Mode\n"), "A cheat by its label, not its file name");
 }
@@ -169,6 +213,15 @@ void Folder(const fs::path& root)
     Check(list.presets.size() == 4 && list.presets[3].name == "Sprint" && list.presets[3].settings.best_of == 5
               && list.presets[3].settings.goals == 4,
           "A changed preset read back");
+
+    // Saved again after its file went away (deleted outside the launcher while
+    // its editor was open): the new file stays.
+    auto gone = LoadMatchPresets(folder).presets[3];
+    fs::remove(gone.file);
+    gone.settings.goals = 6;
+    Check(SaveMatchPreset(folder, gone, LoadMatchPresets(folder).presets) == folder / "sprint.ini"
+              && fs::exists(folder / "sprint.ini") && LoadMatchPresets(folder).presets[3].settings.goals == 6,
+          "A preset saved again after its file went away");
 
     // Files that are not presets are listed apart; so is a second file of a name.
     Put(folder / "broken.ini", "name = Broken\nskill = 9\n");

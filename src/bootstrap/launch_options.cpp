@@ -1,5 +1,7 @@
 #include "bootstrap/launch_options.h"
+#include "bootstrap/watch_link.h"
 #include "platform/path.h"
+#include <cctype>
 #include <charconv>
 #include <cstdlib>
 #include <stdexcept>
@@ -43,11 +45,27 @@ bool ParseLaunchOption(int argc, const char* const* argv, int& index, LaunchOpti
     if (token == "--window") { options.fullscreen = false; return true; }
     if (token == "--fullscreen") { options.fullscreen = true; return true; }
     if (token == "--no-tweaks") { options.no_tweaks = true; return true; }
-    if (token == "--training") { options.training = true; return true; }
+    // A watch link (the WFC server's Watch button): its ticket, as a file in
+    // the temporary folder, plays like a replay file.
+    if (IsWatchLink(token))
+    {
+        std::string error;
+        const auto ticket = WriteWatchLinkTicket(token, std::filesystem::temp_directory_path(), error);
+        if (ticket.empty()) throw std::invalid_argument(error);
+        options.replay = ticket;
+        return true;
+    }
+    // A replay file alone, as opening it with Recharged passes it.
+    if (token.size() > 4 && token.substr(0, 1) != "-")
+    {
+        auto extension = std::string(token.substr(token.size() - 4));
+        for (auto& c : extension) c = char(std::tolower(static_cast<unsigned char>(c)));
+        if (extension == ".msc") { options.replay = PathFromUtf8(token); return true; }
+    }
     const auto equals = token.find('=');
     const auto argument = token.substr(0, equals);
     if (argument != "--config" && argument != "--disc" && argument != "--disk"
-        && argument != "--size" && argument != "--aspect" && argument != "--frame-rate")
+        && argument != "--size" && argument != "--aspect" && argument != "--frame-rate" && argument != "--replay")
         return false;
     std::string_view value;
     if (equals != std::string_view::npos)
@@ -62,6 +80,7 @@ bool ParseLaunchOption(int argc, const char* const* argv, int& index, LaunchOpti
         throw std::invalid_argument(std::string(argument) + " requires a value");
     if (argument == "--config") { options.config = PathFromUtf8(value); options.explicit_config = true; }
     else if (argument == "--disc" || argument == "--disk") options.disc = PathFromUtf8(value);
+    else if (argument == "--replay") options.replay = PathFromUtf8(value);
     else if (argument == "--aspect") { ValidateAspect(value); options.aspect = value; }
     else if (argument == "--frame-rate") { ValidateFrameRate(value); options.frame_rate = value; }
     else
@@ -162,7 +181,12 @@ ResolvedLaunch ResolveLaunch(const ConfigFile& config, const LaunchOptions& opti
         result.settings.tweaks = {};
         result.tweaks_source = SettingSource::CommandLine;
     }
-    result.start_training = options.training;
+    if (options.replay)
+    {
+        if (options.replay->empty()) throw std::invalid_argument("Command-line replay path is empty");
+        result.replay_path = options.replay->is_absolute() ? *options.replay : working_directory / *options.replay;
+        result.replay_path = std::filesystem::absolute(result.replay_path).lexically_normal();
+    }
     // Performance mode keeps the chosen 3D render size: 640x448 looks too coarse
     // on today's displays (issue #55 asks for lighter effects, not a lower size).
     if (result.settings.performance_mode) result.settings.antialiasing = "off";

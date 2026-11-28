@@ -1089,6 +1089,13 @@ void SetWiimoteHidChannels(std::map<std::string, int> channels) {
     }
 }
 
+void SetWiimoteHidBindRumble(bool on) {
+    auto& driver = State();
+    if (!driver.initialized) return;
+    RequireOwner();
+    driver.settings.bind_rumble = on;
+}
+
 void ShutdownWiimoteHid() {
     auto& driver = State();
     if (!driver.initialized) return;

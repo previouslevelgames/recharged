@@ -1,0 +1,261 @@
+From: mscharged-port
+Subject: Render area of multisampled EFB passes
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host performance. Apply after 0123.
+
+With multisampling every EFB pass resolves the whole EFB when it ends, and
+every EFB copy ends a pass: a Vice match frame resolves the whole EFB 43
+times, 32 of them for the 64x64 crowd impostors the game draws in its top
+left corner (+9 ms of GPU time per frame at 4x on an Intel UHD 620).
+
+Each pass now records the bounding box of its draws' scissor rectangles (GX
+draws: the scissor in effect; partial clears: their rectangle; any other
+draw: the whole EFB). A multisampled EFB pass without clears names that box
+as its render area (Dawn RenderPassRenderAreaRect, Vulkan), and Vulkan
+loads, stores and resolves only inside it. Every pass resolves every pixel
+it can change, so the resolved EFB that copies read stays the resolve of the
+whole EFB. A pass without draws or clears is not begun at all. Scissors no
+draw uses (the state a pass starts with) shrink into the area, which Dawn
+requires. Other backends keep the whole EFB.
+
+Same draws, same resolve of each pixel: the pixels do not change.
+
+diff --git a/lib/gfx/encoding.cpp b/lib/gfx/encoding.cpp
+index ed4a93e..99960ac 100644
+--- a/lib/gfx/encoding.cpp
++++ b/lib/gfx/encoding.cpp
+@@ -41,11 +41,23 @@ void apply_viewport(const wgpu::RenderPassEncoder& pass, const Viewport& vp) {
+   pass.SetViewport(vp.left, vp.top, vp.width, vp.height, minDepth, maxDepth);
+ }
+ 
+-void apply_scissor(const wgpu::RenderPassEncoder& pass, const ClipRect& sc, const wgpu::Extent3D& size) {
+-  const auto x = std::clamp(static_cast<uint32_t>(sc.x), 0u, size.width);
+-  const auto y = std::clamp(static_cast<uint32_t>(sc.y), 0u, size.height);
+-  const auto w = std::clamp(static_cast<uint32_t>(sc.width), 0u, size.width - x);
+-  const auto h = std::clamp(static_cast<uint32_t>(sc.height), 0u, size.height - y);
++void apply_scissor(const wgpu::RenderPassEncoder& pass, const ClipRect& sc, const wgpu::Extent3D& size,
++                   const wgpu::RenderPassRenderAreaRect* area = nullptr) {
++  auto x = std::clamp(static_cast<uint32_t>(sc.x), 0u, size.width);
++  auto y = std::clamp(static_cast<uint32_t>(sc.y), 0u, size.height);
++  auto w = std::clamp(static_cast<uint32_t>(sc.width), 0u, size.width - x);
++  auto h = std::clamp(static_cast<uint32_t>(sc.height), 0u, size.height - y);
++  if (area != nullptr) {
++    // A limited render area holds every draw's scissor; scissors no draw
++    // uses (the state a pass starts with) shrink into it.
++    const uint32_t left = area->origin.x, top = area->origin.y;
++    const uint32_t right = left + area->size.width, bottom = top + area->size.height;
++    const uint32_t x1 = std::clamp(x + w, left, right), y1 = std::clamp(y + h, top, bottom);
++    x = std::clamp(x, left, right);
++    y = std::clamp(y, top, bottom);
++    w = x1 - x;
++    h = y1 - y;
++  }
+   pass.SetScissorRect(x, y, w, h);
+ }
+ 
+@@ -106,7 +118,8 @@ void execute_encoder_task(wgpu::CommandEncoder& cmd, FramePacket& frame, const E
+   }
+ }
+ 
+-void render_pass(const wgpu::RenderPassEncoder& pass, FramePacket& frame, RenderPass& passInfo) {
++void render_pass(const wgpu::RenderPassEncoder& pass, FramePacket& frame, RenderPass& passInfo,
++                 const wgpu::RenderPassRenderAreaRect* area) {
+   ZoneScoped;
+   g_currentPipeline = nullptr;
+ #ifdef AURORA_GFX_DEBUG_GROUPS
+@@ -149,7 +162,7 @@ void render_pass(const wgpu::RenderPassEncoder& pass, FramePacket& frame, Render
+     } break;
+     case CommandType::SetScissor: {
+       const auto& sc = cmd.data.setScissor;
+-      apply_scissor(pass, sc, passInfo.colorAttachments[SceneColorAttachmentIndex].size);
++      apply_scissor(pass, sc, passInfo.colorAttachments[SceneColorAttachmentIndex].size, area);
+       currentScissor = sc;
+       hasScissor = true;
+     } break;
+@@ -168,7 +181,7 @@ void render_pass(const wgpu::RenderPassEncoder& pass, FramePacket& frame, Render
+         apply_viewport(pass, currentViewport);
+       }
+       if (hasScissor) {
+-        apply_scissor(pass, currentScissor, passInfo.colorAttachments[SceneColorAttachmentIndex].size);
++        apply_scissor(pass, currentScissor, passInfo.colorAttachments[SceneColorAttachmentIndex].size, area);
+       }
+     } break;
+     case CommandType::DebugMarker: {
+@@ -236,9 +249,39 @@ void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& passInfo,
+     };
+     depthStencilAttachmentPtr = &depthStencilAttachment;
+   }
++  // A multisampled EFB pass without clears loads, stores and resolves only
++  // the pixels its draws can write (Vulkan applies the three to the render
++  // area only). The resolved copy source stays equal to the resolve of the
++  // whole EFB: every pass resolves every pixel it changes.
++  wgpu::RenderPassRenderAreaRect renderArea{};
++  bool limitArea = false;
++  if (webgpu::g_renderAreaSupported && passInfo.msaaSamples > 1 &&
++      passInfo.colorAttachments[SceneColorAttachmentIndex].resolveView && !passInfo.drawBoundsFull) {
++    bool clears = passInfo.hasDepth && depthStencilAttachment.depthLoadOp == wgpu::LoadOp::Clear;
++    for (uint32_t i = 0; i < passInfo.colorAttachmentCount; ++i) {
++      clears = clears || attachments[i].loadOp == wgpu::LoadOp::Clear;
++    }
++    if (!clears) {
++      const auto& size = passInfo.colorAttachments[SceneColorAttachmentIndex].size;
++      const auto& bounds = passInfo.drawBounds;
++      const int64_t left = std::max<int64_t>(bounds.x, 0);
++      const int64_t top = std::max<int64_t>(bounds.y, 0);
++      const int64_t right = std::min<int64_t>(int64_t{bounds.x} + std::max(bounds.width, 0), size.width);
++      const int64_t bottom = std::min<int64_t>(int64_t{bounds.y} + std::max(bounds.height, 0), size.height);
++      if (right <= left || bottom <= top) {
++        // Nothing to draw: the EFB and its resolve stay as they are.
++        limitArea = true;
++      } else {
++        renderArea.origin = {static_cast<uint32_t>(left), static_cast<uint32_t>(top)};
++        renderArea.size = {static_cast<uint32_t>(right - left), static_cast<uint32_t>(bottom - top)};
++        limitArea = true;
++      }
++    }
++  }
+   const auto label = passInfo.label.empty() ? fmt::format("Render pass {}", passIndex)
+                                             : fmt::format("{} {}", passInfo.label, passIndex);
+   const wgpu::RenderPassDescriptor renderPassDescriptor{
++      .nextInChain = limitArea && renderArea.size.width != 0 ? &renderArea : nullptr,
+       .label = label.c_str(),
+       .colorAttachmentCount = passInfo.colorAttachmentCount,
+       .colorAttachments = attachments.data(),
+@@ -246,9 +289,11 @@ void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& passInfo,
+       .timestampWrites = webgpu::gpu_prof::pass_writes(label),
+   };
+ 
+-  auto pass = cmd.BeginRenderPass(&renderPassDescriptor);
+-  render_pass(pass, frame, passInfo);
+-  pass.End();
++  if (!limitArea || renderArea.size.width != 0) {
++    auto pass = cmd.BeginRenderPass(&renderPassDescriptor);
++    render_pass(pass, frame, passInfo, renderArea.size.width != 0 ? &renderArea : nullptr);
++    pass.End();
++  }
+ 
+   if (passInfo.captureDepthSnapshot) {
+     depth_peek::encode_frame_snapshot(cmd, passInfo.copySourceDepthView,
+diff --git a/lib/gfx/frame_packet.hpp b/lib/gfx/frame_packet.hpp
+index 0e29375..eef7006 100644
+--- a/lib/gfx/frame_packet.hpp
++++ b/lib/gfx/frame_packet.hpp
+@@ -107,6 +107,10 @@ struct RenderPass {
+   bool discardable = false;
+   bool captureDepthSnapshot = false;
+   bool sealed = false;
++  // Bounding box of the scissor rectangles of the pass's draws, the only
++  // pixels they can write; drawBoundsFull when a draw's are unknown.
++  ClipRect drawBounds{};
++  bool drawBoundsFull = false;
+   std::vector<tex_palette_conv::ConvRequest> paletteConvs;
+ 
+   RenderTargetLayout target_layout() const noexcept;
+diff --git a/lib/gfx/recording.cpp b/lib/gfx/recording.cpp
+index ec78686..29b6f0a 100644
+--- a/lib/gfx/recording.cpp
++++ b/lib/gfx/recording.cpp
+@@ -56,6 +56,8 @@ struct FrameRecorder {
+   webgpu::TextureWithSampler offscreenDepth;
+   Viewport cachedViewport;
+   ClipRect cachedScissor;
++  // The pixels the next draw command can write, when its push path knows them.
++  std::optional<ClipRect> nextDrawBounds;
+   bool suppressRenderWorker = false;
+   bool normalRequested = false;
+ #ifdef AURORA_GFX_DEBUG_GROUPS
+@@ -317,6 +319,12 @@ bool check_recording(const char* name) {
+ }
+ 
+ void push_command(CommandType type, const Command::Data& data) {
++  // The pixels a draw can write, when its push path named them (consumed even
++  // when the draw is dropped).
++  std::optional<ClipRect> bounds;
++  if (type == CommandType::Draw || type == CommandType::CustomDraw) {
++    bounds = std::exchange(g_recorder.nextDrawBounds, std::nullopt);
++  }
+   if (g_recorder.currentRenderPass == UINT32_MAX)
+     UNLIKELY {
+       Log.warn("Dropping command {}", magic_enum::enum_name(type));
+@@ -327,6 +335,21 @@ void push_command(CommandType type, const Command::Data& data) {
+                 magic_enum::enum_name(type), g_recorder.currentRenderPass);
+   if (type == CommandType::Draw || type == CommandType::CustomDraw) {
+     renderPass.hasDraws = true;
++    // A draw whose push path named no bounds may write anywhere.
++    if (!bounds) {
++      renderPass.drawBoundsFull = true;
++    } else if (bounds->width > 0 && bounds->height > 0) {
++      auto& area = renderPass.drawBounds;
++      if (area.width <= 0 || area.height <= 0) {
++        area = *bounds;
++      } else {
++        const int32_t left = std::min(area.x, bounds->x);
++        const int32_t top = std::min(area.y, bounds->y);
++        const int32_t right = std::max(area.x + area.width, bounds->x + bounds->width);
++        const int32_t bottom = std::max(area.y + area.height, bounds->y + bounds->height);
++        area = {left, top, right - left, bottom - top};
++      }
++    }
+   }
+   renderPass.commands.push_back({
+       .type = type,
+@@ -999,6 +1022,7 @@ void queue_efb_poke(uint16_t x, uint16_t y, uint32_t argb, bool color, bool alph
+ 
+ template <>
+ void push_draw_command(clear::DrawData data) {
++  g_recorder.nextDrawBounds = data.rect;
+   push_draw_command(make_draw_command<clear::render>(data));
+ }
+ 
+@@ -1329,6 +1353,7 @@ bool push_encoder_task(EncoderTaskId type, const void* payload, size_t payloadSi
+ 
+ template <>
+ void push_draw_command(gx::DrawData data) {
++  g_recorder.nextDrawBounds = g_recorder.cachedScissor;
+   push_draw_command(make_draw_command<gx::render>(data));
+ }
+ 
+diff --git a/lib/webgpu/gpu.cpp b/lib/webgpu/gpu.cpp
+index 7139758..bbf9999 100644
+--- a/lib/webgpu/gpu.cpp
++++ b/lib/webgpu/gpu.cpp
+@@ -75,6 +75,7 @@ static wgpu::SurfaceCapabilities g_surfaceCapabilities;
+ bool g_hasCoreFeatures = false;
+ bool g_dualSourceBlendingSupported = false;
+ bool g_strictMathSupported = false;
++bool g_renderAreaSupported = false;
+ bool g_bcTexturesSupported = false;
+ bool g_astcTexturesSupported = false;
+ bool g_textureComponentSwizzleSupported = false;
+@@ -963,6 +964,7 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+     g_textureComponentSwizzleSupported = false;
+     g_dualSourceBlendingSupported = false;
+     g_strictMathSupported = false;
++    g_renderAreaSupported = false;
+     wgpu::SupportedFeatures supportedFeatures;
+     g_adapter.GetFeatures(&supportedFeatures);
+     for (size_t i = 0; i < supportedFeatures.featureCount; ++i) {
+@@ -996,6 +998,10 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+         requiredFeatures.push_back(feature);
+       }
+ #endif
++      if (feature == wgpu::FeatureName::RenderPassRenderArea) {
++        g_renderAreaSupported = true;
++        requiredFeatures.push_back(feature);
++      }
+     }
+     std::string featureList;
+     for (auto featureName : requiredFeatures) {
+diff --git a/lib/webgpu/gpu.hpp b/lib/webgpu/gpu.hpp
+index 3f97604..5d6991c 100644
+--- a/lib/webgpu/gpu.hpp
++++ b/lib/webgpu/gpu.hpp
+@@ -65,6 +65,8 @@ extern bool g_textureComponentSwizzleSupported;
+ extern bool g_dualSourceBlendingSupported;
+ // Shaders can request strict (non-fast) math; Metal compiles fast math otherwise.
+ extern bool g_strictMathSupported;
++// Render passes may name their render area (Vulkan).
++extern bool g_renderAreaSupported;
+ 
+ bool initialize(AuroraBackend backend, bool allowCpu);
+ void shutdown();

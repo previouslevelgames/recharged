@@ -1,0 +1,1115 @@
+#include "runtime/host_menus.h"
+
+#include "bootstrap/texts.h"
+#include "platform/session_log.h"
+
+#include <aurora/imgui.h>
+#include <aurora/video.h>
+#include <imgui.h>
+#include <imgui_internal.h>
+
+#include <algorithm>
+#include <string_view>
+#include <cstdlib>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <initializer_list>
+#include <iterator>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace mscharged::runtime {
+namespace {
+// The game's MENU IN / MENU OUT timing: the screen drops in (rises away) in
+// 0.1 s; what sits on it appears 0.15 s after the menu opens. A page's
+// content comes in over 0.15 s.
+constexpr float kDropSeconds = 0.1f, kContentDelay = 0.15f, kContentFade = 0.05f, kPageFade = 0.15f;
+// The game's header bar where its pause menu has it (front end units:
+// centre, size).
+constexpr float kHeaderX = 0.0f, kHeaderY = 174.0f, kHeaderW = 400.0f, kHeaderH = 55.0f;
+// The pause menu's buttons where the game's layout has them (before its
+// pointer regions are set), in design pixels.
+constexpr float kFirstButtonY = -300.0f, kButtonStep = 99.6f, kButtonHalfWidth = 402.0f;
+// A slider's change, applied at once while it moves, is saved once it has
+// rested this long.
+constexpr auto kSaveRest = std::chrono::milliseconds(400);
+// How often a game picture's texture pack image is looked up again (a
+// streamed one comes in after its thumbnail).
+constexpr auto kReplacementLook = std::chrono::milliseconds(500);
+
+// A pause menu button's text when the game has none (the game's English
+// ones), by its ePauseMenuAction.
+const char* FallbackLabel(int action)
+{
+    switch (action) {
+    case 0: return texts::T("menus.pause.resume");
+    case 1: return texts::T("menus.pause.choose_sides");
+    case 2: return texts::T("menus.pause.audio_options");
+    case 3: return texts::T("menus.pause.visual_options");
+    case 4: return texts::T("menus.pause.statistics");
+    case 5: return texts::T("menus.pause.quit");
+    case 6: return texts::T("menus.pause.controller_map");
+    default: return "";
+    }
+}
+
+float EaseOut(float t) { return 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t); }
+float EaseIn(float t) { return t * t * t; }
+float Seconds(HostMenus::Clock::duration d) { return std::chrono::duration<float>(d).count(); }
+
+// One of the keys pressed this frame (repeating while held, or not).
+bool Pressed(std::initializer_list<ImGuiKey> keys, bool repeat = true)
+{
+    for (const ImGuiKey key : keys)
+        if (ImGui::IsKeyPressed(key, repeat)) return true;
+    return false;
+}
+
+// One of them held long enough that it repeats.
+bool Repeating(std::initializer_list<ImGuiKey> keys)
+{
+    for (const ImGuiKey key : keys) {
+        const ImGuiKeyData* data = ImGui::GetKeyData(key);
+        if (data && data->Down && data->DownDuration > ImGui::GetIO().KeyRepeatDelay) return true;
+    }
+    return false;
+}
+
+// The pages that show Online or Ranked (a player's page's title too).
+bool OnlinePage(ui::PageId id)
+{
+    switch (id) {
+    case ui::PageId::Online:
+    case ui::PageId::Play:
+    case ui::PageId::Rematch:
+    case ui::PageId::Friends:
+    case ui::PageId::Random:
+    case ui::PageId::Profile:
+    case ui::PageId::Player:
+    case ui::PageId::Setup:
+    case ui::PageId::Ranked:
+    case ui::PageId::Leaderboard: return true;
+    default: return false;
+    }
+}
+// How long the game may take to leave its main menu for WII ONLINE, and to
+// take the trophy room's command, before TOURNAMENT gives up.
+constexpr auto kTournamentGiveUp = std::chrono::seconds(3);
+// How long its login to WFC may take: stopped on an error screen, the
+// player isn't taken to the room later, when they go online themselves.
+constexpr auto kTournamentLoginGiveUp = std::chrono::seconds(60);
+// Back from a set's match, how long the trophy room waits for the game's
+// online menu (its results and saves come first); its search left, how long
+// the player may stay on the game's screens it left them on (shorter than a
+// match of their own from there).
+constexpr auto kTournamentReturnWait = std::chrono::seconds(60);
+constexpr auto kTournamentLeftWait = std::chrono::seconds(120);
+// The set done, how long the host lets the game settle the trophy room: the
+// room goes out in the game's next frame once the walk that held it ends.
+constexpr auto kTournamentSettle = std::chrono::milliseconds(500);
+
+const char* TournamentWayName(int way)
+{
+    static const char* const names[] = {"none", "login", "online", "room"};
+    return way >= 0 && way < int(std::size(names)) ? names[way] : "?";
+}
+
+// TOURNAMENT without a feed: a made-up tournament.
+ui::TournamentModel SampleTournament()
+{
+    ui::TournamentModel model;
+    model.name = "Recharged Test Cup";
+    model.event = "Mario Strikers Charged Singles";
+    model.round = "Winners Round 1";
+    model.opponent = "Opponent";
+    model.opponent_initials = "OP";
+    model.games = 3;
+    model.sample = true;
+    model.has_set = model.opponent_known = true;
+    // Four players, double elimination: the player's first set next.
+    auto set = [](const char* id, int round, const char* text, const char* a, const char* b,
+                  ui::BracketSetState state, const char* from_a = "", const char* from_b = "") {
+        ui::BracketSet cell;
+        cell.id = id;
+        cell.round = round;
+        cell.round_text = text;
+        cell.slots[0].name = a;
+        cell.slots[1].name = b;
+        cell.state = state;
+        cell.prereq[0] = from_a;
+        cell.prereq[1] = from_b;
+        return cell;
+    };
+    using State = ui::BracketSetState;
+    auto& bracket = model.bracket;
+    bracket = {set("1", 1, "Winners Semi-Final", "You", "Opponent", State::Waiting),
+               set("2", 1, "Winners Semi-Final", "Mario", "Peach", State::Done),
+               set("3", 2, "Winners Final", "", "Mario", State::Waiting, "1", "2"),
+               set("4", 3, "Grand Final", "", "", State::Waiting, "3", "6"),
+               set("5", -1, "Losers Round 1", "", "Peach", State::Waiting, "1", "2"),
+               set("6", -2, "Losers Final", "", "", State::Waiting, "5", "3")};
+    bracket[0].yours = bracket[0].slots[0].you = true;
+    bracket[1].slots[0].winner = true;
+    bracket[1].slots[0].score = "2";
+    bracket[1].slots[1].score = "1";
+    return model;
+}
+} // namespace
+
+HostMenus::HostMenus(Game game, MenuInput& input, Host host) : game_(game), input_(input), host_(std::move(host))
+{
+    input_.SetMenuKeys([this](MenuInput::MenuKey key, int channel) { MenuKey(key, channel); });
+}
+
+HostMenus::~HostMenus()
+{
+    input_.SetMenuKeys(nullptr);
+    input_.ClosePages();
+    if (blurred_) aurora_set_video_output_blur(false);
+}
+
+void HostMenus::Command(int kind, int which, int value)
+{
+    // (In a match against another machine the module takes only the cursors'
+    // drawing and the forfeit: charged_menu_command.)
+    if (!game_.command) return;
+    ChargedMenuCommand command{kind, which, value};
+    game_.command(&command, sizeof command);
+}
+
+void HostMenus::Play(ui::Sound sound)
+{
+    int kind = CHARGED_SOUND_HOVER;
+    switch (sound) {
+    case ui::Sound::Hover: kind = CHARGED_SOUND_HOVER; break;
+    case ui::Sound::Select: kind = CHARGED_SOUND_SELECT; break;
+    case ui::Sound::Back: kind = CHARGED_SOUND_BACK; break;
+    case ui::Sound::Step: kind = CHARGED_SOUND_STEP; break;
+    case ui::Sound::Switch: kind = CHARGED_SOUND_SWITCH; break;
+    }
+    Command(CHARGED_MENU_SOUND, kind);
+}
+
+void HostMenus::Push(ui::PageId id, int category, std::string key, Origin origin)
+{
+    pages_.push_back({id, category, std::move(key), origin, {}});
+    pageAt_ = Clock::now();
+}
+
+void HostMenus::Pop()
+{
+    if (pages_.empty()) return;
+    if (gameChanged_ && pages_.back().id == ui::PageId::Settings) {
+        Command(CHARGED_MENU_SAVE);
+        gameChanged_ = false;
+    }
+    pages_.pop_back();
+    pageAt_ = Clock::now();
+}
+
+void HostMenus::ClearPages()
+{
+    if (gameChanged_) Command(CHARGED_MENU_SAVE);
+    gameChanged_ = false;
+    pages_.clear();
+    pageAt_ = Clock::now();
+}
+
+bool HostMenus::Opened(Origin origin) const
+{
+    return std::any_of(pages_.begin(), pages_.end(), [origin](const Page& page) { return page.origin == origin; });
+}
+
+void HostMenus::CloseAll()
+{
+    if (pages_.empty()) return;
+    // The front end's Options hub comes again only with the scene's next visit.
+    if (Opened(Origin::Anchored)) anchorDone_ = true;
+    ClearPages();
+}
+
+void HostMenus::TournamentSetDone(bool from_match)
+{
+    const Clock::time_point now = Clock::now();
+    tournamentPage_ = true;
+    tournamentSettled_ = now + kTournamentSettle;
+    tournamentReturn_ = now + (from_match ? kTournamentReturnWait : kTournamentLeftWait);
+}
+
+void HostMenus::TournamentSetStarts() { ClearPages(); }
+
+bool HostMenus::InTrophyRoom() const { return menu_.trophy_room == CHARGED_TROPHY_ROOM_IN; }
+
+void HostMenus::LeaveMatch() { Command(CHARGED_MENU_FORFEIT); }
+
+void HostMenus::CloseRecharged()
+{
+    while (RechargedOpen()) Pop();
+}
+
+bool HostMenus::Leaving() const
+{
+    return (menu_.forfeiting || forfeitAsked_) && !pages_.empty() && pages_.back().id == ui::PageId::Forfeit;
+}
+
+void HostMenus::SetPrompt(std::optional<overlay::OverlayPrompt> prompt)
+{
+    const bool had = prompt_.has_value();
+    prompt_ = std::move(prompt);
+    if (prompt_ && !had) Play(ui::Sound::Select);
+}
+
+std::optional<int> HostMenus::TakePromptAnswer() { return std::exchange(promptAnswer_, std::nullopt); }
+
+std::optional<std::string> HostMenus::TakePromptStadium() { return std::exchange(promptStadium_, std::nullopt); }
+
+void HostMenus::MenuKey(MenuInput::MenuKey key, int channel)
+{
+    // The game's pause in an online match, which the game refuses: the match
+    // menu (nothing pauses). Elsewhere the press is only the game's.
+    if (key == MenuInput::MenuKey::Pause) {
+        if (menu_.network_match != CHARGED_NETWORK_ONLINE || !pages_.empty()) return;
+        channel_ = channel;
+        Push(ui::PageId::Match, 0, {}, Origin::Recharged);
+        return;
+    }
+    // A question waits for its answer first, and a forfeited match's way out
+    // for the game.
+    if (!pages_.empty() && pages_.back().id == ui::PageId::Prompt) return;
+    if (Leaving()) return;
+    if (RechargedOpen()) {
+        // Closed: its pages go, back to what was open under it.
+        Play(ui::Sound::Back);
+        CloseRecharged();
+        return;
+    }
+    channel_ = channel;
+    Push(ui::PageId::Menu, 0, {}, Origin::Recharged);
+    // F2: straight to Recharged's gameplay options.
+    if (key == MenuInput::MenuKey::Options) {
+        Push(ui::PageId::Options);
+        Push(ui::PageId::Gameplay);
+    }
+    // Development captures: RECHARGED_CAPTURE_PAGE=settings:N or gameplay:N
+    // opens that category of the page under the menu the first time it opens
+    // (with RECHARGED_CAPTURE_PANEL, without any key); play ONLINE → PLAY,
+    // friends, random or rematch that page of it (with
+    // RECHARGED_CAPTURE_ONLINE's sample).
+    else if (const char* page = std::getenv("RECHARGED_CAPTURE_PAGE"); page && *page && !capturePageShown_) {
+        capturePageShown_ = true;
+        const std::string_view text(page);
+        const auto colon = text.find(':');
+        const int category = colon == std::string_view::npos ? 0 : std::atoi(page + colon + 1);
+        const auto name = text.substr(0, colon);
+        if (name == "settings" || name == "gameplay") {
+            Push(ui::PageId::Options);
+            Push(name == "settings" ? ui::PageId::Settings : ui::PageId::Gameplay, category);
+        }
+        else if (name == "play" || name == "friends" || name == "random" || name == "rematch") {
+            Push(ui::PageId::Online);
+            Push(ui::PageId::Play);
+            if (name != "play")
+                Push(name == "friends" ? ui::PageId::Friends
+                     : name == "random" ? ui::PageId::Random
+                                        : ui::PageId::Rematch);
+        }
+    }
+    // Over a match in play the game pauses (not a network match: it can't).
+    pausePress_ = !menu_.network_match;
+    Play(ui::Sound::Select);
+}
+
+void HostMenus::Tournament(TournamentWay way)
+{
+    if (way == tournament_) return;
+    char line[64];
+    std::snprintf(line, sizeof line, "Menus: TOURNAMENT %s -> %s", TournamentWayName(int(tournament_)),
+                  TournamentWayName(int(way)));
+    platform::SessionLogLine(line);
+    tournament_ = way;
+    tournamentAt_ = Clock::now();
+    if (way == TournamentWay::Room) Command(CHARGED_MENU_TROPHY_ROOM, kTournamentTrophy, 1);
+}
+
+void HostMenus::ServiceTournament(Clock::time_point now)
+{
+    const bool waited = now - tournamentAt_ > kTournamentGiveUp;
+    switch (tournament_) {
+    case TournamentWay::None: break;
+    case TournamentWay::Login:
+        // (The command runs in the game's next frame: the main menu may still
+        // be choosing in this snapshot.)
+        if (!menu_.main_menu) Tournament(TournamentWay::Online);
+        else if (waited) Tournament(TournamentWay::None);
+        break;
+    case TournamentWay::Online:
+        // Back on the main menu (the login called off), in a match, or the
+        // login stuck: no room.
+        if (menu_.online_menu) Tournament(TournamentWay::Room);
+        else if (menu_.main_menu || !menu_.front_end || now - tournamentAt_ > kTournamentLoginGiveUp)
+            Tournament(TournamentWay::None);
+        break;
+    case TournamentWay::Room:
+        if (InTrophyRoom()) {
+            // A page the player opened meanwhile (F1) goes: the room has its own.
+            ClearPages();
+            channel_ = -1;
+            PushRoomPages(std::exchange(tournamentOwn_, false));
+            Tournament(TournamentWay::None);
+        } else if (menu_.trophy_room == CHARGED_TROPHY_ROOM_OUT && waited) Tournament(TournamentWay::None);
+        break;
+    }
+    // Back from a set's match, or its search left (the walk took the game
+    // out of its online menu): the game comes back to its online menu, and
+    // the room again from there, as TOURNAMENT goes in (not over a page or
+    // a question of ours; the player gone elsewhere meanwhile: never mind).
+    // Still in the room, its page only (below).
+    const bool settled = now >= tournamentSettled_;
+    const bool inRoom = InTrophyRoom();
+    const bool idle = tournament_ == TournamentWay::None && pages_.empty() && !prompt_;
+    if (tournamentReturn_ && settled) {
+        if (inRoom) tournamentReturn_.reset();
+        else if (now > *tournamentReturn_) {
+            tournamentReturn_.reset();
+            platform::SessionLogLine("Menus: TOURNAMENT not back in the trophy room (the online menu never came)");
+        } else if (idle && (menu_.online_menu || menu_.main_menu)) {
+            tournamentReturn_.reset();
+            tournamentOwn_ = true;
+            if (menu_.online_menu) {
+                platform::SessionLogLine("Menus: TOURNAMENT back in the trophy room after the set");
+                Tournament(TournamentWay::Room);
+            } else {
+                // The game left the online menus with the match (a forfeit's
+                // lost connection): in again through WII ONLINE, as TOURNAMENT
+                // from the main menu goes, with the Mii that played the set.
+                platform::SessionLogLine(
+                    "Menus: TOURNAMENT back in the trophy room after the set, through WII ONLINE");
+                Command(CHARGED_MENU_WII_ONLINE, 0, 1);
+                Tournament(TournamentWay::Login);
+            }
+        }
+    }
+    // Back in the room from a set READY started (its search left): the page
+    // again, once nothing else of ours shows; out of the room, never mind.
+    if (tournamentPage_ && settled) {
+        if (!inRoom) tournamentPage_ = false;
+        else if (pages_.empty() && !prompt_) {
+            tournamentPage_ = false;
+            channel_ = -1;
+            PushRoomPages(true);
+        }
+    }
+    // The room left without its BACK (the online menu gone): its page goes.
+    if (Opened(Origin::TrophyRoom) && !inRoom) ClearPages();
+}
+
+void HostMenus::PushRoomPages(bool own)
+{
+    if (!host_.tournaments) {
+        Push(ui::PageId::Tournament, 0, {}, Origin::TrophyRoom);
+        return;
+    }
+    Push(ui::PageId::Tournaments, 0, {}, Origin::TrophyRoom);
+    if (own) Push(ui::PageId::Tournament);
+}
+
+void HostMenus::Back()
+{
+    if (pages_.empty() || Leaving()) return;
+    Play(ui::Sound::Back);
+    // TOURNAMENT: back out of the trophy room; the page goes with the camera
+    // leaving, the game's online menu shows again once it is back.
+    if (pages_.size() == 1 && pages_.front().origin == Origin::TrophyRoom) {
+        Command(CHARGED_MENU_TROPHY_ROOM, 0, 0);
+        ClearPages();
+        return;
+    }
+    // The prompt: its second answer ("Decline", "Not now").
+    if (pages_.back().id == ui::PageId::Prompt) {
+        promptAnswer_ = 2;
+        return;
+    }
+    // The front end's Options hub: back to the main menu, the game's own way.
+    if (pages_.size() == 1 && pages_.front().origin == Origin::Anchored) {
+        Command(CHARGED_MENU_BACK);
+        anchorDone_ = true;
+        ClearPages();
+        return;
+    }
+    Pop();
+}
+
+void HostMenus::Resume()
+{
+    ClearPages();
+    Command(CHARGED_MENU_RESUME);
+}
+
+void HostMenus::Apply(const ui::PageActions& actions, bool live, const overlay::GameOverlayModel& model)
+{
+    if (actions.setting && host_.setting) {
+        auto change = *actions.setting;
+        change.live = live;
+        host_.setting(change);
+        if (live) {
+            change.live = false;
+            pendingSave_ = change;
+            lastLive_ = Clock::now();
+        } else pendingSave_.reset();
+    }
+    if (actions.option && host_.option) host_.option(*actions.option);
+    if (actions.music) Command(CHARGED_MENU_VOLUME, 0, *actions.music);
+    if (actions.effects) Command(CHARGED_MENU_VOLUME, 1, *actions.effects);
+    if (actions.voices) {
+        Command(CHARGED_MENU_VOLUME, 2, *actions.voices);
+        Command(CHARGED_MENU_VOICE);
+    }
+    if (actions.auto_zoom) Command(CHARGED_MENU_AUTO_ZOOM, 0, *actions.auto_zoom ? 1 : 0);
+    if (actions.zoom) Command(CHARGED_MENU_ZOOM, 0, *actions.zoom);
+    if (actions.music || actions.effects || actions.voices || actions.auto_zoom || actions.zoom) gameChanged_ = true;
+    if (actions.open) Push(*actions.open, actions.open_category, actions.open_key);
+    if (actions.answer) promptAnswer_ = actions.answer;
+    if (actions.prompt_stadium && prompt_ && !prompt_->stadium.empty()) {
+        prompt_->stadium = *actions.prompt_stadium;
+        promptStadium_ = *actions.prompt_stadium;
+    }
+    if (actions.forfeit && !forfeitAsked_) {
+        platform::SessionLogLine("Menus: FORFEIT (the online match is left)");
+        forfeitAsked_ = true;
+        if (host_.forfeit) host_.forfeit();
+        else LeaveMatch();
+    }
+    if (actions.tournament) {
+        // Into the trophy room: straight from the game's online menu, else
+        // through the game's own WII ONLINE first. These pages go meanwhile.
+        const bool online = menu_.online_menu != 0;
+        tournamentOwn_ = actions.tournament_own;
+        ClearPages();
+        if (online) Tournament(TournamentWay::Room);
+        else {
+            Command(CHARGED_MENU_WII_ONLINE);
+            Tournament(TournamentWay::Login);
+        }
+        return;
+    }
+    if (actions.tournament_ready) {
+        // The set goes on from the trophy room, which stays: only the pages go.
+        if (host_.tournament_ready && host_.tournament_ready()) {
+            ClearPages();
+            return;
+        }
+        platform::SessionLogLine("Menus: TOURNAMENT READY (nothing starts from here now)");
+    }
+    if (actions.bracket_pick) bracketPicked_ = *actions.bracket_pick;
+    if (actions.game_results) {
+        // Over the trophy room: these pages wait under the game's screen.
+        const auto& game = *actions.game_results;
+        platform::SessionLogLine("Menus: BRACKET " + game.text + " on the game's results screen");
+        Command(CHARGED_MENU_GAME_RESULTS, game.captains[0] | game.captains[1] << 8,
+                game.goals[0] | game.goals[1] << 16);
+    }
+    if ((actions.tournament_join || actions.tournament_leave) && host_.tournament_entry)
+        host_.tournament_entry(actions.tournament_join);
+    if (actions.wii_online) {
+        // The game's own online, as its main menu's globe: these pages go.
+        Command(CHARGED_MENU_WII_ONLINE);
+        ClearPages();
+        return;
+    }
+    if ((actions.online.Any() || actions.ranked.Any()) && host_.online
+        && host_.online(actions.online, actions.ranked, model))
+        ClearPages();
+    if (actions.credits) {
+        // The game's Credits are a button of its Options: pressed there; over
+        // the main menu its OPTIONS first, the Credits once they take input.
+        if (menu_.menu == CHARGED_MENU_OPTIONS && menu_.ready) Command(CHARGED_MENU_PRESS, 2);
+        else if (menu_.main_menu) {
+            Command(CHARGED_MENU_MAIN_OPTIONS);
+            creditsWalk_ = Clock::now() + std::chrono::seconds(5);
+        }
+        anchorDone_ = true;
+        ClearPages();
+    }
+    if (actions.close) CloseRecharged();
+    if (actions.back) Back();
+    if (actions.quit && host_.quit) {
+        platform::SessionLogLine("Menus: QUIT RECHARGED");
+        host_.quit();
+    }
+}
+
+void HostMenus::ShowPrompt(Clock::time_point now)
+{
+    const bool onTop = !pages_.empty() && pages_.back().id == ui::PageId::Prompt;
+    if (prompt_ && onTop) return;
+    const auto before = pages_.size();
+    pages_.erase(std::remove_if(pages_.begin(), pages_.end(),
+                                [](const Page& page) { return page.id == ui::PageId::Prompt; }),
+                 pages_.end());
+    if (prompt_) Push(ui::PageId::Prompt);
+    else if (pages_.size() != before) pageAt_ = now;
+}
+
+void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
+{
+    known_ = menu != nullptr;
+    menu_ = known_ ? *menu : ChargedMenuSnapshot{};
+    if (menu_.fe_height > 0.0f) feHeight_ = menu_.fe_height;
+    const int scene = menu_.menu;
+
+    // Each player's hand as the game drew it, around its pointer (the A
+    // included), for the hand at the mouse: wherever the game draws it.
+    for (auto& hand : newHands_) hand.clear();
+    for (int n = 0; n < std::min(menu_.quad_count, int(std::size(menu_.quads))); ++n) {
+        ChargedMenuSnapshot::Quad quad = menu_.quads[n];
+        if (quad.pad < 0 || quad.pad > 3) continue;
+        for (int k = 0; k < 4; ++k) {
+            quad.x[k] -= menu_.pointer_x[quad.pad];
+            quad.y[k] -= menu_.pointer_y[quad.pad];
+        }
+        newHands_[std::size_t(quad.pad)].push_back(quad);
+    }
+    for (std::size_t pad = 0; pad < 4; ++pad)
+        if (!newHands_[pad].empty()) std::swap(hands_[pad], newHands_[pad]);
+
+    // The game's buttons the module took: the pause menu's Audio and Visual
+    // Options (SETTINGS on SOUND or DISPLAY over it) and a training match's
+    // TRAINING OPTIONS (the training page, also over the game's own pause
+    // menu), the main menu's globe (the ONLINE hub over the wheel).
+    if (known_) {
+        if (taken_ && menu_.taken != *taken_ && pages_.empty()) {
+            if (menu_.taken_menu == CHARGED_MENU_PAUSE && menu_.taken_button == 4 && PauseUnder()) {
+                Push(ui::PageId::Training, 0, {}, Origin::Pause);
+                channel_ = menu_.taken_pad;
+            } else if (menu_.taken_menu == CHARGED_MENU_PAUSE && scene == CHARGED_MENU_PAUSE) {
+                Push(ui::PageId::Settings, menu_.taken_button == 2 ? ui::kSettingsSound : ui::kSettingsDisplay, {},
+                     Origin::Pause);
+                channel_ = menu_.taken_pad;
+            } else if (menu_.taken_menu == CHARGED_MENU_MAIN) {
+                Push(ui::PageId::Online, 0, {}, Origin::Wheel);
+                channel_ = menu_.taken_pad;
+            }
+        }
+        taken_ = menu_.taken;
+    }
+    // The pause menu gone (resumed, quit) under its pages: they go too.
+    if (Opened(Origin::Pause) && !PauseUnder()) ClearPages();
+    // The match menu without its match (over, left, forfeited): it goes.
+    if (!menu_.network_match) forfeitAsked_ = false;
+    if (!menu_.network_match && std::any_of(pages_.begin(), pages_.end(), [](const Page& page) {
+            return page.id == ui::PageId::Match || page.id == ui::PageId::Forfeit;
+        }))
+        ClearPages();
+    // The front end's Options: the hub once its slide is in, until it goes.
+    if (scene == CHARGED_MENU_OPTIONS) {
+        if (menu_.ready && !anchorDone_ && pages_.empty()) {
+            channel_ = -1;
+            Push(ui::PageId::Options, 0, {}, Origin::Anchored);
+        }
+        if (menu_.leaving && Opened(Origin::Anchored)) {
+            anchorDone_ = true;
+            ClearPages();
+        }
+    } else {
+        anchorDone_ = false;
+        if (Opened(Origin::Anchored)) ClearPages();
+    }
+    // On the way to the Credits from the main menu: no OPTIONS page over the
+    // Options on the way, their Credits pressed once they take input.
+    if (creditsWalk_) {
+        anchorDone_ = true;
+        if (scene == CHARGED_MENU_OPTIONS && menu_.ready) {
+            Command(CHARGED_MENU_PRESS, 2);
+            creditsWalk_.reset();
+        } else if (now > *creditsWalk_) creditsWalk_.reset();
+    }
+    ServiceTournament(now);
+    if (host_.tournament) {
+        // The TOURNAMENT page on top shows its tournament.
+        std::string shown;
+        for (auto page = pages_.rbegin(); page != pages_.rend(); ++page)
+            if (page->id == ui::PageId::Tournament) {
+                shown = page->key;
+                break;
+            }
+        host_.tournament(tournamentModel_, Opened(Origin::TrophyRoom), shown);
+        if (host_.tournaments) host_.tournaments(tournamentListModel_);
+    }
+    // Made up without a tournament feed (built once).
+    else if (!tournamentModel_.sample) tournamentModel_ = SampleTournament();
+    ShowPrompt(now);
+
+    // The game's results screen over the trophy room: the pages wait under
+    // it, the TV and the input go to the game until its DONE.
+    const bool aside = menu_.game_results != 0;
+    // The input: the menus' while they show a page.
+    const bool wantInput = !pages_.empty() && !aside;
+    if (wantInput && (!input_.PagesOpen() || pausePress_)) {
+        if (input_.PagesOpen()) input_.ClosePages();
+        input_.OpenPages(channel_, pausePress_);
+        pointerShown_ = false;
+        lastPointer_.reset();
+        pointerHand_ = -1;
+    } else if (!wantInput && input_.PagesOpen()) input_.ClosePages();
+    if (wantInput || pages_.empty()) pausePress_ = false;
+
+    // The TV: over the pause menu (not while it goes), with a page, or for
+    // the front end's Options until they go.
+    const bool pauseShown = scene == CHARGED_MENU_PAUSE && !menu_.leaving;
+    const bool optionsShown = scene == CHARGED_MENU_OPTIONS && !menu_.leaving && !anchorDone_;
+    const bool wantTv = (!pages_.empty() || pauseShown || optionsShown) && !aside;
+    if (wantTv) {
+        if (!shown_ || leaving_) {
+            shownAt_ = now;
+            // It opens at its page's width.
+            halfWidth_ = !pages_.empty() && ui::PageWide(pages_.back().id) ? ui::kWideHalfWidth
+                                                                          : ui::kStandardHalfWidth;
+        }
+        shown_ = true;
+        leaving_ = false;
+    } else if (shown_ && !leaving_) {
+        leaving_ = true;
+        leavingAt_ = now;
+    }
+    if (leaving_ && now - leavingAt_ > std::chrono::milliseconds(250)) shown_ = leaving_ = false;
+    // (Not over a network match: it plays on behind.)
+    const bool wantBlur = shown_ && !leaving_ && !menu_.network_match
+        && (PauseUnder() || RechargedOpen());
+    if (wantBlur != blurred_) {
+        aurora_set_video_output_blur(wantBlur);
+        blurred_ = wantBlur;
+    }
+
+    // The game hands its players' cursors over while a page of these shows
+    // (the hand at the mouse is the player's own).
+    const bool wantCursors = shown_ && !pages_.empty() && !aside;
+    if (wantCursors != cursors_) {
+        Command(CHARGED_MENU_CURSORS, 0, wantCursors ? 1 : 0);
+        cursors_ = wantCursors;
+    }
+
+    // A slider's last change saved once it rests.
+    if (pendingSave_ && now - lastLive_ >= kSaveRest) {
+        if (host_.setting) host_.setting(*pendingSave_);
+        pendingSave_.reset();
+    }
+}
+
+void* HostMenus::Texture(unsigned key)
+{
+    GameTexture& texture = textures_[key];
+    // A texture pack's image of it, as the game's own draws of the texture
+    // show it.
+    const auto now = Clock::now();
+    if (game_.texture_objects && (texture.looked == Clock::time_point{} || now - texture.looked >= kReplacementLook)) {
+        texture.looked = now;
+        const void* texObj = nullptr;
+        const void* tlutObj = nullptr;
+        std::uint32_t width = 0, height = 0;
+        void* replacement = nullptr;
+        if (game_.texture_objects(key, &texObj, &tlutObj))
+            replacement = reinterpret_cast<void*>(aurora_imgui_texture_replacement(texObj, tlutObj, &width, &height));
+        if (replacement && replacement != texture.replacement) {
+            char line[96];
+            std::snprintf(line, sizeof line, "Menus: game texture %08x from a texture pack (%ux%u)", key, width,
+                          height);
+            platform::SessionLogLine(line);
+        }
+        texture.replacement = replacement;
+    }
+    if (texture.replacement) return texture.replacement;
+    if (texture.decoded) return texture.original;
+    // Decoded once, also when that failed: the overlay cannot free a texture,
+    // and a key the game cannot give is not asked for again.
+    texture.decoded = true;
+    int width = 0, height = 0, format = -1;
+    if (game_.texture && game_.texture(key, &width, &height, &format, nullptr, 0) && width > 0 && height > 0
+        && width <= 2048 && height <= 2048) {
+        std::vector<unsigned char> rgba(std::size_t(width) * std::size_t(height) * 4);
+        if (game_.texture(key, &width, &height, &format, rgba.data(), unsigned(rgba.size())))
+            texture.original = reinterpret_cast<void*>(
+                aurora_imgui_add_texture(std::uint32_t(width), std::uint32_t(height), rgba.data()));
+    }
+    char line[96];
+    std::snprintf(line, sizeof line, "Menus: game texture %08x %s (%dx%d, GX format %d)", key,
+                  texture.original ? "made" : "unavailable", width, height, format);
+    platform::SessionLogLine(line);
+    return texture.original;
+}
+
+void* HostMenus::NoiseTexture()
+{
+    if (noiseMade_) return noise_;
+    noiseMade_ = true;
+    const auto rgba = ui::NoiseTexels();
+    noise_ = reinterpret_cast<void*>(aurora_imgui_add_texture(ui::kNoiseSize, ui::kNoiseSize, rgba.data()));
+    return noise_;
+}
+
+HostMenus::Frame HostMenus::Locate(float width, float height, Clock::time_point now) const
+{
+    Frame frame{};
+    frame.elapsed = Seconds(now - shownAt_);
+    // The game's MENU IN: the picture darkens and the screen drops in from
+    // above in 0.1 s; the header, title and content follow at 0.15 s. MENU
+    // OUT: those go at once, the picture brightens in 0.1 s and the screen
+    // rises away in the next 0.1 s.
+    frame.dim = std::clamp(frame.elapsed / kDropSeconds, 0.0f, 1.0f);
+    frame.drop = 1.0f - EaseOut(std::clamp(frame.elapsed / kDropSeconds, 0.0f, 1.0f));
+    frame.content = std::clamp((frame.elapsed - kContentDelay) / kContentFade, 0.0f, 1.0f);
+    if (leaving_) {
+        const float gone = Seconds(now - leavingAt_);
+        frame.dim *= 1.0f - std::clamp(gone / kDropSeconds, 0.0f, 1.0f);
+        frame.drop = std::max(frame.drop, EaseIn(std::clamp((gone - kDropSeconds) / kDropSeconds, 0.0f, 1.0f)));
+        frame.content = 0.0f;
+    }
+    frame.pageIn = std::clamp(Seconds(now - pageAt_) / kPageFade, 0.0f, 1.0f);
+    // The game's picture in the window (its shape kept, or stretched), and
+    // the front end's units in it: the game's pointers and buttons use them.
+    float vx = 0, vy = 0, vw = width, vh = height;
+    AuroraVIPresentedGeometry geometry{};
+    if (aurora_get_presented_video_geometry(&geometry) && geometry.viewport_width > 0 && geometry.viewport_height > 0
+        && geometry.surface_width == std::uint32_t(width) && geometry.surface_height == std::uint32_t(height)) {
+        vx = geometry.viewport_x, vy = geometry.viewport_y, vw = geometry.viewport_width, vh = geometry.viewport_height;
+    }
+    frame.unit = vh / feHeight_;
+    frame.middle = {vx + vw * 0.5f, vy + vh * 0.5f};
+    frame.width = vw;
+    return frame;
+}
+
+HostMenus::Tv HostMenus::LayOut(const Frame& frame, Clock::time_point now)
+{
+    Tv tv{};
+    const float s = frame.unit / ui::kDesignPerUnit;
+    const bool pages = !pages_.empty();
+    // The frame: wide for a page with categories (as much as the picture
+    // allows), the pause menu's otherwise, moving between them smoothly.
+    const bool wide = pages && ui::PageWide(pages_.back().id);
+    const float room = std::max(ui::kStandardHalfWidth, frame.width * 0.5f / s - 40.0f);
+    ui::Ease(halfWidth_, wide ? std::min(ui::kWideHalfWidth, room) : ui::kStandardHalfWidth);
+    tv.half = halfWidth_;
+    // A question or the match menu (ui::PageCompact) gets a TV of its own
+    // size: its screen as tall as its items, no lip under it (B answers it),
+    // centred where the full TV is. A TV that opens does so at its size.
+    tv.compact = pages && ui::PageCompact(pages_.back().id);
+    tv.contentTop = ui::kContentTop;
+    const float wantScreen = tv.compact
+        ? std::min(ui::kScreenBottom, tv.contentTop + std::max(pages_.back().list.height, 160.0f) + 26.0f)
+        : ui::kScreenBottom;
+    const float wantFrame = tv.compact ? wantScreen + ui::kBezel : ui::kFrameBottom;
+    if (Seconds(now - drawnAt_) > 0.25f) screenBottom_ = wantScreen, frameBottom_ = wantFrame;
+    drawnAt_ = now;
+    ui::Ease(screenBottom_, wantScreen);
+    ui::Ease(frameBottom_, wantFrame);
+    tv.screenBottom = screenBottom_;
+    // Centred: lowered by half of what the frame is shorter; dropping in.
+    const float lower = (ui::kFrameBottom - frameBottom_) * 0.5f - frame.drop * ui::kDesignHeight;
+    tv.set = {ImGui::GetForegroundDrawList(), s, {frame.middle.x, frame.middle.y + lower * s}, 1.0f};
+    tv.screen = tv.set.Faded(frame.content);
+    tv.body = tv.screen.Faded(frame.pageIn);
+    return tv;
+}
+
+void HostMenus::DrawHeader(const Frame& frame, const Tv& tv)
+{
+    // The game's own picture (the orange bar with its logo) where the game
+    // puts it (as its pause menu, when the module only found it by name);
+    // else one drawn alike.
+    void* header = menu_.header_texture ? Texture(menu_.header_texture) : nullptr;
+    if (header) header_ = header;
+    const bool own = header && menu_.header_width > 0.0f;
+    const float hx = own ? menu_.header_x : kHeaderX, hy = own ? menu_.header_y : kHeaderY;
+    const float hw = (own ? menu_.header_width : kHeaderW) * 0.5f;
+    const float hh = (own ? menu_.header_height : kHeaderH) * 0.5f;
+    const float lower = tv.set.c.y - frame.middle.y; // the TV's own shift
+    const auto at = [&](float x, float y) {
+        const ImVec2 point = frame.FromUnits(x, y);
+        return ImVec2{point.x, point.y + lower};
+    };
+    const ImVec2 corners[4] = {at(hx - hw, hy + hh), at(hx + hw, hy + hh), at(hx + hw, hy - hh),
+                               at(hx - hw, hy - hh)};
+    ui::DrawHeader(tv.screen, tv.half, ImTextureID(header_), corners);
+}
+
+HostMenus::ModelNeeds HostMenus::Needs() const
+{
+    ModelNeeds needs;
+    needs.online = std::any_of(pages_.begin(), pages_.end(), [](const Page& page) { return OnlinePage(page.id); });
+    const ui::PageId top = pages_.empty() ? ui::PageId::Menu : pages_.back().id;
+    needs.leaderboard = top == ui::PageId::Leaderboard || top == ui::PageId::Ranked || top == ui::PageId::Profile;
+    needs.stats = top == ui::PageId::Profile;
+    needs.settings = !pages_.empty()
+        && (pages_.back().id == ui::PageId::Settings || pages_.back().id == ui::PageId::Training);
+    return needs;
+}
+
+void HostMenus::BuildModel(ui::PageModel& model)
+{
+    if (host_.model) host_.model(model, Needs());
+    model.image = host_.image ? &host_.image : nullptr;
+    model.prompt = prompt_ ? &*prompt_ : nullptr;
+    model.from_wheel = Opened(Origin::Wheel);
+    model.online_menu = menu_.online_menu != 0;
+    model.tournament = &tournamentModel_;
+    model.tournaments = &tournamentListModel_;
+    model.bracket_picked = bracketPicked_;
+    model.network_match = menu_.network_match != 0;
+    model.forfeiting = menu_.forfeiting != 0 || forfeitAsked_;
+    model.front_end = known_ ? menu_.front_end != 0 : true;
+    model.credits = known_ && ((menu_.menu == CHARGED_MENU_OPTIONS && menu_.ready) || menu_.main_menu);
+    model.game.known = known_;
+    model.game.music = menu_.music_volume;
+    model.game.effects = menu_.effects_volume;
+    model.game.voices = menu_.voice_volume;
+    model.game.auto_zoom = menu_.auto_zoom != 0;
+    model.game.zoom = menu_.zoom_level;
+}
+
+ui::Input HostMenus::ReadInput()
+{
+    ui::Input in;
+    ImGuiIO& io = ImGui::GetIO();
+    // The mouse only where it points in the game (MenuInput::MousePoints):
+    // ImGui's SDL backend also reads where it is on its own.
+    const bool mouse = input_.MousePoints();
+    const bool valid = mouse && ImGui::IsMousePosValid();
+    in.pointer = io.MousePos;
+    // (Not on the first frame the pages have the input.)
+    in.pointer_moved = valid && lastPointer_ && (io.MousePos.x != lastPointer_->x || io.MousePos.y != lastPointer_->y);
+    lastPointer_ = io.MousePos;
+    if (in.pointer_moved) pointerShown_ = true;
+    in.pointer_shown = pointerShown_ && valid;
+    in.click = mouse && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+    in.held = mouse && ImGui::IsMouseDown(ImGuiMouseButton_Left);
+    // The players' hands (MenuInput::Hands): the pages follow one pointer, a
+    // hand that presses, else the mouse when it moves or clicks, else a hand
+    // that moves; one that goes leaves it to the mouse.
+    const auto& hands = input_.Hands();
+    int pressing = -1, moving = -1;
+    for (int n = 3; n >= 0; --n) {
+        const auto& hand = hands[std::size_t(n)];
+        if (hand.shown && hand.click) pressing = n;
+        if (hand.shown && hand.moved) moving = n;
+    }
+    if (pressing >= 0) pointerHand_ = pressing;
+    else if (in.pointer_moved || in.click) pointerHand_ = -1;
+    else if (moving >= 0) pointerHand_ = moving;
+    if (pointerHand_ >= 0 && !hands[std::size_t(pointerHand_)].shown) pointerHand_ = -1;
+    if (pointerHand_ >= 0) {
+        const auto& hand = hands[std::size_t(pointerHand_)];
+        in.pointer = {hand.x, hand.y};
+        in.pointer_shown = true;
+        in.pointer_moved = hand.moved;
+        in.click = hand.click;
+        in.held = hand.held;
+    }
+    in.wheel = mouse ? io.MouseWheel : 0.0f;
+    in.up = Pressed({ImGuiKey_UpArrow, ImGuiKey_GamepadDpadUp, ImGuiKey_GamepadLStickUp});
+    in.down = Pressed({ImGuiKey_DownArrow, ImGuiKey_GamepadDpadDown, ImGuiKey_GamepadLStickDown});
+    in.left = Pressed({ImGuiKey_LeftArrow, ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadLStickLeft});
+    in.right = Pressed({ImGuiKey_RightArrow, ImGuiKey_GamepadDpadRight, ImGuiKey_GamepadLStickRight});
+    in.accept = Pressed({ImGuiKey_Enter, ImGuiKey_KeypadEnter, ImGuiKey_Space, ImGuiKey_GamepadFaceDown}, false);
+    in.back = Pressed({ImGuiKey_Escape, ImGuiKey_Backspace, ImGuiKey_GamepadFaceRight}, false)
+        || (mouse && ImGui::IsMouseClicked(ImGuiMouseButton_Right));
+    in.resume = Pressed({ImGuiKey_GamepadFaceLeft}, false);
+    // The categories beside: - and + (the keyboard's - and Tab), Q and E.
+    in.previous = Pressed({ImGuiKey_GamepadL1, ImGuiKey_Minus, ImGuiKey_Q, ImGuiKey_PageUp}, false);
+    in.next = Pressed({ImGuiKey_GamepadR1, ImGuiKey_Tab, ImGuiKey_E, ImGuiKey_PageDown}, false);
+    in.repeat = Repeating({ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadDpadRight,
+                           ImGuiKey_GamepadLStickLeft, ImGuiKey_GamepadLStickRight});
+    return in;
+}
+
+bool HostMenus::DrawTopPage(const Tv& tv, const ui::Fonts& fonts, const ui::Input& in, const ui::PageModel& model,
+                            Clock::time_point now)
+{
+    const auto sound = [this](ui::Sound s) { Play(s); };
+    Page& page = pages_.back();
+    const bool pauseUnder = PauseUnder();
+    const auto& categories = ui::PageCategories(page.id);
+    const float iw = tv.half - ui::kBezel;
+    const float top = tv.contentTop, bottom = tv.screenBottom - 14.0f;
+    ui::Area rows{-iw + 24.0f, iw - 24.0f, top, bottom};
+    std::optional<ui::Area> help;
+    int category = -1;
+    if (!categories.empty()) {
+        // The categories at the left (a click picks one), the lit item's
+        // help under them, the rows beside.
+        const ui::Area column{-iw + 24.0f, -iw + 24.0f + 330.0f, top, bottom};
+        float used = 0.0f;
+        category = ui::DrawCategories(tv.body, fonts, in, column, categories, page.category, sound, &used);
+        help = ui::Area{column.x0, column.x1, top + used + 8.0f, bottom};
+        rows.x0 = column.x1 + 36.0f;
+        rows.x1 = iw - 36.0f;
+    }
+    ui::PageActions actions;
+    bool overItem = false;
+    {
+        // The page on top, its items between the strip and the screen's foot.
+        ui::List list(tv.body, fonts, in, page.list, sound, rows, help);
+        ui::DrawPage(page.id, page.category, page.key, model, pageState_, list, actions);
+        overItem = list.PointerOverItem();
+    }
+    ui::DrawScreenMask(tv.set, tv.half, tv.screenBottom);
+    // The footer: the game's big BACK at the left, the way on (RESUME over
+    // the pause menu, CLOSE for the Recharged menu) at the right. A question
+    // has none: its answers are on its screen.
+    int under = -1;
+    if (!tv.compact) {
+        ui::FooterButton buttons[2] = {{texts::T("menus.footer.back"), false}};
+        int count = 1;
+        if (pauseUnder) buttons[count++] = {texts::T("menus.footer.resume"), true};
+        else if (RechargedOpen()) buttons[count++] = {texts::T("menus.footer.close"), true};
+        under = ui::DrawFooter(tv.screen, fonts, tv.half, buttons, count, in.pointer, in.pointer_shown);
+    }
+    const bool backPressed = in.back || (in.click && under == 0);
+    const bool resumePressed = pauseUnder && (in.resume || (in.click && under == 1));
+    const bool closePressed = !pauseUnder && in.click && under == 1;
+    // Another category: - and +, or a click.
+    if (!categories.empty() && (in.previous || in.next) && category < 0) {
+        const int count = int(categories.size());
+        category = (page.category + (in.next ? 1 : count - 1)) % count;
+        Play(ui::Sound::Switch);
+    }
+    // Then what the player did: the pages may change now.
+    if (leaving_ || Leaving()) return overItem;
+    if (resumePressed) Resume();
+    else if (closePressed) {
+        Play(ui::Sound::Back);
+        CloseRecharged();
+    } else if (backPressed) Back();
+    else if (category >= 0 && category != page.category) {
+        page.category = category;
+        page.list = {};
+        pageAt_ = now;
+    } else Apply(actions, in.repeat || in.held, model.overlay);
+    return overItem;
+}
+
+void HostMenus::DrawPauseButtons(const Frame& frame, const Tv& tv, const ui::Fonts& fonts)
+{
+    // The game's pause menu: its buttons where its pointers find them (else
+    // where its layout has them), lit while a pointer is over one.
+    for (int row = 0; row < 7; ++row) {
+        const int action = kChargedPauseMenuOrder[row];
+        const ChargedMenuSnapshot::Button& button = menu_.buttons[action];
+        float mid = kFirstButtonY + kButtonStep * float(row), halfWidth = kButtonHalfWidth;
+        if (button.max_x > button.min_x && button.max_y > button.min_y) {
+            mid = tv.body
+                      .ToDesign(frame.FromUnits((button.min_x + button.max_x) * 0.5f,
+                                                (button.min_y + button.max_y) * 0.5f))
+                      .y;
+            halfWidth = (button.max_x - button.min_x) * 0.5f * ui::kDesignPerUnit;
+        }
+        // A training match's Statistics are its TRAINING OPTIONS (the
+        // module's button says so too, in Recharged's words).
+        const char* label = menu_.training && action == 4 ? texts::T("menus.training.options")
+            : button.label[0]                             ? button.label
+                                                          : FallbackLabel(action);
+        ui::DrawPlate(tv.body, fonts.plate, halfWidth, mid, label, button.hovered != 0);
+    }
+}
+
+const std::vector<ChargedMenuSnapshot::Quad>& HostMenus::MouseHand() const
+{
+    int pad = input_.KeyboardChannel();
+    if (pad < 0 || pad > 3 || hands_[std::size_t(pad)].empty()) pad = menu_.controller;
+    if (pad < 0 || pad > 3 || hands_[std::size_t(pad)].empty())
+        for (pad = 0; pad < 3 && hands_[std::size_t(pad)].empty(); ++pad) {}
+    return hands_[std::size_t(pad)];
+}
+
+void HostMenus::DrawHands(const Frame& frame, const ui::Input& in, bool overItem)
+{
+    // The players' hands on top. On a page: the mouse's and each pointing
+    // player's, the player's own hand as the game last drew it (its A over
+    // an item on the one the pages follow). Else the game's, as it drew them
+    // this frame (its hand, its number, the A over a button), last handed
+    // over first (the front end's view draws in reverse order).
+    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+    const auto drawQuad = [&](const ChargedMenuSnapshot::Quad& quad, float dx, float dy) {
+        void* texture = Texture(quad.texture);
+        if (!texture) return;
+        ImVec2 corner[4], uv[4];
+        for (int k = 0; k < 4; ++k) {
+            corner[k] = frame.FromUnits(quad.x[k] + dx, quad.y[k] + dy);
+            uv[k] = {quad.u[k], quad.v[k]};
+        }
+        drawList->AddImageQuad(ImTextureID(texture), corner[0], corner[1], corner[2], corner[3], uv[0], uv[1], uv[2],
+                               uv[3], IM_COL32(quad.rgba[0], quad.rgba[1], quad.rgba[2], quad.rgba[3]));
+    };
+    if (leaving_) return;
+    if (pages_.empty()) {
+        for (int n = std::min(menu_.quad_count, int(std::size(menu_.quads))) - 1; n >= 0; --n)
+            drawQuad(menu_.quads[n], 0.0f, 0.0f);
+        return;
+    }
+    const auto drawHand = [&](const std::vector<ChargedMenuSnapshot::Quad>& hand, ImVec2 pointer, bool over) {
+        const ImVec2 at = frame.ToUnits(pointer);
+        for (auto quad = hand.rbegin(); quad != hand.rend(); ++quad)
+            if (quad->texture != CHARGED_MENU_CURSOR_A_TEXTURE || over) drawQuad(*quad, at.x, at.y);
+        // No hand of the game's seen yet (a question before its menus, a
+        // player who never pointed at them): the plain pointer.
+        if (hand.empty())
+            ImGui::RenderMouseCursor(pointer, std::max(1.0f, frame.unit * 0.5f), ImGuiMouseCursor_Arrow,
+                                     IM_COL32_WHITE, IM_COL32_BLACK, IM_COL32(0, 0, 0, 48));
+    };
+    // The others first, the one the pages follow on top.
+    const auto& hands = input_.Hands();
+    for (int n = 0; n < 4; ++n) {
+        const auto& hand = hands[std::size_t(n)];
+        if (hand.shown && n != pointerHand_) drawHand(hands_[std::size_t(n)], {hand.x, hand.y}, false);
+    }
+    if (pointerHand_ < 0) {
+        if (in.pointer_shown) drawHand(MouseHand(), in.pointer, overItem);
+        return;
+    }
+    if (pointerShown_ && input_.MousePoints() && ImGui::IsMousePosValid())
+        drawHand(MouseHand(), ImGui::GetIO().MousePos, false);
+    drawHand(hands_[std::size_t(pointerHand_)], in.pointer, overItem);
+}
+
+void HostMenus::Draw(float width, float height, const ui::Fonts& fonts)
+{
+    if (!shown_) return;
+    const auto now = Clock::now();
+    const Frame frame = Locate(width, height, now);
+    const int scene = menu_.menu;
+    const bool pages = !pages_.empty();
+    // The picture behind darkens: over the blurred match as the game's own
+    // pause dims it, over the front end's menus a little, over a network
+    // match (playing on) less.
+    const int shade = menu_.network_match ? 40 : PauseUnder() || RechargedOpen() ? 110 : 60;
+    ImGui::GetBackgroundDrawList()->AddRectFilled({0, 0}, {width, height},
+                                                  IM_COL32(4, 6, 10, int(float(shade) * frame.dim)));
+    const Tv tv = LayOut(frame, now);
+    ui::DrawTv(tv.set, tv.screen, {tv.half, frame.elapsed, ImTextureID(NoiseTexture()), tv.screenBottom, frameBottom_});
+    DrawHeader(frame, tv);
+
+    // The pages' model, once a frame while they show; the title: the page's,
+    // else the game's menu's ("PAUSED").
+    ui::PageModel model;
+    if (pages) BuildModel(model);
+    const std::string title = pages ? ui::PageTitle(pages_.back().id, pages_.back().key, model)
+        : scene == CHARGED_MENU_OPTIONS ? std::string(texts::T("menus.options.title"))
+                                        : std::string(menu_.title[0] ? menu_.title : texts::T("menus.pause.title"));
+    ui::DrawTitle(tv.body, fonts.title, title.c_str(), frame.elapsed);
+
+    // The page with the players' input, or the game's pause menu; the
+    // screen's corners over what it shows; the hands on top.
+    ui::Input in;
+    bool overItem = false;
+    if (pages) {
+        if (!leaving_) in = ReadInput();
+        overItem = DrawTopPage(tv, fonts, in, model, now);
+    } else {
+        if (scene == CHARGED_MENU_PAUSE) DrawPauseButtons(frame, tv, fonts);
+        ui::DrawScreenMask(tv.set, tv.half, tv.screenBottom);
+    }
+    DrawHands(frame, in, overItem);
+}
+
+} // namespace mscharged::runtime

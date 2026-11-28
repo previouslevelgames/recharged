@@ -2,6 +2,7 @@
 
 #include "launcher/update_check.h"
 
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -68,8 +69,12 @@ public:
     bool Preview(std::string_view state);
 
 private:
+    // A new run (its cancel token, the state it shows at once, its work on a
+    // worker thread). The previous run is cancelled and not waited for: its
+    // worker changes nothing any more (Set) and is joined once it ended.
     void Start(std::shared_ptr<platform::HttpCancel> cancel, const std::function<void(Status&)>& begin,
                std::function<void()> task);
+    void JoinEndedWorkers();
     void Set(const std::function<void(Status&)>& change);
     void RunCheck(UpdateChannel channel, int chosen, bool hidden, std::shared_ptr<platform::HttpCancel> cancel);
     void RunInstall(PublishedBuild offer, std::shared_ptr<platform::HttpCancel> cancel);
@@ -79,6 +84,11 @@ private:
     mutable std::mutex mutex_;
     Status status_;
     std::shared_ptr<platform::HttpCancel> cancel_;
-    std::thread worker_;
+    struct Worker
+    {
+        std::thread thread;
+        std::shared_ptr<std::atomic<bool>> ended;
+    };
+    std::vector<Worker> workers_; // only on the UI thread (Start, the destructor)
 };
 } // namespace mscharged::launcher

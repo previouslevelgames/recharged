@@ -1,0 +1,59 @@
+Subject: Map SDL_GetClipboardText
+Upstream-base: fbe120f5020f8bdcb9cbf5ae28d9859b29781119
+
+Recharged reads a friend code from the clipboard. SDL2 has the same call with
+the same result, a string freed with SDL_free; on Switch it is empty.
+
+diff --git a/README.md b/README.md
+index b4111ec..070bd39 100644
+--- a/README.md
++++ b/README.md
+@@ -58,6 +58,7 @@ exist.
+   the first one with the same name and ids.
+ - On Switch, `SDL_GetPreferredLocales` gives the console's language unless
+   `SDL_HINT_PREFERRED_LOCALES` is set.
++- `SDL_GetClipboardText` is SDL2's. On Switch, which has no clipboard, it gives an empty string.
+ - On Switch, `SDL_GetBasePath` is the folder of the running `.nro`, taken from the `sdmc:/` path the
+   Homebrew Menu passes as `argv[0]`. Without such a path it is SDL2's answer, which on Switch is
+   none.
+diff --git a/include/SDL3/SDL.h b/include/SDL3/SDL.h
+index 30fd057..c48ab11 100644
+--- a/include/SDL3/SDL.h
++++ b/include/SDL3/SDL.h
+@@ -536,6 +536,7 @@ enum {
+ #define SDL_GetModState S3_GetModState
+ #define SDL_StartTextInput S3_StartTextInput
+ #define SDL_StopTextInput S3_StopTextInput
++#define SDL_GetClipboardText S3_GetClipboardText
+ 
+ #define SDL_BUTTON_LEFT 1
+ #define SDL_BUTTON_MIDDLE 2
+diff --git a/include/SDL3/s3_defs.h b/include/SDL3/s3_defs.h
+index d0bce5a..8b19dc0 100644
+--- a/include/SDL3/s3_defs.h
++++ b/include/SDL3/s3_defs.h
+@@ -652,6 +652,7 @@ extern S3_Keycode S3_GetKeyFromScancode(S3_Scancode scancode, S3_Keymod modstate
+ extern const char* S3_GetKeyName(S3_Keycode key);
+ extern bool S3_StartTextInput(S3_Window* window);
+ extern bool S3_StopTextInput(S3_Window* window);
++extern char* S3_GetClipboardText(void);
+ 
+ typedef Uint32 S3_KeyboardID;
+ typedef Uint32 S3_MouseID;
+diff --git a/src/s3_events.c b/src/s3_events.c
+index 2dc217d..981734f 100644
+--- a/src/s3_events.c
++++ b/src/s3_events.c
+@@ -966,6 +966,12 @@ bool S3_StopTextInput(S3_Window* window)
+     return true;
+ }
+ 
++char* S3_GetClipboardText(void)
++{
++    // SDL2's string, freed with SDL_free as SDL3's is; empty when there is no text.
++    return SDL_GetClipboardText();
++}
++
+ S3_MouseButtonFlags S3_GetMouseState(float* x, float* y)
+ {
+     int ix = 0;

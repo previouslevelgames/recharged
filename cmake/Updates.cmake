@@ -5,10 +5,13 @@ include_guard(GLOBAL)
 include(cmake/Zlib.cmake)
 include("${CMAKE_CURRENT_LIST_DIR}/Http.cmake")
 find_package(Threads REQUIRED)
-# The JSON reader, shared with the image library's cache (#65).
-add_library(charged_json STATIC src/platform/json.cpp)
-target_include_directories(charged_json PUBLIC src)
-target_compile_features(charged_json PUBLIC cxx_std_17)
+# The JSON reader, shared with the image library's cache (#65). Without the
+# launcher (the Switch) another part may have made it first.
+if(NOT TARGET charged_json)
+    add_library(charged_json STATIC src/platform/json.cpp)
+    target_include_directories(charged_json PUBLIC src)
+    target_compile_features(charged_json PUBLIC cxx_std_17)
+endif()
 add_library(charged_updates STATIC
     src/platform/sha256.cpp
     src/launcher/release_notes.cpp
@@ -19,7 +22,9 @@ add_library(charged_updates STATIC
 )
 target_include_directories(charged_updates PUBLIC src)
 target_compile_features(charged_updates PUBLIC cxx_std_17)
-target_link_libraries(charged_updates PRIVATE ZLIB::ZLIB PUBLIC Threads::Threads charged_json charged_http)
+# Its messages on screen come from Recharged's texts (cmake/Texts.cmake).
+target_link_libraries(charged_updates PRIVATE ZLIB::ZLIB charged_texts PUBLIC Threads::Threads charged_json
+    charged_http)
 if(BUILD_TESTING)
     add_executable(launcher_update_tests tests/launcher_updates.cpp)
     target_link_libraries(launcher_update_tests PRIVATE charged_updates)

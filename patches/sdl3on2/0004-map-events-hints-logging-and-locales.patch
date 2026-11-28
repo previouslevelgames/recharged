@@ -1,0 +1,1411 @@
+Subject: Map events, hints, logging, locales and message boxes
+Upstream-base: fbe120f5020f8bdcb9cbf5ae28d9859b29781119
+
+For the host's hotkeys, hardware owner, session log and languages, and for
+Aurora's memory and configuration. SDL_GetTicksNS gets nanosecond resolution,
+as the AI DMA clock and frame pacing expect, and on Switch the preferred locale
+is the console's language.
+
+diff --git a/README.md b/README.md
+index 9033562..e205268 100644
+--- a/README.md
++++ b/README.md
+@@ -26,8 +26,14 @@ exist.
+ - `SDL_SetAudioStreamGain` and `SDL_GetAudioStreamGain` do not take the stream's lock.
+ - Setting a string property to NULL clears its value; it does not delete the property.
+ - SDL3 event types with no SDL2 source, such as pen and camera events, are not declared, and
+-  `SDL_INIT_CAMERA` fails. `SDL_EVENT_FINGER_CANCELED` and the drop events are declared so code
+-  can name them, but none is ever delivered.
++  `SDL_INIT_CAMERA` fails. `SDL_EVENT_FINGER_CANCELED`, the drop events and the keyboard and mouse
++  added and removed events are declared so code can name them, but none is ever delivered: SDL2
++  has one keyboard and one mouse, both with id 0.
++- An event filter decides what is kept, but changes it makes to an event are not. When the filter
++  changes, the queued events it accepts are copied back around SDL2's flush of the queue, so an
++  event another thread posts at that moment can be lost.
++- `SDL_LogTrace` logs at SDL2's lowest priority, so an output function sees it as
++  `SDL_LOG_PRIORITY_VERBOSE`.
+ - `SDL_SetWindowRelativeMouseMode` sets SDL2's relative mode, which applies to every window.
+ - On Switch, gamepads come from libnx instead of SDL2's joystick driver. Each of up to eight
+   controllers is a gamepad only while it is connected, and its player index is the console's player
+@@ -40,6 +46,8 @@ exist.
+ - On Switch there are no HID devices to reach, so `SDL_hid_init` fails. Elsewhere the HID API is
+   SDL2's, and a device's bus type is always unknown.
+ - Virtual joysticks have no sensors, so `SDL_SendJoystickVirtualSensorData` fails.
++- On Switch, `SDL_GetPreferredLocales` gives the console's language unless
++  `SDL_HINT_PREFERRED_LOCALES` is set.
+ - On Switch, `SDL_GetBasePath` is the folder of the running `.nro`, taken from the `sdmc:/` path the
+   Homebrew Menu passes as `argv[0]`. Without such a path it is SDL2's answer, which on Switch is
+   none.
+diff --git a/include/SDL3/SDL.h b/include/SDL3/SDL.h
+index ab9bdd2..64f62a7 100644
+--- a/include/SDL3/SDL.h
++++ b/include/SDL3/SDL.h
+@@ -553,10 +553,48 @@ enum {
+ #define SDL_ShowCursor S3_ShowCursor
+ #define SDL_SetWindowRelativeMouseMode S3_SetWindowRelativeMouseMode
+ #define SDL_TOUCH_MOUSEID S3_TOUCH_MOUSEID
++#define SDL_PEN_MOUSEID S3_PEN_MOUSEID
+ 
+ #define SDL_GetError S3_GetError
+ #define SDL_SetError S3_SetError
++#define SDL_LogCategory S3_LogCategory
++#define SDL_LOG_CATEGORY_APPLICATION S3_LOG_CATEGORY_APPLICATION
++#define SDL_LOG_CATEGORY_ERROR S3_LOG_CATEGORY_ERROR
++#define SDL_LOG_CATEGORY_ASSERT S3_LOG_CATEGORY_ASSERT
++#define SDL_LOG_CATEGORY_SYSTEM S3_LOG_CATEGORY_SYSTEM
++#define SDL_LOG_CATEGORY_AUDIO S3_LOG_CATEGORY_AUDIO
++#define SDL_LOG_CATEGORY_VIDEO S3_LOG_CATEGORY_VIDEO
++#define SDL_LOG_CATEGORY_RENDER S3_LOG_CATEGORY_RENDER
++#define SDL_LOG_CATEGORY_INPUT S3_LOG_CATEGORY_INPUT
++#define SDL_LOG_CATEGORY_TEST S3_LOG_CATEGORY_TEST
++#define SDL_LOG_CATEGORY_GPU S3_LOG_CATEGORY_GPU
++#define SDL_LOG_CATEGORY_CUSTOM S3_LOG_CATEGORY_CUSTOM
++#define SDL_LogPriority S3_LogPriority
++#define SDL_LOG_PRIORITY_INVALID S3_LOG_PRIORITY_INVALID
++#define SDL_LOG_PRIORITY_TRACE S3_LOG_PRIORITY_TRACE
++#define SDL_LOG_PRIORITY_VERBOSE S3_LOG_PRIORITY_VERBOSE
++#define SDL_LOG_PRIORITY_DEBUG S3_LOG_PRIORITY_DEBUG
++#define SDL_LOG_PRIORITY_INFO S3_LOG_PRIORITY_INFO
++#define SDL_LOG_PRIORITY_WARN S3_LOG_PRIORITY_WARN
++#define SDL_LOG_PRIORITY_ERROR S3_LOG_PRIORITY_ERROR
++#define SDL_LOG_PRIORITY_CRITICAL S3_LOG_PRIORITY_CRITICAL
++#define SDL_LOG_PRIORITY_COUNT S3_LOG_PRIORITY_COUNT
++#define SDL_LogOutputFunction S3_LogOutputFunction
+ #define SDL_Log S3_Log
++#define SDL_LogTrace S3_LogTrace
++#define SDL_LogVerbose S3_LogVerbose
++#define SDL_LogDebug S3_LogDebug
++#define SDL_LogInfo S3_LogInfo
++#define SDL_LogWarn S3_LogWarn
++#define SDL_LogError S3_LogError
++#define SDL_LogCritical S3_LogCritical
++#define SDL_LogMessage S3_LogMessage
++#define SDL_LogMessageV S3_LogMessageV
++#define SDL_SetLogPriorities S3_SetLogPriorities
++#define SDL_SetLogPriority S3_SetLogPriority
++#define SDL_GetLogPriority S3_GetLogPriority
++#define SDL_ResetLogPriorities S3_ResetLogPriorities
++#define SDL_SetLogOutputFunction S3_SetLogOutputFunction
+ #define SDL_InvalidParamError(param) SDL_SetError("Parameter '%s' is invalid", (param))
+ 
+ #define SDL_INIT_INTERFACE(iface)             \
+@@ -596,7 +634,17 @@ enum {
+ #define SDL_HINT_ORIENTATIONS S3_HINT_ORIENTATIONS
+ #define SDL_HINT_SCREENSAVER_INHIBIT_ACTIVITY_NAME S3_HINT_SCREENSAVER_INHIBIT_ACTIVITY_NAME
+ #define SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR S3_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR
++#define SDL_HINT_JOYSTICK_HIDAPI_WII S3_HINT_JOYSTICK_HIDAPI_WII
++#define SDL_HINT_VIDEO_WAYLAND_MODE_SCALING S3_HINT_VIDEO_WAYLAND_MODE_SCALING
++#define SDL_HINT_PREFERRED_LOCALES S3_HINT_PREFERRED_LOCALES
++#define SDL_HintPriority S3_HintPriority
++#define SDL_HINT_DEFAULT S3_HINT_DEFAULT
++#define SDL_HINT_NORMAL S3_HINT_NORMAL
++#define SDL_HINT_OVERRIDE S3_HINT_OVERRIDE
+ #define SDL_SetHint S3_SetHint
++#define SDL_SetHintWithPriority S3_SetHintWithPriority
++#define SDL_GetHint S3_GetHint
++#define SDL_ResetHint S3_ResetHint
+ 
+ #define SDL_THREAD_PRIORITY_LOW S3_THREAD_PRIORITY_LOW
+ #define SDL_THREAD_PRIORITY_NORMAL S3_THREAD_PRIORITY_NORMAL
+@@ -608,6 +656,12 @@ enum {
+ #define SDL_GetTicksNS S3_GetTicksNS
+ #define SDL_GetPerformanceCounter S3_GetPerformanceCounter
+ #define SDL_GetPerformanceFrequency S3_GetPerformanceFrequency
++#define SDL_Delay S3_Delay
++#define SDL_DelayNS S3_DelayNS
++#define SDL_DelayPrecise S3_DelayPrecise
++#define SDL_GetNumLogicalCPUCores S3_GetNumLogicalCPUCores
++#define SDL_Locale S3_Locale
++#define SDL_GetPreferredLocales S3_GetPreferredLocales
+ 
+ #define SDL_Rect S3_Rect
+ #define SDL_FPoint S3_FPoint
+@@ -689,6 +743,7 @@ enum {
+ #define SDL_LoadBMP_IO S3_LoadBMP_IO
+ #define SDL_SaveBMP_IO S3_SaveBMP_IO
+ #define SDL_LoadPNG S3_LoadPNG
++#define SDL_LoadPNG_IO S3_LoadPNG_IO
+ 
+ #define SDL_Time S3_Time
+ #define SDL_PATHTYPE_NONE S3_PATHTYPE_NONE
+@@ -891,6 +946,8 @@ enum {
+ #define SDL_GetKeyFromScancode S3_GetKeyFromScancode
+ #define SDL_GetKeyName S3_GetKeyName
+ 
++#define SDL_KeyboardID S3_KeyboardID
++#define SDL_MouseID S3_MouseID
+ #define SDL_MouseButtonFlags S3_MouseButtonFlags
+ #define SDL_GetMouseState S3_GetMouseState
+ #define SDL_GetGlobalMouseState S3_GetGlobalMouseState
+@@ -1109,16 +1166,21 @@ enum {
+ #define SDL_EVENT_WINDOW_CLOSE_REQUESTED S3_EVENT_WINDOW_CLOSE_REQUESTED
+ #define SDL_EVENT_WINDOW_DISPLAY_CHANGED S3_EVENT_WINDOW_DISPLAY_CHANGED
+ #define SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED S3_EVENT_WINDOW_DISPLAY_SCALE_CHANGED
++#define SDL_EVENT_WINDOW_DESTROYED S3_EVENT_WINDOW_DESTROYED
+ #define SDL_EVENT_WINDOW_FIRST S3_EVENT_WINDOW_FIRST
+ #define SDL_EVENT_WINDOW_LAST S3_EVENT_WINDOW_LAST
+ #define SDL_EVENT_KEY_DOWN S3_EVENT_KEY_DOWN
+ #define SDL_EVENT_KEY_UP S3_EVENT_KEY_UP
+ #define SDL_EVENT_TEXT_EDITING S3_EVENT_TEXT_EDITING
+ #define SDL_EVENT_TEXT_INPUT S3_EVENT_TEXT_INPUT
++#define SDL_EVENT_KEYBOARD_ADDED S3_EVENT_KEYBOARD_ADDED
++#define SDL_EVENT_KEYBOARD_REMOVED S3_EVENT_KEYBOARD_REMOVED
+ #define SDL_EVENT_MOUSE_MOTION S3_EVENT_MOUSE_MOTION
+ #define SDL_EVENT_MOUSE_BUTTON_DOWN S3_EVENT_MOUSE_BUTTON_DOWN
+ #define SDL_EVENT_MOUSE_BUTTON_UP S3_EVENT_MOUSE_BUTTON_UP
+ #define SDL_EVENT_MOUSE_WHEEL S3_EVENT_MOUSE_WHEEL
++#define SDL_EVENT_MOUSE_ADDED S3_EVENT_MOUSE_ADDED
++#define SDL_EVENT_MOUSE_REMOVED S3_EVENT_MOUSE_REMOVED
+ #define SDL_EVENT_JOYSTICK_AXIS_MOTION S3_EVENT_JOYSTICK_AXIS_MOTION
+ #define SDL_EVENT_JOYSTICK_HAT_MOTION S3_EVENT_JOYSTICK_HAT_MOTION
+ #define SDL_EVENT_JOYSTICK_BUTTON_DOWN S3_EVENT_JOYSTICK_BUTTON_DOWN
+@@ -1145,9 +1207,11 @@ enum {
+ #define SDL_EVENT_LAST S3_EVENT_LAST
+ #define SDL_CommonEvent S3_CommonEvent
+ #define SDL_WindowEvent S3_WindowEvent
++#define SDL_KeyboardDeviceEvent S3_KeyboardDeviceEvent
+ #define SDL_KeyboardEvent S3_KeyboardEvent
+ #define SDL_TextEditingEvent S3_TextEditingEvent
+ #define SDL_TextInputEvent S3_TextInputEvent
++#define SDL_MouseDeviceEvent S3_MouseDeviceEvent
+ #define SDL_MouseMotionEvent S3_MouseMotionEvent
+ #define SDL_MouseButtonEvent S3_MouseButtonEvent
+ #define SDL_MOUSEWHEEL_NORMAL S3_MOUSEWHEEL_NORMAL
+@@ -1167,6 +1231,10 @@ enum {
+ #define SDL_QuitEvent S3_QuitEvent
+ #define SDL_UserEvent S3_UserEvent
+ #define SDL_EventFilter S3_EventFilter
++#define SDL_EventAction S3_EventAction
++#define SDL_ADDEVENT S3_ADDEVENT
++#define SDL_PEEKEVENT S3_PEEKEVENT
++#define SDL_GETEVENT S3_GETEVENT
+ #define SDL_PollEvent S3_PollEvent
+ #define SDL_WaitEvent S3_WaitEvent
+ #define SDL_WaitEventTimeout S3_WaitEventTimeout
+@@ -1175,6 +1243,9 @@ enum {
+ #define SDL_RegisterEvents S3_RegisterEvents
+ #define SDL_AddEventWatch S3_AddEventWatch
+ #define SDL_RemoveEventWatch S3_RemoveEventWatch
++#define SDL_SetEventFilter S3_SetEventFilter
++#define SDL_GetEventFilter S3_GetEventFilter
++#define SDL_PeepEvents S3_PeepEvents
+ #define SDL_GetWindowFromEvent S3_GetWindowFromEvent
+ #define SDL_ConvertEventToRenderCoordinates S3_ConvertEventToRenderCoordinates
+ 
+@@ -1245,7 +1316,24 @@ enum {
+ #define SDL_MESSAGEBOX_ERROR S3_MESSAGEBOX_ERROR
+ #define SDL_MESSAGEBOX_WARNING S3_MESSAGEBOX_WARNING
+ #define SDL_MESSAGEBOX_INFORMATION S3_MESSAGEBOX_INFORMATION
++#define SDL_MESSAGEBOX_BUTTONS_LEFT_TO_RIGHT S3_MESSAGEBOX_BUTTONS_LEFT_TO_RIGHT
++#define SDL_MESSAGEBOX_BUTTONS_RIGHT_TO_LEFT S3_MESSAGEBOX_BUTTONS_RIGHT_TO_LEFT
++#define SDL_MessageBoxButtonFlags S3_MessageBoxButtonFlags
++#define SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT S3_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT
++#define SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT S3_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT
++#define SDL_MessageBoxButtonData S3_MessageBoxButtonData
++#define SDL_MessageBoxColor S3_MessageBoxColor
++#define SDL_MessageBoxColorType S3_MessageBoxColorType
++#define SDL_MESSAGEBOX_COLOR_BACKGROUND S3_MESSAGEBOX_COLOR_BACKGROUND
++#define SDL_MESSAGEBOX_COLOR_TEXT S3_MESSAGEBOX_COLOR_TEXT
++#define SDL_MESSAGEBOX_COLOR_BUTTON_BORDER S3_MESSAGEBOX_COLOR_BUTTON_BORDER
++#define SDL_MESSAGEBOX_COLOR_BUTTON_BACKGROUND S3_MESSAGEBOX_COLOR_BUTTON_BACKGROUND
++#define SDL_MESSAGEBOX_COLOR_BUTTON_SELECTED S3_MESSAGEBOX_COLOR_BUTTON_SELECTED
++#define SDL_MESSAGEBOX_COLOR_COUNT S3_MESSAGEBOX_COLOR_COUNT
++#define SDL_MessageBoxColorScheme S3_MessageBoxColorScheme
++#define SDL_MessageBoxData S3_MessageBoxData
+ #define SDL_ShowSimpleMessageBox S3_ShowSimpleMessageBox
++#define SDL_ShowMessageBox S3_ShowMessageBox
+ #define SDL_GetSystemRAM S3_GetSystemRAM
+ 
+ #endif
+diff --git a/include/SDL3/SDL_cpuinfo.h b/include/SDL3/SDL_cpuinfo.h
+new file mode 100644
+index 0000000..5c08897
+--- /dev/null
++++ b/include/SDL3/SDL_cpuinfo.h
+@@ -0,0 +1,6 @@
++#ifndef SDL3ON2_SDL_CPUINFO_H_
++#define SDL3ON2_SDL_CPUINFO_H_
++
++#include <SDL3/SDL.h>
++
++#endif
+diff --git a/include/SDL3/SDL_locale.h b/include/SDL3/SDL_locale.h
+new file mode 100644
+index 0000000..90d8cff
+--- /dev/null
++++ b/include/SDL3/SDL_locale.h
+@@ -0,0 +1,6 @@
++#ifndef SDL3ON2_SDL_LOCALE_H_
++#define SDL3ON2_SDL_LOCALE_H_
++
++#include <SDL3/SDL.h>
++
++#endif
+diff --git a/include/SDL3/SDL_log.h b/include/SDL3/SDL_log.h
+new file mode 100644
+index 0000000..68608de
+--- /dev/null
++++ b/include/SDL3/SDL_log.h
+@@ -0,0 +1,6 @@
++#ifndef SDL3ON2_SDL_LOG_H_
++#define SDL3ON2_SDL_LOG_H_
++
++#include <SDL3/SDL.h>
++
++#endif
+diff --git a/include/SDL3/SDL_messagebox.h b/include/SDL3/SDL_messagebox.h
+new file mode 100644
+index 0000000..9785e21
+--- /dev/null
++++ b/include/SDL3/SDL_messagebox.h
+@@ -0,0 +1,6 @@
++#ifndef SDL3ON2_SDL_MESSAGEBOX_H_
++#define SDL3ON2_SDL_MESSAGEBOX_H_
++
++#include <SDL3/SDL.h>
++
++#endif
+diff --git a/include/SDL3/SDL_stdinc.h b/include/SDL3/SDL_stdinc.h
+index c6826a6..747096e 100644
+--- a/include/SDL3/SDL_stdinc.h
++++ b/include/SDL3/SDL_stdinc.h
+@@ -9,6 +9,10 @@
+ 
+ #define SDL_malloc S3_malloc
+ #define SDL_free S3_free
++#define SDL_aligned_alloc S3_aligned_alloc
++#define SDL_aligned_free S3_aligned_free
++#define SDL_strdup S3_strdup
++#define SDL_getenv S3_getenv
+ 
+ #define SDL_snprintf S3_snprintf
+ #define SDL_vsnprintf S3_vsnprintf
+diff --git a/include/SDL3/s3_defs.h b/include/SDL3/s3_defs.h
+index 32bbd74..f51e0ca 100644
+--- a/include/SDL3/s3_defs.h
++++ b/include/SDL3/s3_defs.h
+@@ -56,6 +56,10 @@ typedef uint64_t Uint64;
+ 
+ extern void* S3_malloc(size_t size);
+ extern void S3_free(void* mem);
++extern void* S3_aligned_alloc(size_t alignment, size_t size);
++extern void S3_aligned_free(void* mem);
++extern char* S3_strdup(const char* str);
++extern const char* S3_getenv(const char* name);
+ 
+ extern int S3_snprintf(char* text, size_t maxlen, const char* fmt, ...) S3_PRINTF_ATTR(3, 4);
+ extern int S3_vsnprintf(char* text, size_t maxlen, const char* fmt, va_list ap);
+@@ -83,7 +87,50 @@ extern Uint32 S3_rand_bits(void);
+ 
+ extern const char* S3_GetError(void);
+ extern bool S3_SetError(const char* fmt, ...) S3_PRINTF_ATTR(1, 2);
++
++typedef enum S3_LogCategory {
++    S3_LOG_CATEGORY_APPLICATION,
++    S3_LOG_CATEGORY_ERROR,
++    S3_LOG_CATEGORY_ASSERT,
++    S3_LOG_CATEGORY_SYSTEM,
++    S3_LOG_CATEGORY_AUDIO,
++    S3_LOG_CATEGORY_VIDEO,
++    S3_LOG_CATEGORY_RENDER,
++    S3_LOG_CATEGORY_INPUT,
++    S3_LOG_CATEGORY_TEST,
++    S3_LOG_CATEGORY_GPU,
++    S3_LOG_CATEGORY_CUSTOM = 19,
++} S3_LogCategory;
++
++typedef enum S3_LogPriority {
++    S3_LOG_PRIORITY_INVALID,
++    S3_LOG_PRIORITY_TRACE,
++    S3_LOG_PRIORITY_VERBOSE,
++    S3_LOG_PRIORITY_DEBUG,
++    S3_LOG_PRIORITY_INFO,
++    S3_LOG_PRIORITY_WARN,
++    S3_LOG_PRIORITY_ERROR,
++    S3_LOG_PRIORITY_CRITICAL,
++    S3_LOG_PRIORITY_COUNT,
++} S3_LogPriority;
++
++typedef void(S3_CALL* S3_LogOutputFunction)(void* userdata, int category, S3_LogPriority priority, const char* message);
++
+ extern void S3_Log(const char* fmt, ...) S3_PRINTF_ATTR(1, 2);
++extern void S3_LogTrace(int category, const char* fmt, ...) S3_PRINTF_ATTR(2, 3);
++extern void S3_LogVerbose(int category, const char* fmt, ...) S3_PRINTF_ATTR(2, 3);
++extern void S3_LogDebug(int category, const char* fmt, ...) S3_PRINTF_ATTR(2, 3);
++extern void S3_LogInfo(int category, const char* fmt, ...) S3_PRINTF_ATTR(2, 3);
++extern void S3_LogWarn(int category, const char* fmt, ...) S3_PRINTF_ATTR(2, 3);
++extern void S3_LogError(int category, const char* fmt, ...) S3_PRINTF_ATTR(2, 3);
++extern void S3_LogCritical(int category, const char* fmt, ...) S3_PRINTF_ATTR(2, 3);
++extern void S3_LogMessage(int category, S3_LogPriority priority, const char* fmt, ...) S3_PRINTF_ATTR(3, 4);
++extern void S3_LogMessageV(int category, S3_LogPriority priority, const char* fmt, va_list ap);
++extern void S3_SetLogPriorities(S3_LogPriority priority);
++extern void S3_SetLogPriority(int category, S3_LogPriority priority);
++extern S3_LogPriority S3_GetLogPriority(int category);
++extern void S3_ResetLogPriorities(void);
++extern void S3_SetLogOutputFunction(S3_LogOutputFunction callback, void* userdata);
+ 
+ typedef Uint32 S3_InitFlags;
+ 
+@@ -120,8 +167,20 @@ extern bool S3_SetAppMetadataProperty(const char* name, const char* value);
+ #define S3_HINT_ORIENTATIONS "SDL_ORIENTATIONS"
+ #define S3_HINT_SCREENSAVER_INHIBIT_ACTIVITY_NAME "SDL_SCREENSAVER_INHIBIT_ACTIVITY_NAME"
+ #define S3_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR "SDL_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR"
++#define S3_HINT_JOYSTICK_HIDAPI_WII "SDL_JOYSTICK_HIDAPI_WII"
++#define S3_HINT_VIDEO_WAYLAND_MODE_SCALING "SDL_VIDEO_WAYLAND_MODE_SCALING"
++#define S3_HINT_PREFERRED_LOCALES "SDL_PREFERRED_LOCALES"
++
++typedef enum S3_HintPriority {
++    S3_HINT_DEFAULT,
++    S3_HINT_NORMAL,
++    S3_HINT_OVERRIDE,
++} S3_HintPriority;
+ 
+ extern bool S3_SetHint(const char* name, const char* value);
++extern bool S3_SetHintWithPriority(const char* name, const char* value, S3_HintPriority priority);
++extern const char* S3_GetHint(const char* name);
++extern bool S3_ResetHint(const char* name);
+ 
+ typedef enum S3_ThreadPriority {
+     S3_THREAD_PRIORITY_LOW,
+@@ -135,6 +194,17 @@ extern Uint64 S3_GetTicks(void);
+ extern Uint64 S3_GetTicksNS(void);
+ extern Uint64 S3_GetPerformanceCounter(void);
+ extern Uint64 S3_GetPerformanceFrequency(void);
++extern void S3_Delay(Uint32 ms);
++extern void S3_DelayNS(Uint64 ns);
++extern void S3_DelayPrecise(Uint64 ns);
++extern int S3_GetNumLogicalCPUCores(void);
++
++typedef struct S3_Locale {
++    const char* language;
++    const char* country;
++} S3_Locale;
++
++extern S3_Locale** S3_GetPreferredLocales(int* count);
+ 
+ // Laid out as SDL2's, so they pass between the two unconverted.
+ 
+@@ -301,6 +371,7 @@ extern bool S3_WriteS32LE(S3_IOStream* dst, Sint32 value);
+ extern S3_Surface* S3_LoadBMP_IO(S3_IOStream* src, bool closeio);
+ extern bool S3_SaveBMP_IO(S3_Surface* surface, S3_IOStream* dst, bool closeio);
+ extern S3_Surface* S3_LoadPNG(const char* file);
++extern S3_Surface* S3_LoadPNG_IO(S3_IOStream* src, bool closeio);
+ 
+ typedef Sint64 S3_Time;
+ 
+@@ -566,6 +637,8 @@ extern const char* S3_GetKeyName(S3_Keycode key);
+ extern bool S3_StartTextInput(S3_Window* window);
+ extern bool S3_StopTextInput(S3_Window* window);
+ 
++typedef Uint32 S3_KeyboardID;
++typedef Uint32 S3_MouseID;
+ typedef Uint32 S3_MouseButtonFlags;
+ 
+ extern S3_MouseButtonFlags S3_GetMouseState(float* x, float* y);
+@@ -877,16 +950,21 @@ typedef Uint32 S3_EventType;
+ #define S3_EVENT_WINDOW_CLOSE_REQUESTED 0x210u
+ #define S3_EVENT_WINDOW_DISPLAY_CHANGED 0x213u
+ #define S3_EVENT_WINDOW_DISPLAY_SCALE_CHANGED 0x214u
++#define S3_EVENT_WINDOW_DESTROYED 0x219u
+ #define S3_EVENT_WINDOW_FIRST 0x202u
+ #define S3_EVENT_WINDOW_LAST 0x21Au
+ #define S3_EVENT_KEY_DOWN 0x300u
+ #define S3_EVENT_KEY_UP 0x301u
+ #define S3_EVENT_TEXT_EDITING 0x302u
+ #define S3_EVENT_TEXT_INPUT 0x303u
++#define S3_EVENT_KEYBOARD_ADDED 0x305u
++#define S3_EVENT_KEYBOARD_REMOVED 0x306u
+ #define S3_EVENT_MOUSE_MOTION 0x400u
+ #define S3_EVENT_MOUSE_BUTTON_DOWN 0x401u
+ #define S3_EVENT_MOUSE_BUTTON_UP 0x402u
+ #define S3_EVENT_MOUSE_WHEEL 0x403u
++#define S3_EVENT_MOUSE_ADDED 0x404u
++#define S3_EVENT_MOUSE_REMOVED 0x405u
+ #define S3_EVENT_JOYSTICK_AXIS_MOTION 0x600u
+ #define S3_EVENT_JOYSTICK_HAT_MOTION 0x602u
+ #define S3_EVENT_JOYSTICK_BUTTON_DOWN 0x603u
+@@ -927,6 +1005,13 @@ typedef struct S3_WindowEvent {
+     Sint32 data2;
+ } S3_WindowEvent;
+ 
++typedef struct S3_KeyboardDeviceEvent {
++    Uint32 type;
++    Uint32 reserved;
++    Uint64 timestamp;
++    S3_KeyboardID which;
++} S3_KeyboardDeviceEvent;
++
+ typedef struct S3_KeyboardEvent {
+     Uint32 type;
+     Uint32 reserved;
+@@ -959,6 +1044,13 @@ typedef struct S3_TextEditingEvent {
+     Sint32 length;
+ } S3_TextEditingEvent;
+ 
++typedef struct S3_MouseDeviceEvent {
++    Uint32 type;
++    Uint32 reserved;
++    Uint64 timestamp;
++    S3_MouseID which;
++} S3_MouseDeviceEvent;
++
+ typedef struct S3_MouseMotionEvent {
+     Uint32 type;
+     Uint32 reserved;
+@@ -1104,6 +1196,7 @@ typedef struct S3_TouchFingerEvent {
+ } S3_TouchFingerEvent;
+ 
+ #define S3_TOUCH_MOUSEID ((Uint32)-1)
++#define S3_PEN_MOUSEID ((Uint32)-2)
+ 
+ typedef struct S3_DropEvent {
+     Uint32 type;
+@@ -1136,9 +1229,11 @@ typedef union S3_PUBLIC_TAG(SDL_Event, S3_Event) {
+     Uint32 type;
+     S3_CommonEvent common;
+     S3_WindowEvent window;
++    S3_KeyboardDeviceEvent kdevice;
+     S3_KeyboardEvent key;
+     S3_TextEditingEvent edit;
+     S3_TextInputEvent text;
++    S3_MouseDeviceEvent mdevice;
+     S3_MouseMotionEvent motion;
+     S3_MouseButtonEvent button;
+     S3_MouseWheelEvent wheel;
+@@ -1159,6 +1254,12 @@ typedef union S3_PUBLIC_TAG(SDL_Event, S3_Event) {
+ 
+ typedef bool(S3_CALL* S3_EventFilter)(void* userdata, S3_Event* event);
+ 
++typedef enum S3_EventAction {
++    S3_ADDEVENT,
++    S3_PEEKEVENT,
++    S3_GETEVENT,
++} S3_EventAction;
++
+ extern bool S3_PollEvent(S3_Event* event);
+ extern bool S3_WaitEvent(S3_Event* event);
+ extern bool S3_WaitEventTimeout(S3_Event* event, Sint32 timeoutMS);
+@@ -1167,6 +1268,9 @@ extern bool S3_PushEvent(S3_Event* event);
+ extern Uint32 S3_RegisterEvents(int numevents);
+ extern bool S3_AddEventWatch(S3_EventFilter filter, void* userdata);
+ extern void S3_RemoveEventWatch(S3_EventFilter filter, void* userdata);
++extern void S3_SetEventFilter(S3_EventFilter filter, void* userdata);
++extern bool S3_GetEventFilter(S3_EventFilter* filter, void** userdata);
++extern int S3_PeepEvents(S3_Event* events, int numevents, S3_EventAction action, Uint32 minType, Uint32 maxType);
+ extern S3_Window* S3_GetWindowFromEvent(const S3_Event* event);
+ extern bool S3_ConvertEventToRenderCoordinates(S3_Renderer* renderer, S3_Event* event);
+ 
+@@ -1260,8 +1364,51 @@ typedef Uint32 S3_MessageBoxFlags;
+ #define S3_MESSAGEBOX_ERROR 0x00000010u
+ #define S3_MESSAGEBOX_WARNING 0x00000020u
+ #define S3_MESSAGEBOX_INFORMATION 0x00000040u
++#define S3_MESSAGEBOX_BUTTONS_LEFT_TO_RIGHT 0x00000080u
++#define S3_MESSAGEBOX_BUTTONS_RIGHT_TO_LEFT 0x00000100u
++
++typedef Uint32 S3_MessageBoxButtonFlags;
++
++#define S3_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT 0x00000001u
++#define S3_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT 0x00000002u
++
++typedef struct S3_MessageBoxButtonData {
++    S3_MessageBoxButtonFlags flags;
++    int buttonID;
++    const char* text;
++} S3_MessageBoxButtonData;
++
++typedef struct S3_MessageBoxColor {
++    Uint8 r;
++    Uint8 g;
++    Uint8 b;
++} S3_MessageBoxColor;
++
++typedef enum S3_MessageBoxColorType {
++    S3_MESSAGEBOX_COLOR_BACKGROUND,
++    S3_MESSAGEBOX_COLOR_TEXT,
++    S3_MESSAGEBOX_COLOR_BUTTON_BORDER,
++    S3_MESSAGEBOX_COLOR_BUTTON_BACKGROUND,
++    S3_MESSAGEBOX_COLOR_BUTTON_SELECTED,
++    S3_MESSAGEBOX_COLOR_COUNT,
++} S3_MessageBoxColorType;
++
++typedef struct S3_MessageBoxColorScheme {
++    S3_MessageBoxColor colors[S3_MESSAGEBOX_COLOR_COUNT];
++} S3_MessageBoxColorScheme;
++
++typedef struct S3_MessageBoxData {
++    S3_MessageBoxFlags flags;
++    S3_Window* window;
++    const char* title;
++    const char* message;
++    int numbuttons;
++    const S3_MessageBoxButtonData* buttons;
++    const S3_MessageBoxColorScheme* colorScheme;
++} S3_MessageBoxData;
+ 
+ extern bool S3_ShowSimpleMessageBox(S3_MessageBoxFlags flags, const char* title, const char* message, S3_Window* window);
++extern bool S3_ShowMessageBox(const S3_MessageBoxData* messageboxdata, int* buttonid);
+ extern int S3_GetSystemRAM(void);
+ 
+ #undef S3_PUBLIC_TAG
+diff --git a/src/s3_core.c b/src/s3_core.c
+index 10d7556..5bc3e2b 100644
+--- a/src/s3_core.c
++++ b/src/s3_core.c
+@@ -1,4 +1,11 @@
+ #include <assert.h>
++#include <errno.h>
++
++#ifdef __SWITCH__
++#include <switch.h>
++#elif !defined(_WIN32)
++#include <time.h>
++#endif
+ 
+ #include "s3_internal.h"
+ 
+@@ -10,6 +17,11 @@ static_assert(S3_INIT_HAPTIC == SDL_INIT_HAPTIC, "SDL_INIT_HAPTIC");
+ static_assert(S3_INIT_GAMEPAD == SDL_INIT_GAMECONTROLLER, "SDL_INIT_GAMECONTROLLER");
+ static_assert(S3_INIT_SENSOR == SDL_INIT_SENSOR, "SDL_INIT_SENSOR");
+ static_assert((int)S3_THREAD_PRIORITY_TIME_CRITICAL == (int)SDL_THREAD_PRIORITY_TIME_CRITICAL, "SDL_ThreadPriority");
++static_assert((int)S3_HINT_OVERRIDE == (int)SDL_HINT_OVERRIDE, "SDL_HintPriority");
++static_assert(sizeof(S3_Locale) == sizeof(SDL_Locale), "S3_Locale size");
++static_assert(S3_MESSAGEBOX_BUTTONS_RIGHT_TO_LEFT == (Uint32)SDL_MESSAGEBOX_BUTTONS_RIGHT_TO_LEFT, "SDL_MESSAGEBOX_BUTTONS_RIGHT_TO_LEFT");
++static_assert(S3_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT == (Uint32)SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, "SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT");
++static_assert(sizeof(S3_MessageBoxColorScheme) == sizeof(SDL_MessageBoxColorScheme), "S3_MessageBoxColorScheme size");
+ 
+ #define S3_INIT_SDL2_MASK (S3_INIT_AUDIO | S3_INIT_VIDEO | S3_INIT_EVENTS | S3_INIT_JOYSTICK | S3_INIT_HAPTIC | S3_INIT_GAMEPAD | S3_INIT_SENSOR)
+ 
+@@ -168,6 +180,21 @@ bool S3_SetHint(const char* name, const char* value)
+     return SDL_SetHint(name, value) == SDL_TRUE;
+ }
+ 
++bool S3_SetHintWithPriority(const char* name, const char* value, S3_HintPriority priority)
++{
++    return SDL_SetHintWithPriority(name, value, (SDL_HintPriority)priority) == SDL_TRUE;
++}
++
++const char* S3_GetHint(const char* name)
++{
++    return SDL_GetHint(name);
++}
++
++bool S3_ResetHint(const char* name)
++{
++    return SDL_ResetHint(name) == SDL_TRUE;
++}
++
+ static S3_PropertiesID s3_app_metadata;
+ 
+ bool S3_SetAppMetadataProperty(const char* name, const char* value)
+@@ -231,14 +258,95 @@ void S3_DestroyMutex(S3_Mutex* mutex)
+     SDL_DestroyMutex(mutex);
+ }
+ 
++static SDL_SpinLock s3_ticks_lock;
++static Uint64 s3_ticks_counter;
++static Uint64 s3_ticks_frequency;
++static Uint64 s3_ticks_start_ns;
++
++// SDL2 counts ticks in milliseconds; SDL3's nanoseconds come from the performance counter,
++// started where SDL2's ticks are so event timestamps stay comparable.
++Uint64 S3_GetTicksNS(void)
++{
++    Uint64 elapsed;
++
++    SDL_AtomicLock(&s3_ticks_lock);
++    if (s3_ticks_frequency == 0) {
++        s3_ticks_start_ns = SDL_GetTicks64() * UINT64_C(1000000);
++        s3_ticks_counter = SDL_GetPerformanceCounter();
++        s3_ticks_frequency = SDL_GetPerformanceFrequency();
++    }
++    SDL_AtomicUnlock(&s3_ticks_lock);
++
++    elapsed = SDL_GetPerformanceCounter() - s3_ticks_counter;
++
++    return s3_ticks_start_ns + elapsed / s3_ticks_frequency * UINT64_C(1000000000)
++        + elapsed % s3_ticks_frequency * UINT64_C(1000000000) / s3_ticks_frequency;
++}
++
+ Uint64 S3_GetTicks(void)
+ {
+-    return SDL_GetTicks64();
++    return S3_GetTicksNS() / UINT64_C(1000000);
+ }
+ 
+-Uint64 S3_GetTicksNS(void)
++void S3_DelayNS(Uint64 ns)
++{
++#ifdef __SWITCH__
++    svcSleepThread((s64)SDL_min(ns, (Uint64)INT64_MAX));
++#elif defined(_WIN32)
++    // SDL2 sleeps in whole milliseconds here; SDL3 waits at least the time asked for.
++    SDL_Delay((Uint32)SDL_min((ns + UINT64_C(999999)) / UINT64_C(1000000), (Uint64)UINT32_MAX));
++#else
++    struct timespec remaining;
++
++    remaining.tv_sec = (time_t)(ns / UINT64_C(1000000000));
++    remaining.tv_nsec = (long)(ns % UINT64_C(1000000000));
++    while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
++    }
++#endif
++}
++
++void S3_Delay(Uint32 ms)
++{
++    S3_DelayNS((Uint64)ms * UINT64_C(1000000));
++}
++
++void S3_DelayPrecise(Uint64 ns)
++{
++    const Uint64 short_sleep = UINT64_C(1000000);
++    Uint64 now = S3_GetTicksNS();
++    const Uint64 target = now + ns;
++    Uint64 longest = short_sleep;
++
++    // As in SDL3: 1 ms sleeps while the longest one seen still fits, then one shorter sleep that
++    // leaves that overshoot as margin, then 1 ms sleeps again, and a spin for the rest.
++    while (now + longest < target) {
++        const Uint64 before = now;
++
++        S3_DelayNS(short_sleep);
++        now = S3_GetTicksNS();
++        if (now - before > longest) {
++            longest = now - before;
++        }
++    }
++
++    if (now < target && target - now > longest - short_sleep) {
++        S3_DelayNS(target - now - (longest - short_sleep));
++        now = S3_GetTicksNS();
++    }
++
++    while (now + short_sleep < target) {
++        S3_DelayNS(short_sleep);
++        now = S3_GetTicksNS();
++    }
++
++    while (now < target) {
++        now = S3_GetTicksNS();
++    }
++}
++
++int S3_GetNumLogicalCPUCores(void)
+ {
+-    return SDL_GetTicks64() * UINT64_C(1000000);
++    return SDL_GetCPUCount();
+ }
+ 
+ Uint64 S3_GetPerformanceCounter(void)
+@@ -265,3 +373,154 @@ bool S3_ShowSimpleMessageBox(S3_MessageBoxFlags flags, const char* title, const
+ 
+     return SDL_ShowSimpleMessageBox((Uint32)flags, title, message, window) == 0;
+ }
++
++bool S3_ShowMessageBox(const S3_MessageBoxData* messageboxdata, int* buttonid)
++{
++    SDL_MessageBoxData data;
++    SDL_MessageBoxButtonData* buttons;
++    SDL_MessageBoxColorScheme scheme;
++    int index;
++    bool shown;
++
++    if (messageboxdata == NULL) {
++        SDL_SetError("Parameter 'messageboxdata' is invalid");
++        return false;
++    }
++
++    // SDL3 renamed the button id field, so the buttons are copied.
++    buttons = (SDL_MessageBoxButtonData*)SDL_calloc((size_t)SDL_max(messageboxdata->numbuttons, 1), sizeof(*buttons));
++    if (buttons == NULL) {
++        SDL_SetError("Out of memory");
++        return false;
++    }
++
++    for (index = 0; index < messageboxdata->numbuttons; index++) {
++        buttons[index].flags = messageboxdata->buttons[index].flags;
++        buttons[index].buttonid = messageboxdata->buttons[index].buttonID;
++        buttons[index].text = messageboxdata->buttons[index].text;
++    }
++
++    SDL_zero(data);
++    data.flags = messageboxdata->flags;
++#ifndef __SWITCH__
++    // The console window is the layer's, not an SDL2 window.
++    data.window = messageboxdata->window;
++#endif
++    data.title = messageboxdata->title;
++    data.message = messageboxdata->message;
++    data.numbuttons = messageboxdata->numbuttons;
++    data.buttons = buttons;
++    if (messageboxdata->colorScheme != NULL) {
++        SDL_memcpy(&scheme, messageboxdata->colorScheme, sizeof(scheme));
++        data.colorScheme = &scheme;
++    }
++
++    shown = SDL_ShowMessageBox(&data, buttonid) == 0;
++    SDL_free(buttons);
++
++    return shown;
++}
++
++// SDL3 returns one allocation: the NULL-terminated pointer array, the locales, then their strings.
++static S3_Locale** S3_CopyLocales(const char* const* languages, const char* const* countries, int count)
++{
++    S3_Locale** result;
++    S3_Locale* locales;
++    char* text;
++    size_t size = sizeof(S3_Locale*) * ((size_t)count + 1) + sizeof(S3_Locale) * (size_t)count;
++    int index;
++
++    for (index = 0; index < count; index++) {
++        size += SDL_strlen(languages[index]) + 1 + (countries[index] != NULL ? SDL_strlen(countries[index]) + 1 : 0);
++    }
++
++    result = (S3_Locale**)SDL_malloc(size);
++    if (result == NULL) {
++        SDL_SetError("Out of memory");
++        return NULL;
++    }
++
++    locales = (S3_Locale*)(result + count + 1);
++    text = (char*)(locales + count);
++
++    for (index = 0; index < count; index++) {
++        size_t length = SDL_strlen(languages[index]) + 1;
++
++        SDL_memcpy(text, languages[index], length);
++        locales[index].language = text;
++        text += length;
++
++        locales[index].country = NULL;
++        if (countries[index] != NULL) {
++            length = SDL_strlen(countries[index]) + 1;
++            SDL_memcpy(text, countries[index], length);
++            locales[index].country = text;
++            text += length;
++        }
++
++        result[index] = &locales[index];
++    }
++    result[count] = NULL;
++
++    return result;
++}
++
++S3_Locale** S3_GetPreferredLocales(int* count)
++{
++    const char* languages[32];
++    const char* countries[32];
++    SDL_Locale* native;
++    S3_Locale** result;
++    int total = 0;
++
++    if (count != NULL) {
++        *count = 0;
++    }
++
++#ifdef __SWITCH__
++    // SDL2's Switch build only knows the hint; otherwise the console's language is the one.
++    if (SDL_GetHint(SDL_HINT_PREFERRED_LOCALES) == NULL) {
++        char language[16];
++        char* country;
++
++        if (!S3_SwitchSystemLanguage(language, sizeof(language))) {
++            return NULL;
++        }
++
++        // A code such as "en-US" splits at its dash, as SDL3 splits "en_US".
++        country = SDL_strchr(language, '-');
++        if (country != NULL) {
++            *country++ = '\0';
++        }
++
++        languages[0] = language;
++        countries[0] = country != NULL && *country != '\0' ? country : NULL;
++        result = S3_CopyLocales(languages, countries, 1);
++        if (result != NULL && count != NULL) {
++            *count = 1;
++        }
++        return result;
++    }
++#endif
++
++    native = SDL_GetPreferredLocales();
++    if (native == NULL) {
++        return NULL;
++    }
++
++    while (native[total].language != NULL && total < (int)SDL_arraysize(languages)) {
++        languages[total] = native[total].language;
++        countries[total] = native[total].country;
++        total++;
++    }
++
++    // SDL3 reports no locales as NULL.
++    result = total > 0 ? S3_CopyLocales(languages, countries, total) : NULL;
++    SDL_free(native);
++
++    if (result != NULL && count != NULL) {
++        *count = total;
++    }
++
++    return result;
++}
+diff --git a/src/s3_events.c b/src/s3_events.c
+index ef1b82f..3e62e32 100644
+--- a/src/s3_events.c
++++ b/src/s3_events.c
+@@ -6,6 +6,7 @@
+ static_assert(sizeof(bool) == sizeof(Uint8), "bool is one byte");
+ static_assert(S3_EVENT_USER == SDL_USEREVENT, "SDL_USEREVENT");
+ static_assert(S3_EVENT_LAST == SDL_LASTEVENT, "SDL_LASTEVENT");
++static_assert((int)S3_GETEVENT == (int)SDL_GETEVENT, "SDL_eventaction");
+ 
+ // SDL2 renumbered nothing below this range; SDL3 moved the keys SDL2 put here.
+ #define S3_SCANCODE_RENUMBERED_FIRST 258
+@@ -57,6 +58,8 @@ static Uint32 S3_FromSDL2WindowEvent(Uint8 window_event)
+         return S3_EVENT_WINDOW_CLOSE_REQUESTED;
+     case SDL_WINDOWEVENT_DISPLAY_CHANGED:
+         return S3_EVENT_WINDOW_DISPLAY_CHANGED;
++    case S3_SDL2_WINDOWEVENT_DESTROYED:
++        return S3_EVENT_WINDOW_DESTROYED;
+     default:
+         return S3_EVENT_FIRST;
+     }
+@@ -72,6 +75,10 @@ static Uint8 S3_ToSDL2WindowEvent(Uint32 type)
+         }
+     }
+ 
++    if (type == S3_EVENT_WINDOW_DESTROYED) {
++        return S3_SDL2_WINDOWEVENT_DESTROYED;
++    }
++
+     return SDL_WINDOWEVENT_NONE;
+ }
+ 
+@@ -522,6 +529,184 @@ void S3_RemoveEventWatch(S3_EventFilter filter, void* userdata)
+     }
+ }
+ 
++static SDL_SpinLock s3_event_filter_lock;
++static S3_EventFilter s3_event_filter;
++static void* s3_event_filter_userdata;
++
++static bool S3_CurrentEventFilter(S3_EventFilter* filter, void** userdata)
++{
++    SDL_AtomicLock(&s3_event_filter_lock);
++    *filter = s3_event_filter;
++    *userdata = s3_event_filter_userdata;
++    SDL_AtomicUnlock(&s3_event_filter_lock);
++
++    return *filter != NULL;
++}
++
++// Runs before SDL2 queues an event and before its watches, as SDL3's filter does.
++static int SDLCALL S3_EventFilterTrampoline(void* userdata, SDL_Event* native)
++{
++    char text[S3_TEXT_ARENA_ENTRY_SIZE];
++    S3_EventFilter filter;
++    void* filter_userdata;
++    S3_Event event;
++
++    (void)userdata;
++
++    // Events SDL3 has no counterpart for cannot be shown to the filter, so they pass.
++    if (!S3_CurrentEventFilter(&filter, &filter_userdata) || !S3_TranslateEvent(native, &event, text, sizeof(text))) {
++        return 1;
++    }
++
++    return filter(filter_userdata, &event) ? 1 : 0;
++}
++
++void S3_SetEventFilter(S3_EventFilter filter, void* userdata)
++{
++    SDL_Event* queued = NULL;
++    int count;
++    int index;
++
++    // SDL2 drops every queued event when the filter changes; SDL3 drops only those the new filter
++    // refuses. So the queue is copied first and put back through the new filter.
++    count = SDL_PeepEvents(NULL, 0, SDL_PEEKEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
++    if (count > 0) {
++        queued = (SDL_Event*)SDL_malloc(sizeof(*queued) * (size_t)count);
++        count = queued != NULL ? SDL_PeepEvents(queued, count, SDL_PEEKEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT) : 0;
++    }
++
++    SDL_AtomicLock(&s3_event_filter_lock);
++    s3_event_filter = filter;
++    s3_event_filter_userdata = userdata;
++    SDL_AtomicUnlock(&s3_event_filter_lock);
++
++    SDL_SetEventFilter(filter != NULL ? S3_EventFilterTrampoline : NULL, NULL);
++
++    for (index = 0; index < count; index++) {
++        if (filter == NULL || S3_EventFilterTrampoline(NULL, &queued[index])) {
++            // SDL2 adds peeped-back events without filtering or watching them again.
++            SDL_PeepEvents(&queued[index], 1, SDL_ADDEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
++        }
++    }
++
++    SDL_free(queued);
++}
++
++bool S3_GetEventFilter(S3_EventFilter* filter, void** userdata)
++{
++    S3_EventFilter current;
++    void* current_userdata;
++    const bool set = S3_CurrentEventFilter(&current, &current_userdata);
++
++    if (filter != NULL) {
++        *filter = current;
++    }
++
++    if (userdata != NULL) {
++        *userdata = current_userdata;
++    }
++
++    return set;
++}
++
++typedef struct S3_PeepContext {
++    S3_Event* events;
++    int numevents;
++    int found;
++    Uint32 min_type;
++    Uint32 max_type;
++} S3_PeepContext;
++
++// Translates one SDL2 event and stores it if its SDL3 type is in range; true if stored.
++static bool S3_PeepOne(S3_PeepContext* peep, const SDL_Event* native)
++{
++    char* text = s3_text_arena[s3_text_arena_index];
++    S3_Event event;
++
++    if (!S3_TranslateEvent(native, &event, text, S3_TEXT_ARENA_ENTRY_SIZE)
++        || event.type < peep->min_type || event.type > peep->max_type
++        || (peep->events != NULL && peep->found >= peep->numevents)) {
++        return false;
++    }
++
++    // As for polled events, text stays valid until the next pump.
++    if (event.type == S3_EVENT_TEXT_INPUT || event.type == S3_EVENT_TEXT_EDITING) {
++        s3_text_arena_index = (s3_text_arena_index + 1) % S3_TEXT_ARENA_SIZE;
++    }
++
++    if (peep->events != NULL) {
++        peep->events[peep->found] = event;
++    }
++    peep->found++;
++
++    return true;
++}
++
++static int SDLCALL S3_TakeEvent(void* userdata, SDL_Event* native)
++{
++    // SDL2 cuts the events this returns 0 for, in queue order.
++    return S3_PeepOne((S3_PeepContext*)userdata, native) ? 0 : 1;
++}
++
++int S3_PeepEvents(S3_Event* events, int numevents, S3_EventAction action, Uint32 minType, Uint32 maxType)
++{
++    S3_PeepContext peep;
++    SDL_Event* queued;
++    int count;
++    int index;
++
++    if (action == S3_ADDEVENT) {
++        for (index = 0; index < numevents; index++) {
++            SDL_Event native;
++
++            if (!S3_ToSDL2Event(&events[index], &native) || SDL_PeepEvents(&native, 1, SDL_ADDEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT) != 1) {
++                return index > 0 ? index : -1;
++            }
++        }
++        return numevents;
++    }
++
++    if (action != S3_PEEKEVENT && action != S3_GETEVENT) {
++        SDL_SetError("Parameter 'action' is invalid");
++        return -1;
++    }
++
++    // SDL3 types differ from SDL2's for window events, so the whole queue is read and translated.
++    peep.events = events;
++    peep.numevents = numevents;
++    peep.found = 0;
++    peep.min_type = minType;
++    peep.max_type = maxType;
++
++    if (action == S3_GETEVENT && events != NULL) {
++        if (!SDL_WasInit(SDL_INIT_EVENTS)) {
++            SDL_SetError("The event system has been shut down");
++            return -1;
++        }
++        SDL_FilterEvents(S3_TakeEvent, &peep);
++        return peep.found;
++    }
++
++    count = SDL_PeepEvents(NULL, 0, SDL_PEEKEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
++    if (count <= 0) {
++        return count;
++    }
++
++    queued = (SDL_Event*)SDL_malloc(sizeof(*queued) * (size_t)count);
++    if (queued == NULL) {
++        SDL_SetError("Out of memory");
++        return -1;
++    }
++
++    count = SDL_PeepEvents(queued, count, SDL_PEEKEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
++    for (index = 0; index < count; index++) {
++        S3_PeepOne(&peep, &queued[index]);
++    }
++    SDL_free(queued);
++
++    return peep.found;
++}
++
+ S3_Window* S3_GetWindowFromEvent(const S3_Event* event)
+ {
+     S3_WindowID id;
+diff --git a/src/s3_internal.h b/src/s3_internal.h
+index 20e9e60..f23b1fe 100644
+--- a/src/s3_internal.h
++++ b/src/s3_internal.h
+@@ -43,6 +43,9 @@ int S3_JoystickDeviceIndex(S3_JoystickID instance_id);
+ bool S3_TranslateEvent(const SDL_Event* native, S3_Event* event, char* text, size_t text_size);
+ bool S3_PushWindowEvent(Uint8 sdl2_window_event, Uint32 window_id, Sint32 data1, Sint32 data2);
+ 
++// SDL2 has no event for a destroyed window; an SDL2 window event number it never uses carries it.
++#define S3_SDL2_WINDOWEVENT_DESTROYED 0xFF
++
+ #ifndef __SWITCH__
+ void S3_PublishNativeWindowProperties(SDL_Window* window, S3_PropertiesID props);
+ #endif
+@@ -56,6 +59,7 @@ bool S3_SwitchInitPads(void);
+ void S3_SwitchQuitPads(bool all);
+ bool S3_SwitchPadsInitialized(void);
+ void S3_SwitchPumpPads(void);
++bool S3_SwitchSystemLanguage(char* language, size_t size);
+ #endif
+ 
+ #ifdef __cplusplus
+diff --git a/src/s3_png.c b/src/s3_png.c
+index fcf2dc8..d1efd4c 100644
+--- a/src/s3_png.c
++++ b/src/s3_png.c
+@@ -37,27 +37,16 @@ static SDL_Surface* S3_AdoptPixels(stbi_uc* pixels, int w, int h, int bytes_per_
+     return surface;
+ }
+ 
+-S3_Surface* S3_LoadPNG(const char* file)
++// Decodes a PNG read into `data`, which it frees.
++static S3_Surface* S3_DecodePNG(void* data, size_t size)
+ {
+     static const Uint8 magic[4] = { 0x89, 'P', 'N', 'G' };
+     SDL_Surface* surface = NULL;
+     stbi_uc* pixels;
+-    void* data;
+-    size_t size = 0;
+     int w;
+     int h;
+     int components;
+ 
+-    if (file == NULL || *file == '\0') {
+-        SDL_SetError("Parameter 'file' is invalid");
+-        return NULL;
+-    }
+-
+-    data = SDL_LoadFile(file, &size);
+-    if (data == NULL) {
+-        return NULL;
+-    }
+-
+     if (size < sizeof(magic) || SDL_memcmp(data, magic, sizeof(magic)) != 0 || size > (size_t)INT_MAX) {
+         SDL_free(data);
+         SDL_SetError("File is not a PNG file");
+@@ -130,3 +119,41 @@ S3_Surface* S3_LoadPNG(const char* file)
+ 
+     return S3_WrapSurface(surface);
+ }
++
++S3_Surface* S3_LoadPNG(const char* file)
++{
++    void* data;
++    size_t size = 0;
++
++    if (file == NULL || *file == '\0') {
++        SDL_SetError("Parameter 'file' is invalid");
++        return NULL;
++    }
++
++    data = SDL_LoadFile(file, &size);
++    if (data == NULL) {
++        return NULL;
++    }
++
++    return S3_DecodePNG(data, size);
++}
++
++S3_Surface* S3_LoadPNG_IO(S3_IOStream* src, bool closeio)
++{
++    void* data;
++    size_t size = 0;
++
++    if (src == NULL) {
++        SDL_SetError("Parameter 'src' is invalid");
++        return NULL;
++    }
++
++    data = SDL_LoadFile_RW(S3_UnwrapIO(src), &size, 0);
++
++    // As in SDL3, a stream given to close is closed whatever happened.
++    if (closeio) {
++        S3_CloseIO(src);
++    }
++
++    return data != NULL ? S3_DecodePNG(data, size) : NULL;
++}
+diff --git a/src/s3_stdinc.c b/src/s3_stdinc.c
+index e3a39fa..16dc3e2 100644
+--- a/src/s3_stdinc.c
++++ b/src/s3_stdinc.c
+@@ -10,6 +10,56 @@ void S3_free(void* mem)
+     SDL_free(mem);
+ }
+ 
++// SDL2's SIMD allocator has a fixed alignment, so the block is over-allocated as SDL3 does it:
++// the original pointer sits just before the aligned one, and the size rounds up to the alignment.
++void* S3_aligned_alloc(size_t alignment, size_t size)
++{
++    const size_t align = alignment < sizeof(void*) ? sizeof(void*) : alignment;
++    const size_t padded = size + (align - size % align) % align;
++    Uint8* original;
++    Uint8* result;
++
++    if (padded < size || padded > SIZE_MAX - align - sizeof(void*)) {
++        SDL_SetError("Out of memory");
++        return NULL;
++    }
++
++    original = (Uint8*)SDL_malloc(padded + align + sizeof(void*));
++    if (original == NULL) {
++        SDL_SetError("Out of memory");
++        return NULL;
++    }
++
++    result = original + sizeof(void*);
++    result += (align - (size_t)((uintptr_t)result % align)) % align;
++    SDL_memcpy(result - sizeof(void*), &original, sizeof(void*));
++    SDL_memset(result + size, 0, padded - size);
++
++    return result;
++}
++
++void S3_aligned_free(void* mem)
++{
++    void* original;
++
++    if (mem == NULL) {
++        return;
++    }
++
++    SDL_memcpy(&original, (Uint8*)mem - sizeof(void*), sizeof(void*));
++    SDL_free(original);
++}
++
++char* S3_strdup(const char* str)
++{
++    return SDL_strdup(str);
++}
++
++const char* S3_getenv(const char* name)
++{
++    return SDL_getenv(name);
++}
++
+ int S3_snprintf(char* text, size_t maxlen, const char* fmt, ...)
+ {
+     va_list ap;
+@@ -151,14 +201,114 @@ bool S3_SetError(const char* fmt, ...)
+     return false;
+ }
+ 
+-void S3_Log(const char* fmt, ...)
++// SDL3 numbers priorities from TRACE, below SDL2's lowest, VERBOSE, which TRACE logs as.
++static SDL_LogPriority S3_ToSDL2LogPriority(S3_LogPriority priority)
++{
++    return priority <= S3_LOG_PRIORITY_VERBOSE ? SDL_LOG_PRIORITY_VERBOSE : (SDL_LogPriority)(priority - 1);
++}
++
++static S3_LogPriority S3_FromSDL2LogPriority(SDL_LogPriority priority)
++{
++    return (S3_LogPriority)(priority + 1);
++}
++
++void S3_LogMessageV(int category, S3_LogPriority priority, const char* fmt, va_list ap)
+ {
+     char buffer[1024];
++
++    if (priority <= S3_LOG_PRIORITY_INVALID || priority >= S3_LOG_PRIORITY_COUNT || fmt == NULL) {
++        return;
++    }
++
++    SDL_vsnprintf(buffer, sizeof(buffer), fmt, ap);
++    SDL_LogMessage(category, S3_ToSDL2LogPriority(priority), "%s", buffer);
++}
++
++void S3_LogMessage(int category, S3_LogPriority priority, const char* fmt, ...)
++{
+     va_list ap;
+ 
+     va_start(ap, fmt);
+-    SDL_vsnprintf(buffer, sizeof(buffer), fmt, ap);
++    S3_LogMessageV(category, priority, fmt, ap);
++    va_end(ap);
++}
++
++void S3_Log(const char* fmt, ...)
++{
++    va_list ap;
++
++    va_start(ap, fmt);
++    S3_LogMessageV(S3_LOG_CATEGORY_APPLICATION, S3_LOG_PRIORITY_INFO, fmt, ap);
+     va_end(ap);
++}
++
++#define S3_LOG_AT(name, priority)                                \
++    void name(int category, const char* fmt, ...)               \
++    {                                                            \
++        va_list ap;                                              \
++                                                                 \
++        va_start(ap, fmt);                                       \
++        S3_LogMessageV(category, priority, fmt, ap);             \
++        va_end(ap);                                              \
++    }
++
++S3_LOG_AT(S3_LogTrace, S3_LOG_PRIORITY_TRACE)
++S3_LOG_AT(S3_LogVerbose, S3_LOG_PRIORITY_VERBOSE)
++S3_LOG_AT(S3_LogDebug, S3_LOG_PRIORITY_DEBUG)
++S3_LOG_AT(S3_LogInfo, S3_LOG_PRIORITY_INFO)
++S3_LOG_AT(S3_LogWarn, S3_LOG_PRIORITY_WARN)
++S3_LOG_AT(S3_LogError, S3_LOG_PRIORITY_ERROR)
++S3_LOG_AT(S3_LogCritical, S3_LOG_PRIORITY_CRITICAL)
++
++void S3_SetLogPriorities(S3_LogPriority priority)
++{
++    SDL_LogSetAllPriority(S3_ToSDL2LogPriority(priority));
++}
++
++void S3_SetLogPriority(int category, S3_LogPriority priority)
++{
++    SDL_LogSetPriority(category, S3_ToSDL2LogPriority(priority));
++}
++
++S3_LogPriority S3_GetLogPriority(int category)
++{
++    return S3_FromSDL2LogPriority(SDL_LogGetPriority(category));
++}
++
++void S3_ResetLogPriorities(void)
++{
++    SDL_LogResetPriorities();
++}
++
++static SDL_SpinLock s3_log_lock;
++static S3_LogOutputFunction s3_log_output;
++static void* s3_log_userdata;
++
++// SDL2 logs SDL3 messages and its own, so every message reaches the function through it.
++static void SDLCALL S3_LogOutputTrampoline(void* userdata, int category, SDL_LogPriority priority, const char* message)
++{
++    S3_LogOutputFunction output;
++    void* output_userdata;
++
++    (void)userdata;
++
++    SDL_AtomicLock(&s3_log_lock);
++    output = s3_log_output;
++    output_userdata = s3_log_userdata;
++    SDL_AtomicUnlock(&s3_log_lock);
++
++    if (output != NULL) {
++        output(output_userdata, category, S3_FromSDL2LogPriority(priority), message);
++    }
++}
++
++void S3_SetLogOutputFunction(S3_LogOutputFunction callback, void* userdata)
++{
++    SDL_AtomicLock(&s3_log_lock);
++    s3_log_output = callback;
++    s3_log_userdata = userdata;
++    SDL_AtomicUnlock(&s3_log_lock);
+ 
+-    SDL_Log("%s", buffer);
++    // As in SDL3, no function means messages go nowhere.
++    SDL_LogSetOutputFunction(callback != NULL ? S3_LogOutputTrampoline : NULL, NULL);
+ }
+diff --git a/src/s3_switch.c b/src/s3_switch.c
+index f1e5697..4a4eb20 100644
+--- a/src/s3_switch.c
++++ b/src/s3_switch.c
+@@ -301,6 +301,8 @@ void S3_DestroyWindow(S3_Window* window)
+         return;
+     }
+ 
++    // SDL3 announces the window while it can still be looked up.
++    S3_PushWindowEvent(S3_SDL2_WINDOWEVENT_DESTROYED, S3_SWITCH_WINDOW_ID, 0, 0);
+     S3_DestroyProperties(s3_window.props);
+     SDL_zero(s3_window);
+     s3_window_exists = false;
+@@ -446,6 +448,37 @@ bool S3_RestoreWindow(S3_Window* window)
+     return S3_SwitchWindowFrom(window) != NULL;
+ }
+ 
++// The console's language code, such as "en-US", from the settings service.
++bool S3_SwitchSystemLanguage(char* language, size_t size)
++{
++    u64 code = 0;
++    Result rc = setInitialize();
++
++    if (R_FAILED(rc)) {
++        SDL_SetError("Could not open the settings service (0x%x)", (unsigned int)rc);
++        return false;
++    }
++
++    rc = setGetSystemLanguage(&code);
++    setExit();
++
++    if (R_FAILED(rc)) {
++        SDL_SetError("Could not read the system language (0x%x)", (unsigned int)rc);
++        return false;
++    }
++
++    // The code is its own NUL-padded string of up to eight characters.
++    SDL_memset(language, 0, size);
++    SDL_memcpy(language, &code, SDL_min(size - 1, sizeof(code)));
++
++    if (language[0] == '\0') {
++        SDL_SetError("The system language is not set");
++        return false;
++    }
++
++    return true;
++}
++
+ #else
+ 
+ // Keeps the translation unit non-empty off Switch.
+diff --git a/src/s3_video.c b/src/s3_video.c
+index c97b5b0..fe6c6be 100644
+--- a/src/s3_video.c
++++ b/src/s3_video.c
+@@ -669,6 +669,8 @@ void S3_DestroyWindow(S3_Window* window)
+         return;
+     }
+ 
++    // SDL3 announces the window while it can still be looked up.
++    S3_PushWindowEvent(S3_SDL2_WINDOWEVENT_DESTROYED, SDL_GetWindowID(window), 0, 0);
+     S3_ReleaseObjectProperties(window);
+     SDL_DestroyWindow(window);
+ }

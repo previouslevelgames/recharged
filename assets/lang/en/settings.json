@@ -1,0 +1,612 @@
+{
+  "display": {
+    "screen": {
+      "display": {
+        "default": "Default display",
+        "not_connected": "Display {{number}} (not connected)"
+      }
+    },
+    "antialiasing": {
+      "off": {
+        "name": "Off",
+        "about": "No smoothing. The lightest on the graphics card."
+      },
+      "fxaa": {
+        "name": "FXAA",
+        "about": "Smooths edges in the finished picture. Nearly free, but softens fine detail and text a little."
+      },
+      "msaa": {
+        "name": "4x MSAA",
+        "about": "Smooths the edges of 3D shapes (4x multisampling). Costs some GPU time."
+      },
+      "msaa_fxaa": {
+        "name": "4x MSAA + FXAA",
+        "about": "4x MSAA, then FXAA for the edges it leaves, such as those inside textures."
+      },
+      "ssaa": {
+        "name": "4x SSAA",
+        "about": "Shades all 4 samples of each pixel: also smooths edges inside textures, such as stripes on banners. Costs the most GPU time."
+      }
+    },
+    "window_size": {
+      "current": "{{size}}  (current)",
+      "too_large": "More than a window can take on this display: the game opens it at {{width}} x {{height}}, the largest that fits.",
+      "not_shape": "Not {{shape}}: the game opens it at {{width}} x {{height}}, the picture's shape."
+    },
+    "fullscreen_resolution": {
+      "desktop": "Desktop",
+      "desktop_size": "Desktop   ({{size}})",
+      "not_on_display": "{{size}}  (not on this display)",
+      "no_such_mode": "This display has no such mode, so fullscreen keeps the display's own resolution.",
+      "other_shape": "Another shape than this {{size}} display: some displays stretch it; others show bars."
+    }
+  },
+  "controls": {
+    "title": "Controls",
+    "about": "Play with keyboard and mouse, an Xbox, PlayStation or other gamepad, or a Wii Remote with Nunchuk. Keep the game window focused.",
+    "back_to_players": "Players",
+    "players": {
+      "title": "Players",
+      "about": "Players fill in order and each controller plays once. Changes apply when the game starts.",
+      "dolphinbar_mode": "DolphinBar: switch to mode 4",
+      "dolphinbar_mode_tooltip": "The DolphinBar is in a mouse or gamepad mode. Press its MODE button until light 4 is on.",
+      "bluetooth_remotes_one": "Bluetooth: {{count}} Wii Remote",
+      "bluetooth_remotes_other": "Bluetooth: {{count}} Wii Remotes",
+      "no_access": "Wii Remote without access",
+      "no_access_tooltip": "A Wii Remote is connected, but this user can't open it.",
+      "no_remote": "No Wii Remote",
+      "looking": "Looking for Wii Remotes...",
+      "no_remote_hint": "Pair one over Bluetooth, or use a Mayflash DolphinBar in mode 4.",
+      "player": "Player {{number}}",
+      "keyboard": "Keyboard & mouse",
+      "off": "Off",
+      "gamepad_named": "Gamepad {{number}}: {{name}}",
+      "gamepad_missing": "Gamepad {{number}}  (not connected)",
+      "remote_missing": "{{remote}}  (not connected)",
+      "remote_nunchuk": "{{remote}} + Nunchuk",
+      "swap": "{{device}}  (swap with player {{player}})",
+      "missing_tooltip": "Not connected. Connect it before you start the game.",
+      "keys_tooltip": "Keyboard & mouse keys",
+      "drop_out_rule": "Controllers that are not connected when the game starts drop out. With nobody left, keyboard & mouse plays as player 1.",
+      "access": {
+        "name": "Wii Remote access",
+        "udev": "A Wii Remote is connected, but this user can't open it. Install the udev rule (copy the commands, run them in a terminal), then turn the remote off and on.",
+        "copy_commands": "Copy commands",
+        "copied": "Udev rule commands copied to the clipboard.",
+        "in_use": "A Wii Remote is connected, but it could not be opened. Close other programs that use it (Dolphin, Steam), then turn the remote off and on."
+      }
+    },
+    "remote": {
+      "wii_remote": "Wii Remote",
+      "wii_remote_plus": "Wii Remote Plus",
+      "in_dolphinbar": "{{model}} (DolphinBar slot {{slot}})",
+      "over_bluetooth": "{{model}} (Bluetooth {{address}})"
+    },
+    "bluetooth": {
+      "scanning": {
+        "name": "Continuous scanning",
+        "no_adapter": "No Bluetooth adapter found.",
+        "on": "Press 1+2 on a Wii Remote to connect it, here and when a player's Remote drops out of a game.",
+        "off": "Off: after 1+2 press Refresh, or pair the Remote with Sync.",
+        "tooltip": "Searching can briefly disturb other Bluetooth devices, such as headphones.\nIn a game it searches only while a player's Wii Remote is missing."
+      },
+      "pairing": {
+        "name": "Bluetooth pairing",
+        "about": "Sync pairs a Remote for good: press Sync, then the red SYNC button under its battery cover. It then connects with any button.",
+        "syncing": "Syncing: press the red SYNC button under the Remote's battery cover now.",
+        "forgetting": "Forgetting the paired Wii Remotes...",
+        "last": "Last: {{result}}."
+      },
+      "refresh": "Refresh",
+      "refresh_tooltip": "Search once (4 s): press 1+2 on the Remote first.",
+      "sync": "Sync",
+      "syncing": "Syncing...",
+      "sync_tooltip": "Pair Wii Remotes for good (about 12 s), as on a Wii.\nA paired Remote connects with any button, also in a game.",
+      "reset": "Reset",
+      "reset_tooltip": "Forget every Wii Remote Windows remembers, for one that no longer connects\n(for example after it was synced with a Wii again). Sync it again afterwards."
+    },
+    "hotkeys": {
+      "title": "Hotkeys",
+      "about": "Keys of the game window, whoever plays. Click a hotkey, then press the new key, alone or with Ctrl, Shift or Alt. Escape cancels; Backspace or Delete leaves it unused.",
+      "press_keys": "Press keys...",
+      "not_set": "Not set",
+      "tooltip": "Click, then press the new keys",
+      "reset": "Reset keys",
+      "no_hotkey_now": "{{hotkey}} has no hotkey now.",
+      "system_keys": "Combinations with the Windows or Command key stay with the system.",
+      "already": "{{key}} is already the hotkey {{hotkey}}.",
+      "key_taken": "{{key}} presses {{action}} for keyboard & mouse. Give that action another key first, or hold Ctrl, Shift or Alt with it.",
+      "now_hotkey": "{{key}} is now the hotkey {{hotkey}}."
+    },
+    "test": {
+      "title": "Controller test",
+      "about": "Check a gamepad's buttons and sticks. Assign gamepads to players above.",
+      "none": "No controller detected.",
+      "connected": "Connected controller",
+      "left_stick": "Left stick  X {{x}}%   Y {{y}}%",
+      "south": "South",
+      "east": "East",
+      "west": "West",
+      "north": "North"
+    },
+    "keyboard": {
+      "title": "Keyboard & mouse",
+      "about": "Click a key, then press the new key or a mouse button (click the key again for the left button). Each action takes up to two. Left and right click are A and B while no action takes them. Changes are saved when you go back.",
+      "press_key": "Press a key...",
+      "change_tooltip": "Click, then press the new key or mouse button",
+      "add_tooltip": "Add a second key or mouse button",
+      "waiting_tooltip": "Press a key or mouse button; click here for the left button",
+      "remove_tooltip": "Remove the second key",
+      "remote": {
+        "title": "Wii Remote",
+        "about": "Buttons of the keyboard's Wii Remote."
+      },
+      "nunchuk": {
+        "title": "Nunchuk & motion",
+        "about": "The Nunchuk stick and buttons, and the shakes."
+      },
+      "mouse": {
+        "title": "Mouse",
+        "about": "The screenshot, HUD and fullscreen keys are under Hotkeys on the Controls page.",
+        "mouse": "Mouse",
+        "left_click": "left click is {{what}}",
+        "right_click": "right click is {{what}}",
+        "until_taken": "{{button}} until an action takes it",
+        "point": "Point at menu items"
+      },
+      "reset": "Reset to defaults",
+      "is_hotkey": "{{key}} is the hotkey {{hotkey}} (Hotkeys on the Controls page) and cannot be assigned.",
+      "only_key": "{{key}} is the only key of {{action}}. Give that action another key first.",
+      "now_presses": "{{key}} now presses {{action}}.",
+      "now_presses_moved": "{{key}} now presses {{action}} (moved from {{from}})."
+    },
+    "gamepad": {
+      "title": "Gamepad profiles",
+      "about": "Mario Strikers Charged is played with a Wii Remote and Nunchuk. Your controller stands in for them: a profile says which of its buttons presses each Wii button. Pick a profile per gamepad, here or on the Players list. To change a button, select it below and press the new one on the controller. Changes are saved when you go back.",
+      "profile": {
+        "title": "Profile",
+        "about": "Gamepad {{number}} plays with the profile shown here when you go back. Gamepads can share a profile; keep one per player.",
+        "edit": "Edit profile",
+        "invalid_name": "A profile name has 1 to 32 characters, without quotes, brackets, = or |, and is not the name of a built-in profile.",
+        "name_taken": "Another profile is already named {{name}}.",
+        "connected": "{{controller}}: profiles for {{kind}} controllers.",
+        "not_connected": "Gamepad {{number}} is not connected: all profiles are listed, buttons named for {{kind}} controllers.",
+        "builtin_copy": "Built-in: changing a button below makes your own copy.",
+        "unused": "No gamepad plays with this profile.",
+        "used_by": "Used by {{users}}.",
+        "new": "New",
+        "new_made": "{{name}} starts as a copy of the profile you were editing.",
+        "new_tooltip": "A new profile, copied from this one",
+        "new_full_tooltip": "Up to 16 profiles",
+        "rename": "Rename",
+        "delete": "Delete",
+        "really_delete": "Really delete?",
+        "deleted": "Deleted {{name}}. Its gamepads now play with {{default}}.",
+        "builtin_delete_tooltip": "The built-in profile cannot be deleted",
+        "confirm_delete_tooltip": "Click again to delete; gamepads using it switch to {{default}}",
+        "delete_tooltip": "Delete this profile"
+      },
+      "gamepad_number": "Gamepad {{number}}",
+      "new_profile_name": "Profile {{number}}",
+      "built_in": "{{name}} (built-in)",
+      "for_kind": "{{profile}}  ({{kind}})",
+      "xbox_and_playstation": "Xbox and PlayStation",
+      "made_for": "{{name}} is made for {{kind}} controllers; this gamepad is another kind.",
+      "profile_tooltip": "Button profile of this gamepad",
+      "now_presses": "{{button}} now presses {{action}}.",
+      "now_presses_shared": "{{button}} now presses {{action}} and still presses {{others}}: one press does both.",
+      "builtin_full": "{{name}} cannot change and all 16 profiles are in use. Delete one to make your own.",
+      "copy_made": "{{name}} cannot change, so your changes go into {{copy}}, a copy.",
+      "copy_unassigned": "It is not assigned to a gamepad yet.",
+      "copy_assigned": "Gamepad {{number}} plays with it.",
+      "press_button": "Press a button...",
+      "change_tooltip": "Select, then press the new button or push a stick on the controller",
+      "none_tooltip": "No button presses this. Select, then press one.",
+      "add_tooltip": "Add another button",
+      "remove_last_tooltip": "Remove the last button",
+      "remove_only_tooltip": "Remove the button (none presses this)",
+      "also_presses": "{{button}} also presses {{others}}",
+      "both_tooltip": "One press does both. Fine where the game never needs them apart.",
+      "remote": {
+        "title": "Wii Remote Buttons",
+        "about": "Press each Wii Remote input, followed by the controller button you want to map to it."
+      },
+      "nunchuk": {
+        "title": "Nunchuk & Motion",
+        "about": "The Nunchuk stick and pointer on the controller's sticks or gyro, the Nunchuk buttons and the shakes.",
+        "stick": "Nunchuk Stick",
+        "stick_note": "Move",
+        "pointer_note": "Point at menu items and Mega Strike shots"
+      },
+      "sticks": {
+        "name": "Sticks",
+        "about": "Which stick moves the Nunchuk stick and which the pointer. Shared: the left stick does both, as the Classic Controller mod on the Wii, and the right stick is free for the D-pad.",
+        "nunchuk_left": "Nunchuk left",
+        "nunchuk_right": "Nunchuk right",
+        "shared": "Shared"
+      },
+      "gyro_pointer": {
+        "name": "Gyro pointer",
+        "about": "Point by turning the controller, like a Wii Remote, instead of with the stick. For controllers with a gyro, such as PlayStation and Switch Pro controllers."
+      },
+      "gyro_speed": {
+        "name": "Gyro speed",
+        "about": "At 100%, turning the controller about 25 degrees moves the pointer across the picture."
+      },
+      "stick_dpad": {
+        "left": "Left stick as D-pad",
+        "right": "Right stick as D-pad",
+        "about": "Push it to press the D-pad: in a match, a deke with the ball and a slide tackle without it."
+      },
+      "stick_bound": {
+        "left_nunchuk": "The left stick moves the Nunchuk stick and presses buttons too: pushing it does both.",
+        "right_nunchuk": "The right stick moves the Nunchuk stick and presses buttons too: pushing it does both.",
+        "left_pointer": "The left stick moves the pointer and presses buttons too: pushing it does both. With the gyro pointer on, it only presses the buttons.",
+        "right_pointer": "The right stick moves the pointer and presses buttons too: pushing it does both. With the gyro pointer on, it only presses the buttons."
+      },
+      "gyro_preview": {
+        "connect": "Connect gamepad {{number}} to try the gyro here.",
+        "this_controller": "This controller",
+        "no_gyro_left": "{{name}} has no gyro: its left stick moves the pointer instead.",
+        "no_gyro_right": "{{name}} has no gyro: its right stick moves the pointer instead.",
+        "click_tooltip": "Click to centre the pointer",
+        "turn": "Turn {{name}} to move the pointer.",
+        "button_centres": "{{button}} or a click centres it.",
+        "click_centres": "A click centres it."
+      },
+      "dead_zones": {
+        "title": "Dead zones & triggers",
+        "about": "How far a stick or trigger must move before it counts. Try it on the controller below.",
+        "octagon": {
+          "name": "Real Nunchuk stick",
+          "about": "The Nunchuk stick plays like a real one: its octagonal edge and the game's own dead zone, which snaps nearly straight pushes straight. The dead zones below then shape the pointer stick only."
+        },
+        "inner": {
+          "name": "Inner dead zone",
+          "about": "The stick rests until it is tilted this far. Raise it if a worn stick drifts."
+        },
+        "outer": {
+          "name": "Outer dead zone",
+          "about": "From this tilt on the stick is pushed all the way. 71% plays like a Nunchuk on the Wii; higher leaves more room for fine moves and slow pointing."
+        },
+        "trigger": {
+          "name": "Trigger press point",
+          "about": "A trigger presses its button past this much of its travel."
+        },
+        "connect": "Connect gamepad {{number}} to try these here.",
+        "stick_real_nunchuk": "{{stick}}: real Nunchuk",
+        "stick_nunchuk_pointer": "{{stick}}: Nunchuk, pointer",
+        "stick_nunchuk": "{{stick}}: Nunchuk",
+        "stick_pointer": "{{stick}}: pointer",
+        "stick_buttons": "{{stick}}: buttons",
+        "stick_unused": "{{stick}}: not used",
+        "pushed": "{{percent}}% pushed",
+        "trigger_on": "on",
+        "trigger_off": "off"
+      },
+      "reset": "Reset to defaults",
+      "reset_tooltip": "Buttons, sticks, gyro, dead zones and triggers as in {{default}}"
+    },
+    "pad": {
+      "left_stick": "Left stick",
+      "right_stick": "Right stick",
+      "c_stick": "C-stick",
+      "stick_up": "{{stick}} up",
+      "stick_down": "{{stick}} down",
+      "stick_left": "{{stick}} left",
+      "stick_right": "{{stick}} right",
+      "not_set": "Not set",
+      "cross": "Cross",
+      "circle": "Circle",
+      "square": "Square",
+      "triangle": "Triangle",
+      "back": "Back",
+      "share": "Share",
+      "minus": "Minus",
+      "guide": "Guide",
+      "home": "Home",
+      "start": "Start",
+      "options": "Options",
+      "plus": "Plus",
+      "left_stick_click": "Left stick click",
+      "right_stick_click": "Right stick click",
+      "dpad_up": "D-pad up",
+      "dpad_down": "D-pad down",
+      "dpad_left": "D-pad left",
+      "dpad_right": "D-pad right",
+      "mic": "Mic",
+      "capture": "Capture",
+      "r_click": "R click",
+      "l_click": "L click",
+      "misc3": "Misc 3",
+      "misc4": "Misc 4",
+      "paddle": "Paddle {{paddle}}",
+      "touchpad": "Touchpad",
+      "button": "Button {{number}}",
+      "gyro": "Gyro",
+      "nunchuk_stick": "Nunchuk stick",
+      "pointer": "Pointer",
+      "recenter_pointer": {
+        "name": "Recenter pointer",
+        "about": "Back to the middle"
+      }
+    },
+    "pad_tooltip": {
+      "profile": "Profile: {{name}}",
+      "profile_family": "Profile: {{name}} ({{family}})",
+      "about": "Your controller's button for each Wii input. Click to change.",
+      "buttons": "BUTTONS",
+      "nunchuk_motion": "NUNCHUK & MOTION",
+      "feel": "Stick dead zones {{inner}}-{{outer}}%, triggers press at {{trigger}}%",
+      "feel_gyro": "Stick dead zones {{inner}}-{{outer}}%, triggers press at {{trigger}}%, gyro speed {{gyro}}%"
+    }
+  },
+  "extras": {
+    "title": "Extras",
+    "about": "What needs files or the launcher. The other gameplay options are in the game's OPTIONS > GAMEPLAY."
+  },
+  "replays": {
+    "title": "Replays",
+    "about": "Watch a match again or look through its stats. During a replay, Right plays it faster, Left slower or paused.",
+    "record": {
+      "name": "Keep replays",
+      "about": "Each match is saved as a replay when it ends."
+    },
+    "score": "{{home}} {{home_score}} - {{away_score}} {{away}}",
+    "training": "Training",
+    "unreadable": "Cannot be read",
+    "watch": "Watch this replay",
+    "open_folder": "Open folder",
+    "count_one": "{{count}} replay",
+    "count_other": "{{count}} replays",
+    "none": "No replays yet: one is kept after each match.",
+    "stats": {
+      "open": "Match stats",
+      "unavailable": "This replay is older than match stats.",
+      "back": "Replays",
+      "watch": "Watch",
+      "loading": "Reading the replay...",
+      "unreadable": "The replay cannot be read: {{error}}",
+      "older": "This replay was kept before Recharged counted match stats: only its score is known.",
+      "cpu": "CPU",
+      "player": "Player {{number}}",
+      "online": "Online",
+      "lan": "LAN",
+      "played": "{{time}} played",
+      "time_limit": "{{time}} match",
+      "goal_limit": "First to {{goals}}",
+      "summary": "Match summary",
+      "rows": {
+        "goals": "Goals",
+        "shots": "Shots",
+        "shots_on_goal": "Shots on goal",
+        "skillshots": "Skillshots",
+        "mega_strikes": "Mega Strikes",
+        "passes": "Passes",
+        "perfect_passes": "Perfect passes",
+        "interceptions": "Interceptions",
+        "hits": "Hits",
+        "steals": "Steals",
+        "dekes": "Dekes",
+        "items": "Items used",
+        "fouls": "Fouls",
+        "possession": "Possession"
+      },
+      "goals": {
+        "title": "Goals",
+        "none": "No goals.",
+        "assist": "assist {{name}}",
+        "own_goal": "Own goal",
+        "one_timer": "One-timer",
+        "skillshot": "Skillshot",
+        "deflection": "Deflection",
+        "mega_strike_one": "Mega Strike",
+        "mega_strike_other": "Mega Strike, {{count}} goals"
+      },
+      "timeline": {
+        "title": "Timeline",
+        "goal": "Goal",
+        "item": "Item",
+        "hit": "Hit",
+        "steal": "Steal",
+        "foul": "Foul"
+      },
+      "shots": {
+        "title": "Shots",
+        "about": "Where each shot was taken. A filled dot scored.",
+        "both": "Both",
+        "none": "No shots.",
+        "low": "Shot",
+        "medium": "Charged shot",
+        "high": "Fully charged shot",
+        "skillshot": "Skillshot",
+        "mega_strike": "Mega Strike",
+        "scored": "scored"
+      },
+      "items": {
+        "title": "Items",
+        "none": "No items used.",
+        "most_used": "Most used",
+        "uses_one": "{{count}} time",
+        "uses_other": "{{count}} times",
+        "count": "{{item}} ×{{count}}",
+        "captains_ability": "{{captain}}'s ability",
+        "unknown": "Item"
+      },
+      "players": {
+        "title": "Players",
+        "goals": "Goals",
+        "assists": "Assists",
+        "shots": "Shots",
+        "passes": "Passes",
+        "hits": "Hits",
+        "steals": "Steals",
+        "items": "Items",
+        "goalie": "Goalie"
+      }
+    }
+  },
+  "gameplay": {
+    "super_team": {
+      "uses_found": "The Super Team uses {{file}} from your game folder."
+    },
+    "mods": {
+      "title": "Mods",
+      "about": "Texture packs replace the game's textures with sharper ones. They change only how the game looks.",
+      "texture_packs": {
+        "name": "Texture packs",
+        "about": "Texture packs made for Dolphin, from the folder below. Drop a pack's folder or .zip file onto this page to add it."
+      },
+      "folder": {
+        "change": "Change...",
+        "open": "Open",
+        "looking": "Looking for texture packs...",
+        "missing": "Not there yet: Open makes it, and a dropped pack goes into it",
+        "no_packs": "No texture packs",
+        "packs_one": "{{count}} pack, {{used}} in use ({{textures}})",
+        "packs_other": "{{count}} packs, {{used}} in use ({{textures}})",
+        "click_tooltip": "Click to select another texture packs folder.",
+        "refresh_tooltip": "Look for texture packs again.",
+        "open_tooltip": "Show the folder (it is made when missing).",
+        "change_tooltip": "Select another texture packs folder."
+      },
+      "textures_one": "{{count}} textures",
+      "textures_other": "{{count}} textures",
+      "adding": "Adding {{pack}} ({{textures}})...",
+      "checking": "Checking {{name}}...",
+      "drop": {
+        "title": "Drop a texture pack here",
+        "about": "A pack's folder (such as R4Q) or its .zip file: it is copied into the folder above."
+      },
+      "table": {
+        "order": "ORDER",
+        "pack": "PACK",
+        "textures": "TEXTURES",
+        "in_use": "IN USE",
+        "drag_tooltip": "Drag to change the order.",
+        "folder": "Folder",
+        "folder_off": "Folder, not in use",
+        "zip_file": "Zip file",
+        "zip_file_off": "Zip file, not in use",
+        "unreadable": "Cannot be read: {{error}}",
+        "more_tooltip": "More",
+        "move_up": "Move up",
+        "move_down": "Move down",
+        "show_in_folder": "Show in folder"
+      },
+      "order_note": "Drag a pack to change the order: where two packs replace the same texture, the higher one wins.",
+      "bug_report_note": "For a bug report, try again without texture packs to check whether one of them is involved.",
+      "pack_added": "{{pack}} was added to your texture packs.",
+      "already_in_folder": "{{pack}} is already in your texture packs folder.",
+      "wait_for_copy": "Wait until {{pack}} is added.",
+      "folder_has_pack": "Your texture packs folder already has a {{pack}}.",
+      "cannot_create": "Cannot create {{path}}: {{error}}",
+      "cannot_add": "Cannot add {{name}}: {{error}}"
+    }
+  },
+  "advanced": {
+    "title": "Advanced",
+    "about": "The launcher, its updates and Recharged's files. Options for testing and development are only in the settings file.",
+    "interface": {
+      "title": "Interface",
+      "menu_language": {
+        "name": "Menu language",
+        "about": "Recharged's own menus and messages; the game's texts follow its text language.",
+        "automatic": "Automatic",
+        "automatic_is": "Automatic: {{language}}.",
+        "missing": "The saved menu language ({{language}}) is not in assets/lang; the menus are in English. Choose one above."
+      },
+      "launcher_size": {
+        "name": "Launcher size",
+        "about": "Scales this launcher. Automatic follows your display's scaling setting."
+      }
+    },
+    "updates": {
+      "title": "Updates",
+      "about": "Each start of the launcher installs a newer build by itself. A release plays online only while it is the newest one.",
+      "status": "Status",
+      "check_now": "Check now"
+    },
+    "files": {
+      "title": "Files",
+      "settings_file": "Settings file",
+      "logs": "Logs",
+      "open_folder": "Open folder"
+    },
+    "reset": {
+      "title": "Reset",
+      "defaults": {
+        "name": "Restore defaults",
+        "about": "Resets every setting except your game image and game folder. Save to keep the result.",
+        "button": "Restore defaults",
+        "restored": "Defaults restored. Save to keep them."
+      }
+    }
+  },
+  "about": {
+    "overline": "ABOUT",
+    "natively": ", natively on your PC",
+    "developers": {
+      "title": "Developers",
+      "about": "The people who build Recharged.",
+      "yannick": "Decompilation, native port and launcher",
+      "goldenpalazzo": "Networking and gameplay fixes"
+    },
+    "thanks": {
+      "title": "Thank you",
+      "about": "Recharged is shaped by the people who play it.",
+      "special": {
+        "overline": "SPECIAL THANKS",
+        "about": "For intense testing, build after build.",
+        "tester": "Tester"
+      },
+      "reporters": {
+        "overline": "ISSUE REPORTERS",
+        "about": "Everyone who reported a problem or asked for a feature on GitHub. Every issue makes Recharged better: this is how we roll!",
+        "report": "Report a problem",
+        "suggest": "Suggest a feature"
+      },
+      "decompilation": {
+        "overline": "DECOMPILATION",
+        "about": "To the contributors of the decompilation, who helped bring it over the last miles."
+      }
+    },
+    "community": {
+      "overline": "COMMUNITY",
+      "title": "Mario Strikers on Discord",
+      "about": "The central hub of Mario Strikers players: tournaments, matchmaking and league play across the series, with fans, competitors and creators from around the world.",
+      "thanks": "Thank you for the matches, the feedback and all the enthusiasm!",
+      "join": "Join on Discord"
+    },
+    "foundations": {
+      "title": "Built on",
+      "decompilation": "The decompilation",
+      "decompilation_about": "Recharged compiles the reconstructed C/C++ source of Mario Strikers Charged to native code. The original game logic runs unchanged; Recharged provides the platform underneath it: graphics, audio, input, files and timing.",
+      "decompilation_link": "Decompilation on GitHub",
+      "aurora_about": "Aurora by Luke Street provides the GameCube/Wii platform layer the game runs on: GX graphics on modern GPUs, plus windowing, input and system services.",
+      "aurora_link": "Aurora on GitHub",
+      "unofficial": "Unofficial project, not affiliated with Nintendo or Next Level Games. You need your own copy of the game."
+    },
+    "build": {
+      "title": "This build",
+      "about": "For a bug report: copy these details and attach the log.",
+      "version": "Version",
+      "origin": "Origin",
+      "built": "Built",
+      "commit_time": "Commit time",
+      "commit": "Commit",
+      "platform": "Platform",
+      "launcher_display": "Launcher display",
+      "game_runtime": "Game runtime",
+      "included": "Included",
+      "not_included": "Not included (launcher-only build)",
+      "configuration": "Configuration",
+      "copy": "Copy build details",
+      "copied": "Build details copied to the clipboard.",
+      "open_logs": "Open logs folder",
+      "pull_request": "Pull request",
+      "release_notes": "Release notes",
+      "all_releases": "All releases"
+    }
+  }
+}

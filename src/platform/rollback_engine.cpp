@@ -44,9 +44,10 @@
 #include "Game/Team.h"
 #include "Game/AI/Fielder.h"
 #include "Game/Goalie.h"
+#include "platform/match_stats.h"
 #include "platform/rollback_state.h"
 
-#if !defined(_WIN32)
+#if !defined(_WIN32) && !defined(__SWITCH__)
 #include <dlfcn.h>
 #endif
 #include <cstdarg>
@@ -520,6 +521,9 @@ bool RollBack(unsigned target, unsigned replayEnd, int (*replay)(const Mscharged
     }
     s.stats.lossyFrees += mscharged::platform::RollbackGameAllocationCheckpointTo(from.mark, Excluded);
     s.replayMark = from.mark;
+    // The replay's match stats: the moments of the undone steps go; the steps
+    // add theirs again as they run.
+    mscharged::replay::StatsRolledBack(target);
     const std::uint64_t restoreNs = NowNs() - start;
     Record(restoreNs, s.stats.restoreNs, s.stats.maxRestoreNs);
 
@@ -642,10 +646,11 @@ void Watchdog()
     }
 }
 
-#if !defined(_WIN32)
+#if !defined(_WIN32) && !defined(__SWITCH__)
 // The game module's own code that throws, logged while the test runs: the
 // runtime only reports what() when the game stops. (Not on Windows, where the
-// module links the C++ runtime's __cxa_throw itself.)
+// module links the C++ runtime's __cxa_throw itself, nor on the Switch, whose
+// program has no dynamic symbols to find the runtime's in.)
 constexpr int kListedThrows = 8;
 int sThrows;
 
@@ -961,7 +966,7 @@ extern "C" void mscharged_rollback_frame_start(void)
     BeginFrameRecord();
 }
 
-#if !defined(_WIN32)
+#if !defined(_WIN32) && !defined(__SWITCH__)
 // Calls to __cxa_throw from the game module bind to this one (hidden), which
 // logs the throw and goes on to the C++ runtime's. It has a name of its own
 // and takes __cxa_throw's symbol: GCC 15 declares __cxa_throw itself, with

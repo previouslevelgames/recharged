@@ -1,0 +1,223 @@
+Subject: Competitive play: a set's cheats
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+RANKED plays without the game's cheats: GameInfoManager asks for them only in
+offline friendly matches and online ones off the ranked ladder (UseAltRules).
+A set's rules may pick a stadium, player and power-up cheat, the same for both
+games. While a match plays by a set's rules (mscharged_competitive_cheats,
+src/platform/competitive_match.cpp), GetActiveRules returns the set's cheats
+and every cheat check reads them; anything else is unchanged.
+
+diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
+--- a/include/mscharged_competitive.h
++++ b/include/mscharged_competitive.h
+@@ -94,6 +94,14 @@
+ bool mscharged_competitive_fit_text(void* text, void* matrix);
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++// A set's cheats (tweak patch 0060): true while this match plays by a set's
++// rules, with its stadium cheat (eEnvironmentCheat), player cheat
++// (ePlayerCheat) and power-up cheat (ePowerupCheat) in the non-null
++// pointers. Both games play by them; RANKED otherwise has none.
++bool mscharged_competitive_cheats(int* stadium, int* player, int* powerup);
++#endif
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/Game/GameInfo.cpp b/src/Game/GameInfo.cpp
+--- a/src/Game/GameInfo.cpp
++++ b/src/Game/GameInfo.cpp
+@@ -337,6 +337,15 @@
+         return &sNoCheats;
+     }
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++    // Competitive play: a set's cheats, the same in both games, in its
++    // matches (RANKED has none).
++    static CheatSettings competitive;
++    if (mscharged_competitive_cheats(&competitive.mEnvironmentCheat, &competitive.mPlayerCheat,
++                                     &competitive.mCustomPowerups)) {
++        return &competitive;
++    }
++#endif
+     if (UseAltRules()) {
+         return &mUnrankedCheatSettings;
+     }
+@@ -549,6 +558,11 @@
+         return false;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_competitive_cheats(0, 0, 0)) {
++        return GetActiveRules()->mPlayerCheat == PLAYER_CHEAT_GLASS_JAW;
++    }
++#endif
+     if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
+         return GetActiveRules()->mPlayerCheat == PLAYER_CHEAT_GLASS_JAW;
+     }
+@@ -574,9 +588,14 @@
+         }
+     }
+ 
+-    if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_competitive_cheats(0, 0, 0)) {
+         return GetActiveRules()->mCustomPowerups == POWERUP_CHEAT_INFINITE;
+     }
++#endif
++    if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
++        return GetActiveRules()->mCustomPowerups == POWERUP_CHEAT_INFINITE;
++    }
+ 
+     return false;
+ }
+@@ -587,9 +606,14 @@
+         return false;
+     }
+ 
+-    if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_competitive_cheats(0, 0, 0)) {
+         return GetActiveRules()->mEnvironmentCheat == ENV_CHEAT_TILT;
+     }
++#endif
++    if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
++        return GetActiveRules()->mEnvironmentCheat == ENV_CHEAT_TILT;
++    }
+ 
+     return false;
+ }
+@@ -600,6 +624,11 @@
+         return false;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_competitive_cheats(0, 0, 0)) {
++        return GetActiveRules()->mPlayerCheat == PLAYER_CHEAT_SAFE;
++    }
++#endif
+     if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
+         return GetActiveRules()->mPlayerCheat == PLAYER_CHEAT_SAFE;
+     }
+@@ -621,9 +650,14 @@
+     }
+ #endif
+ 
+-    if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_competitive_cheats(0, 0, 0)) {
+         return GetActiveRules()->mEnvironmentCheat == ENV_CHEAT_SECURE;
+     }
++#endif
++    if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
++        return GetActiveRules()->mEnvironmentCheat == ENV_CHEAT_SECURE;
++    }
+ 
+     return false;
+ }
+@@ -634,9 +668,14 @@
+         return false;
+     }
+ 
+-    if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_competitive_cheats(0, 0, 0)) {
+         return GetActiveRules()->mPlayerCheat == PLAYER_CHEAT_SKILL_SHOT;
+     }
++#endif
++    if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
++        return GetActiveRules()->mPlayerCheat == PLAYER_CHEAT_SKILL_SHOT;
++    }
+ 
+     return false;
+ }
+@@ -647,9 +686,14 @@
+         return false;
+     }
+ 
+-    if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_competitive_cheats(0, 0, 0)) {
+         return GetActiveRules()->mPlayerCheat == PLAYER_CHEAT_DEVASTATING;
+     }
++#endif
++    if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
++        return GetActiveRules()->mPlayerCheat == PLAYER_CHEAT_DEVASTATING;
++    }
+ 
+     return false;
+ }
+@@ -660,9 +704,14 @@
+         return false;
+     }
+ 
+-    if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_competitive_cheats(0, 0, 0)) {
+         return GetActiveRules()->mEnvironmentCheat == ENV_CHEAT_VOLTAGE;
+     }
++#endif
++    if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
++        return GetActiveRules()->mEnvironmentCheat == ENV_CHEAT_VOLTAGE;
++    }
+ 
+     return false;
+ }
+@@ -673,9 +722,14 @@
+         return false;
+     }
+ 
+-    if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_competitive_cheats(0, 0, 0)) {
+         return GetActiveRules()->mEnvironmentCheat == ENV_CHEAT_POWER;
+     }
++#endif
++    if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
++        return GetActiveRules()->mEnvironmentCheat == ENV_CHEAT_POWER;
++    }
+ 
+     return false;
+ }
+@@ -686,9 +740,14 @@
+         return false;
+     }
+ 
+-    if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_competitive_cheats(0, 0, 0)) {
+         return GetActiveRules()->mEnvironmentCheat == ENV_CHEAT_WHITE_BALL;
+     }
++#endif
++    if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
++        return GetActiveRules()->mEnvironmentCheat == ENV_CHEAT_WHITE_BALL;
++    }
+ 
+     return false;
+ }
+@@ -699,6 +758,11 @@
+         return false;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_competitive_cheats(0, 0, 0)) {
++        return GetActiveRules()->mCustomPowerups == POWERUP_CHEAT_BUTTERFINGERS;
++    }
++#endif
+     if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
+         return GetActiveRules()->mCustomPowerups == POWERUP_CHEAT_BUTTERFINGERS;
+     }
+@@ -892,6 +956,11 @@
+         return 0;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_competitive_cheats(0, 0, 0)) {
++        return GetActiveRules()->mCustomPowerups;
++    }
++#endif
+     if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
+         return GetActiveRules()->mCustomPowerups;
+     }

@@ -1,6 +1,7 @@
 // Native Wii Remote IR decoding against original WPADHIDParser's basic DPD
 // conversion: x as sent, y flipped (767 - y), absent objects (0, 767, size 0).
 #include "platform/wiimote_hid.h"
+#include "platform/wiimote_ir.h"
 
 #include <SDL3/SDL.h>
 
@@ -10,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -64,6 +66,76 @@ int main() {
     const auto below = KpadPointerCentre(0.5, 0.5, 0), above = KpadPointerCentre(0.5, 0.5, 1);
     Check(near(below[0], 511.5) && near(below[1], (767.0 + 1024.0 * 0.2) / 2), "pointer centre, bar below");
     Check(near(above[1], (767.0 - 1024.0 * 0.2) / 2), "pointer centre, bar above");
+
+    // Where a Remote points, back from its camera (Recharged's menus): a pair
+    // as the camera sees it pointing at (x, y), KpadPointerCentre's midpoint
+    // with the desktop camera's unit-distance span, turned by `roll` radians
+    // about the camera's middle as a rolled Remote sees the bar.
+    const auto pairAt = [](double x, double y, std::uint8_t bar, bool height, double roll = 0.0,
+                           double span = 2.0 * (0.2 / 0.383864) * 256.0) {
+        const auto centre = KpadPointerCentre(x, y, bar, height);
+        NativeDpdObservation dots{};
+        for (int n = 0; n < 2; ++n) {
+            const double dx = centre[0] + (n ? span : -span) / 2.0 - 511.5, dy = centre[1] - 383.5;
+            dots[std::size_t(n)] = {std::int16_t(std::lround(511.5 + dx * std::cos(roll) - dy * std::sin(roll))),
+                                    std::int16_t(std::lround(383.5 + dx * std::sin(roll) + dy * std::cos(roll))), 12,
+                                    std::uint8_t(n)};
+        }
+        return dots;
+    };
+    const auto at = [](const std::optional<std::array<double, 2>>& pointer, double x, double y, double tolerance) {
+        return pointer && std::fabs((*pointer)[0] - x) <= tolerance && std::fabs((*pointer)[1] - y) <= tolerance;
+    };
+    bool roundTrip = true;
+    for (std::uint8_t bar = 0; bar < 2; ++bar)
+        for (const bool height : {true, false})
+            for (const double x : {0.1, 0.3, 0.5, 0.7, 0.9})
+                for (const double y : {0.1, 0.5, 0.9}) {
+                    CameraPointer pointer;
+                    roundTrip &= at(pointer.Update(pairAt(x, y, bar, height), bar, height), x, y, 0.002);
+                }
+    Check(roundTrip, "a pair's pointer is not where KpadPointerCentre put it");
+    {
+        CameraPointer left, right;
+        Check(at(left.Update(pairAt(0.3, 0.6, 0, true, 0.35), 0, true), 0.3, 0.6, 0.003) &&
+                  at(right.Update(pairAt(0.3, 0.6, 0, true, -0.35), 0, true), 0.3, 0.6, 0.003),
+              "a rolled Remote's pointer moved");
+    }
+    {
+        CameraPointer pointer;
+        Check(!pointer.Update(NativeDpdObservation{}, 0), "a pointer without dots");
+        auto close = pairAt(0.5, 0.5, 0, true, 0.0, 40.0), wide = pairAt(0.5, 0.5, 0, true, 0.0, 600.0);
+        Check(!pointer.Update(close, 0) && !pointer.Update(wide, 0), "dots too close or too far apart made a pair");
+    }
+    {
+        // The hand's tremor (a camera pixel) stays out, a real move comes.
+        CameraPointer pointer;
+        pointer.Update(pairAt(0.5, 0.5, 0, true), 0);
+        auto shaken = pairAt(0.5, 0.5, 0, true);
+        for (auto& dot : shaken) if (dot.size) ++dot.x;
+        Check(at(pointer.Update(shaken, 0), 0.5, 0.5, 0.0005), "a camera pixel's tremor moved the pointer");
+        const auto moved = pointer.Update(pairAt(0.8, 0.5, 0, true), 0);
+        Check(moved && (*moved)[0] > 0.78, "a real move was held back");
+    }
+    {
+        // One dot left (the other past the camera's edge): the pair moves with it.
+        CameraPointer pointer;
+        const auto first = pointer.Update(pairAt(0.4, 0.5, 0, true), 0);
+        auto alone = pairAt(0.4, 0.5, 0, true);
+        alone[1] = {};
+        alone[1].y = 767;
+        Check(first && at(pointer.Update(alone, 0), (*first)[0], (*first)[1], 1e-9), "one dot lost the pointer");
+        alone[0].x = std::int16_t(alone[0].x + 30);
+        const auto followed = pointer.Update(alone, 0);
+        Check(followed && (*followed)[0] < (*first)[0] - 0.02, "one dot's move did not move the pointer");
+    }
+    {
+        // A third dot (a reflection) does not take the bar's place.
+        CameraPointer pointer;
+        auto stray = pairAt(0.5, 0.5, 0, true);
+        stray[2] = {100, 700, 12, 2};
+        Check(at(pointer.Update(stray, 0), 0.5, 0.5, 0.002), "a reflection made the pair");
+    }
 
     // Remote ids in settings: DolphinBar slots and Bluetooth addresses.
     Check(WiimoteDolphinBarSlot("remote3") == 2 && WiimoteDolphinBarId(2) == "remote3" &&

@@ -82,6 +82,9 @@ void ServiceWiimoteHid();
 // Owner thread: the players' WPAD channels by remote id after the players
 // closed up (InitializeWiimoteHid keeps them otherwise).
 void SetWiimoteHidChannels(std::map<std::string, int> channels);
+// controls.rumble changed while the game runs (owner thread): whether a
+// remote that becomes a player rumbles (WiimoteHidSettings::bind_rumble).
+void SetWiimoteHidBindRumble(bool on);
 void ShutdownWiimoteHid();
 WiimoteHidStatus GetWiimoteHidStatus();
 // The driver runs and has opened at least one Wii Remote HID device.

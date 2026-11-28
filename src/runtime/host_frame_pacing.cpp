@@ -22,32 +22,56 @@ double WindowRefreshRate(SDL_Window* window)
     return KnownRefreshRate(mode->refresh_rate) ? double(mode->refresh_rate) : 0.0;
 }
 
-HostFramePacing::HostFramePacing(FrameRate rate, bool vsync, SDL_Window* window)
-    : rate_(rate), vsync_(vsync), window_(window)
+bool WindowInBackground(SDL_Window* window, bool focus_counts)
 {
-    if (rate.kind == FrameRate::Kind::Original)
-        throw std::invalid_argument("Host frame pacing is for a frame rate above the original");
+    const SDL_WindowFlags flags = window ? SDL_GetWindowFlags(window) : 0;
+    if (flags & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN | SDL_WINDOW_OCCLUDED)) return true;
+    return focus_counts && window && !(flags & SDL_WINDOW_INPUT_FOCUS);
+}
+
+HostFramePacing::HostFramePacing(FrameRate rate, bool vsync, SDL_Window* window, void (*configure_game)(void (*)()),
+                                 int background_hz, bool focus_counts)
+    : rate_(rate), vsync_(vsync), window_(window), configure_game_(configure_game), background_hz_(background_hz),
+      focus_counts_(focus_counts)
+{
+    if (!configure_game_) throw std::invalid_argument("Host frame pacing needs the game's frame pacing entry");
+    background_ = background_hz_ != 0 && WindowInBackground(window_, focus_counts_);
     Apply(WindowRefreshRate(window_));
     next_check_ = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 }
 
 void HostFramePacing::Update(std::chrono::steady_clock::time_point now)
 {
+    if (background_hz_ != 0)
+    {
+        const bool background = WindowInBackground(window_, focus_counts_);
+        if (background != background_)
+        {
+            background_ = background;
+            const FramePacing before = pacing_;
+            Apply(display_hz_);
+            if (before.interval_ns != pacing_.interval_ns || before.host_paced != pacing_.host_paced
+                || before.vsync_paces != pacing_.vsync_paces)
+                Log(background ? "the window is in the background" : "the window is back in front");
+        }
+    }
     if (now < next_check_) return;
     next_check_ = now + std::chrono::seconds(1);
     const double display = WindowRefreshRate(window_);
     if (std::fabs(display - display_hz_) < 0.01) return;
+    const bool paced = pacing_.host_paced;
     Apply(display);
-    const auto line = "Frame rate: the window's display changed; " + Description();
-    platform::SessionLogLine(line);
-    std::fprintf(stderr, "%s\n", line.c_str());
+    if (paced || pacing_.host_paced) Log("the window's display changed");
 }
 
 std::string HostFramePacing::Description() const
 {
-    const FrameRate rate = rollback_cap_ ? CapFrameRate(rate_, kRollbackFrameRate, display_hz_) : rate_;
+    const FrameRate held = rollback_cap_ ? CapFrameRate(rate_, kRollbackFrameRate, display_hz_) : rate_;
+    const FrameRate rate = HeldRate(display_hz_);
     std::string text = DescribeFramePacing(rate, pacing_, display_hz_);
-    if (rate != rate_) text += " in this network match with rollback (" + FrameRateText(rate_) + " otherwise)";
+    if (rate != held) text += " while the window is in the background";
+    else if (rate != rate_) text += " in this network match with rollback";
+    if (rate != rate_) text += " (" + FrameRateText(rate_) + " otherwise)";
     return text;
 }
 
@@ -60,13 +84,50 @@ bool HostFramePacing::SetRollbackCap(bool on)
     return before.interval_ns != pacing_.interval_ns || before.vsync_paces != pacing_.vsync_paces;
 }
 
+void HostFramePacing::Configure(FrameRate rate, bool vsync, int background_hz)
+{
+    if (rate == rate_ && vsync == vsync_ && background_hz == background_hz_) return;
+    rate_ = rate;
+    vsync_ = vsync;
+    background_hz_ = background_hz;
+    background_ = background_hz_ != 0 && WindowInBackground(window_, focus_counts_);
+    Apply(display_hz_ < 0.0 ? WindowRefreshRate(window_) : display_hz_);
+    Log("changed in the settings");
+}
+
+FrameRate HostFramePacing::HeldRate(double display_hz) const
+{
+    FrameRate rate = rollback_cap_ ? CapFrameRate(rate_, kRollbackFrameRate, display_hz) : rate_;
+    if (background_) rate = BackgroundFrameRate(rate, background_hz_, display_hz);
+    return rate;
+}
+
 void HostFramePacing::Apply(double display_hz)
 {
     display_hz_ = display_hz;
-    const FrameRate rate = rollback_cap_ ? CapFrameRate(rate_, kRollbackFrameRate, display_hz) : rate_;
-    pacing_ = DecideFramePacing(rate, display_hz, vsync_);
+    pacing_ = DecideFramePacing(HeldRate(display_hz), display_hz, vsync_);
+    if (!pacing_.host_paced)
+    {
+        // Back to the game's own VI pacing: its swap first, as the paced swap
+        // requires Aurora's host pacing.
+        if (!game_host_paced_) return;
+        configure_game_(nullptr);
+        aurora_configure_video_pacing(nullptr);
+        game_host_paced_ = false;
+        return;
+    }
     const AuroraVideoPacing pacing{pacing_.interval_ns};
     aurora_configure_video_pacing(&pacing);
+    if (game_host_paced_) return;
+    configure_game_(aurora_paced_video_swap);
+    game_host_paced_ = true;
+}
+
+void HostFramePacing::Log(const char* reason) const
+{
+    const auto line = std::string("Frame rate: ") + reason + "; " + Description();
+    platform::SessionLogLine(line);
+    std::fprintf(stderr, "%s\n", line.c_str());
 }
 
 } // namespace mscharged::runtime

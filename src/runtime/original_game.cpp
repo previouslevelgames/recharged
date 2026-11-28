@@ -1,4 +1,5 @@
 #include "platform/graphics_stats.h"
+#include "platform/alert_sound.h"
 #include "platform/app_icon.h"
 #include "platform/hotkey_filter.h"
 #include "platform/screenshot_hotkey.h"
@@ -7,16 +8,25 @@
 #include "runtime/texture_pack_loading.h"
 #include "platform/graphics_backend.h"
 #include "runtime/original_sh_menu_diagnostic.h"
+#include <charconv>
 #include <aurora/aurora.h>
 #include <aurora/hardware.h>
 #include "bootstrap/antialiasing.h"
 #include "bootstrap/display_shape.h"
+#include "bootstrap/advanced_choices.h"
+#include "bootstrap/graphics_backend.h"
 #include "bootstrap/graphics_card.h"
+#include "bootstrap/table_texts.h"
+#include "bootstrap/texts.h"
+#include "platform/name_glyphs.h"
 #include "bootstrap/launch_options.h"
 #include "platform/path.h"
 #include "platform/disc.h"
 #include "platform/disc_message_images.h"
 #include "platform/game_release.h"
+#include "platform/match_replay_file.h"
+#include "platform/match_replay_status.h"
+#include "platform/match_replay_stream.h"
 #include "platform/pc_languages.h"
 #include <aurora/event.h>
 #include <aurora/gfx.h>
@@ -29,9 +39,12 @@
 #include <atomic>
 #include <array>
 #include <algorithm>
+#include <tuple>
 #include <vector>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <future>
 #include <memory>
 #include <optional>
 #include <chrono>
@@ -48,17 +61,29 @@
 #include "platform/ai.h"
 #include "platform/console.h"
 #include "platform/log_window.h"
+#if defined(MSCHARGED_HAS_GRAPHICS_CARDS)
+#include "platform/graphics_cards.h"
+#endif
 #include "platform/session_log.h"
 #include "platform/launcher_reopen.h"
+#include "bootstrap/watch_link.h"
+#include "platform/competitive_host.h"
+#include "platform/competitive_rules.h"
+#include "platform/game_folder_lock.h"
+#include "overlay/flags.h"
+#include "platform/wpad_sdl.h"
 #include "platform/discord_presence.h"
 #include "platform/game_presence.h"
 #include "platform/netplay_snapshot.h"
 #include "platform/http_client.h"
 #include "platform/desync_dossier.h"
+#include "platform/live_watch.h"
 #include "platform/online_reports.h"
+#include "platform/online_replays.h"
 #include "launcher/current_build.h"
 #include "launcher/online_gate.h"
 #include "platform/presence_snapshot.h"
+#include "platform/menu_snapshot.h"
 #include "platform/shader_cache.h"
 #include "platform/process_exit.h"
 #include "platform/native_ax_module_memory.h"
@@ -66,6 +91,8 @@
 #include "platform/rtc_policy.h"
 #include "platform/video_device.h"
 #include "platform/video_output_device.h"
+#include "platform/desktop_wpad.h"
+#include "platform/wiimote_hid.h"
 #include "platform/interrupt_controller.h"
 #include "platform/filesystem_boot.h"
 #include "platform/ipc_boot_buffer.h"
@@ -74,7 +101,29 @@
 #include "movie_hardware.h"
 #include "runtime/game_window.h"
 #include "runtime/host_overlay.h"
+#include "runtime/parallel_jobs.h"
+#include "runtime/menu_input.h"
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+#include "runtime/host_menus.h"
+#include "runtime/mii_heads.h"
+#include "runtime/server_tournament.h"
+#endif
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+#include "launcher/match_presets.h"
+#include "overlay/game_overlay.h"
+#include "overlay/overlay_images.h"
+#include "overlay/overlay_prompt.h"
+#include "platform/mii_head.h"
+#include "platform/save_import.h"
+#include "platform/match_kind.h"
+#include "platform/online_panel_feed.h"
+#include "platform/tournament_feed.h"
+#include <aurora/imgui.h>
+#endif
 #include "runtime/pipeline_warmup.h"
+#if defined(__SWITCH__)
+#include "platform/switch/nx_init.h"
+#endif
 #include "mscharged/build_version.h"
 #include "runtime/frame_rate.h"
 #include "runtime/host_frame_pacing.h"
@@ -111,6 +160,72 @@ namespace {
 // Aurora's FIFO retains every recorded command until a drain; publishing only
 // hands bytes to the worker. Bound that backlog between source frames.
 constexpr std::uint32_t kFifoDrainBytes=64u<<20;
+// The run's competitive play, stopped when the game powers off: that path
+// ends the process without unwinding, so its last calls (a set called off, a
+// series reported) would never go out. They get a few seconds, never more.
+std::unique_ptr<mscharged::platform::CompetitiveHost>* sCompetitive=nullptr;
+// Match replays: what keeps a match still being recorded when the game powers
+// off (that path ends the process without unwinding), and for a replay that
+// plays, the module's speed setter and the speed its keys ask for (0 normal,
+// 1 twice, 2 four times as fast).
+std::function<void()>* sReplayExit=nullptr;
+std::atomic<ChargedSetReplaySpeedFunction> sReplaySpeedSetter{nullptr};
+std::atomic<int> sReplaySpeed{0};
+// O presses while a replay plays: a watched match's players and set shown or hidden.
+std::atomic<int> sPlayersToggles{0};
+// Clicks on the CANCEL of the box that shows what the player waits for (taken
+// out of the game's events by the hotkey filter), for the host loop.
+std::atomic<int> sStatusCancels{0};
+
+// Training's options ([gameplay] training_*: saved by the TRAINING page, the
+// pause menu's TRAINING OPTIONS) handed to the game module, which uses them
+// from its next frame.
+void ConfigureTraining(void* module,const mscharged::Settings& s)
+{
+    auto* configureTraining=reinterpret_cast<void(*)(int,bool,int,int)>(
+        mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training"));
+    if(!configureTraining) return;
+    const auto& item=mscharged::kTrainingItemKinds[std::size_t(
+        std::max(mscharged::TrainingIndex(mscharged::kTrainingItems,s.training_item),0))];
+    // (No Start training from the title, so no captain or stadium for it.)
+    configureTraining(item.type,false,-1,-1);
+    // And how many of it, and whether a single one is always giant.
+    if(auto* configureItem=reinterpret_cast<void(*)(int,bool)>(
+           mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_item")))
+        configureItem(item.count,item.giant);
+    if(auto* configureOpponent=reinterpret_cast<void(*)(int,int,bool,bool,int,bool)>(
+           mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_opponent")))
+        configureOpponent(-1,s.training_away_fielders,s.training_away_goalie,s.training_skip_goals,
+            mscharged::TrainingIndex(mscharged::kTrainingSkills,s.training_away_skill),false);
+}
+// The tweaks that change only the menus, the HUD and how fast the title is
+// passed: a replay keeps the viewer's (as the module does, match_replay.cpp).
+constexpr unsigned kReplayViewerTweaks=mscharged::GameTweakBit(mscharged::GameTweak::SkipIntro)
+    |mscharged::GameTweakBit(mscharged::GameTweak::FastMenus)|mscharged::GameTweakBit(mscharged::GameTweak::NoHud)
+    |mscharged::GameTweakBit(mscharged::GameTweak::OverrideRetailMenus);
+// A replay's speed keys: Right (or a gamepad's D-pad right) faster, Left
+// slower, and from normal speed paused. O shows or hides the players of a
+// match watched from the online server.
+bool SDLCALL ReplaySpeedKeys(void*,SDL_Event* event) {
+    const auto setter=sReplaySpeedSetter.load();
+    if(!setter)return true;
+    int step=0;
+    if(event->type==SDL_EVENT_KEY_DOWN && !event->key.repeat
+       && !(event->key.mod&(SDL_KMOD_CTRL|SDL_KMOD_ALT|SDL_KMOD_GUI|SDL_KMOD_SHIFT))) {
+        if(event->key.scancode==SDL_SCANCODE_RIGHT)step=1;
+        else if(event->key.scancode==SDL_SCANCODE_LEFT)step=-1;
+        else if(event->key.scancode==SDL_SCANCODE_O)sPlayersToggles.fetch_add(1);
+    } else if(event->type==SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+        if(event->gbutton.button==SDL_GAMEPAD_BUTTON_DPAD_RIGHT)step=1;
+        else if(event->gbutton.button==SDL_GAMEPAD_BUTTON_DPAD_LEFT)step=-1;
+    }
+    if(step) {
+        const int speed=std::clamp(sReplaySpeed.load()+step,-1,2);
+        sReplaySpeed.store(speed);
+        setter(speed);
+    }
+    return true;
+}
 #if defined(MSCHARGED_AUTOPILOT)
 // Test builds' autopilot (src/platform/autopilot.cpp): C, P and U held
 // together hand the first player to a bot and back. Unannounced: no log line,
@@ -179,6 +294,27 @@ mscharged::runtime::FrameTimingCounters ReadFrameTimingCounters() {
         counters.texture_upload_bytes=load(stats->lastTextureUploadSize);
     }
     counters.fifo_bytes=aurora::gx::fifo::get_buffer_size();
+    // Where the frame time goes: the GX pipeline's phases (switched on with the
+    // frame log) and the game's audio callbacks on the game thread.
+    AuroraGXPhaseTimes gx{};
+    aurora_get_gx_phase_times(&gx);
+    using namespace mscharged::runtime;
+    auto& phases=counters.phases;
+    phases[kPhaseSend]=gx.ownerSendNs; phases[kPhaseUpdate]=gx.ownerUpdateNs;
+    phases[kPhasePriorWait]=gx.ownerPriorWaitNs; phases[kPhaseParseWait]=gx.ownerParseWaitNs;
+    phases[kPhaseDoneWait]=gx.ownerDoneWaitNs; phases[kPhaseRetraceWait]=gx.ownerRetraceWaitNs;
+    phases[kPhaseAudio]=mscharged::platform::GetNativeAIObservationStatus().total_callback_duration_ns;
+    phases[kPhaseFifoParse]=gx.fifoParseNs; phases[kPhaseFifoParseCpu]=gx.fifoParseCpuNs;
+    phases[kPhaseFifoLatch]=gx.fifoLatchNs;
+    phases[kPhaseRender]=gx.renderNs; phases[kPhaseRenderCpu]=gx.renderCpuNs;
+    phases[kPhaseSubmit]=gx.submitNs; phases[kPhaseGpuWait]=gx.gpuWaitNs;
+    phases[kPhaseAcquire]=gx.acquireNs; phases[kPhasePresent]=gx.presentNs;
+    counters.draw_done_frames=gx.drawDoneFrames; counters.empty_draw_done_frames=gx.emptyDrawDoneFrames;
+    for(std::size_t core=0;core<counters.cores.game.size();++core) {
+        counters.cores.game[core]=gx.ownerCores[core];
+        counters.cores.fifo[core]=gx.fifoCores[core];
+        counters.cores.render[core]=gx.renderCores[core];
+    }
     return counters;
 }
 
@@ -287,6 +423,145 @@ void EndWithSnapshot(const std::filesystem::path& output) {
     Check(lit != 0, "Original actual EFB is entirely black; visibility remains unqualified");
     mscharged::platform::Trace("Actual EFB %ux%u, nonblack pixels%u; saved %s.\n",s->target.width,s->target.height,lit,mscharged::PathUtf8(output).c_str());
 }
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+// RECHARGED_CAPTURE_ONLINE's sample (development: the online pages without a
+// server): a player with a set, friends and players online, presets, boards;
+// `rematch`: the set ended (QUICK PLAY's REMATCH and its page), `request`: a
+// challenge waits for its answer (on QUICK PLAY, and in the corner's box).
+void SampleOnline(mscharged::overlay::GameOverlayModel& model,const std::string& variant)
+{
+    namespace ov=mscharged::overlay;
+    auto& online=model.online;
+    online=ov::OnlinePanelModel{};
+    online.me.name="Yannick";
+    online.me.detail="@yannick";
+    online.me.initials="Y";
+    online.me.tint_seed=11;
+    online.me.country="CH";
+    online.me.available=true;
+    online.me.can_set_available=true;
+    auto row=[](const char* name,const char* country,ov::Presence presence,const char* status,ov::Tone tone,
+                bool isFriend,std::int64_t id) {
+        ov::OnlinePanelRow r;
+        r.player_id=id;
+        r.key="p"+std::to_string(id);
+        r.name=name;
+        r.initials=std::string(1,name[0]);
+        r.tint_seed=id*7;
+        r.presence=presence;
+        r.status=status;
+        r.tone=tone;
+        r.country=country;
+        r.is_friend=isFriend;
+        r.can_befriend=true;
+        r.can_challenge=presence==ov::Presence::Free;
+        if(!r.can_challenge) r.blocked="In a set: challenge them once it is over.";
+        return r;
+    };
+    online.set.stage=ov::OnlinePanelSet::Stage::Playing;
+    online.set.opponent=row("Mario","IT",ov::Presence::Busy,"In your set",ov::Tone::Busy,true,1);
+    online.set.title="Your set against Mario";
+    online.set.status="Game 2 of 3: choosing teams";
+    online.set.tone=ov::Tone::Busy;
+    online.set.rules="Competitive: 3 minutes, best of 3, random stadium";
+    online.set.games=3;
+    online.set.won=1;
+    online.set.lost=0;
+    online.set.can_cancel=true;
+    online.set.cancel_label="Cancel set";
+    if(variant=="rematch") {
+        // Won 2-1, the rematch Yannick's turn.
+        online.set=ov::OnlinePanelSet{};
+        online.set.stage=ov::OnlinePanelSet::Stage::Ended;
+        auto& rematch=online.rematch;
+        rematch.shown=true;
+        rematch.match=7;
+        rematch.opponent=row("Mario","IT",ov::Presence::Free,"Main menu",ov::Tone::Good,true,1);
+        rematch.title="You won the set";
+        rematch.status="Against Mario";
+        rematch.rules="Competitive: 3 minutes, best of 3, random stadium";
+        rematch.tone=ov::Tone::Good;
+        rematch.won=2;
+        rematch.lost=1;
+        rematch.games=3;
+        rematch.you_pick=true;
+        rematch.stadium="random";
+    } else if(variant=="request") {
+        online.set=ov::OnlinePanelSet{};
+        online.set.stage=ov::OnlinePanelSet::Stage::Waiting;
+        online.set.opponent=row("Luigi","DE",ov::Presence::Free,"Main menu",ov::Tone::Good,true,2);
+        online.set.title="Your challenge to Luigi";
+        online.set.status="Waiting for Luigi to accept";
+        online.set.tone=ov::Tone::Busy;
+        online.set.can_cancel=true;
+        online.set.cancel_label="Withdraw";
+        auto& request=online.request;
+        request.waiting=true;
+        request.kicker="CHALLENGE SENT";
+        request.status="Waiting for Luigi's answer \u00b7 42 s";
+        request.opponent=online.set.opponent;
+    }
+    ov::OnlinePanelSection friends;
+    friends.id=ov::OnlinePanelSection::Id::Online;
+    friends.aside="2 friends offline";
+    friends.rows={row("Luigi","DE",ov::Presence::Free,"Main menu",ov::Tone::Good,true,2),
+                  row("Peach","FR",ov::Presence::Busy,"Domination: choosing teams",ov::Tone::Busy,true,3)};
+    friends.rows[0].detail="@luigi";
+    ov::OnlinePanelSection recent;
+    recent.id=ov::OnlinePanelSection::Id::Recent;
+    recent.rows={row("Waluigi","US",ov::Presence::Free,"In the game",ov::Tone::Good,false,4),
+                 row("Daisy","SE",ov::Presence::Free,"Do not disturb",ov::Tone::Away,false,5),
+                 row("Bowser","JP",ov::Presence::Offline,"Offline",ov::Tone::Away,false,6)};
+    recent.rows[1].version="EU";
+    recent.rows[1].can_challenge=false;
+    recent.rows[1].blocked="Do not disturb";
+    recent.rows[2].blocked="Offline";
+    online.sections={friends,recent};
+    online.available_count=3;
+    ov::OnlinePanelPreset competitive;
+    competitive.name="Competitive";
+    competitive.rule_set=1;
+    competitive.rules.limit="time";
+    competitive.rules.time=180;
+    competitive.rules.goals=5;
+    competitive.rules.games=3;
+    competitive.rules.stadium="random";
+    competitive.rules.tweaks={"no_mega_strikes"};
+    ov::OnlinePanelPreset quick=competitive;
+    quick.name="Quick game";
+    quick.rules.games=1;
+    quick.rule_set=2;
+    online.presets={competitive,quick};
+    online.can_search=true;
+    auto& ranked=model.ranked;
+    ranked.can_play=true;
+    ranked.blocked.clear();
+    ranked.signed_out=ranked.missing=ranked.loading=false;
+    mscharged::platform::Leaderboard boards;
+    auto entry=[](int rank,const char* player,const char* mii,int wins,int losses,int points,bool you) {
+        mscharged::platform::LeaderboardEntry e;
+        e.rank=rank;
+        e.player=player;
+        e.mii=mii;
+        e.wins=wins;
+        e.losses=losses;
+        e.points=points;
+        e.you=you;
+        return e;
+    };
+    boards.season.first_day="2026-11-01";
+    boards.season.last_day="2026-11-30";
+    boards.season.players=184;
+    boards.season.top={entry(1,"Luigi","Luigi",42,7,1830,false),entry(2,"","Toadsworth",38,11,1712,false),
+                       entry(3,"Waluigi","Wah",31,12,1650,false),entry(4,"Daisy","Daisy",25,14,1544,false),
+                       entry(5,"","Kamek",22,17,1490,false)};
+    boards.season.you=entry(17,"Yannick","Yannick",9,8,1204,true);
+    boards.daily=boards.season;
+    boards.daily.first_day=boards.daily.last_day="2026-11-09";
+    boards.daily.players=23;
+    ranked.boards=boards;
+}
+#endif
 }
 int mscharged::RunOriginalGame(int argc, char** argv,
     const ResolvedLaunch* suppliedLaunch, bool interactive, OriginalMainScene scene, const char* title) {
@@ -394,9 +669,86 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                                                               mscharged::platform::PcLanguages());
         const auto systemLanguage = languageChoice.language->sc_language;
         const auto releaseNote = mscharged::ReleaseNote(*release);
+        // A replay (--replay): it plays only on the release and revision it
+        // was recorded on (the game's data differ between them).
+        std::vector<std::uint8_t> replayStream;
+        mscharged::replay::Setup replaySetup;
+        // A watch ticket (a replay file of version 2 from the WFC server's
+        // dashboard): the match plays live from the server's stream.
+        std::unique_ptr<mscharged::platform::LiveWatch> liveWatch;
+        mscharged::platform::WatchTicket watchTicket;
+        std::vector<std::uint8_t> replayBytes;
+        std::string replayError;
+        // The match a ticket names and the game watched of it (live, or a game
+        // the server kept, from the launcher): the server tells its players
+        // and its set so far, shown over it.
+        std::optional<mscharged::replay::WatchTicket> playersTicket;
+        int playersGame=0;
+        const bool watching=!launch.replay_path.empty()
+            && mscharged::replay::ReadReplayFile(launch.replay_path,replayBytes,replayError)
+            && mscharged::platform::ReadWatchTicket(replayBytes,watchTicket,replayError);
+        Check(replayError.empty() || !watching,("This watch ticket cannot be used: "+replayError).c_str());
+        if(watching) {
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+            Check(!launch.settings.online_server.empty(),
+                  "Watching a match needs the online server that made the ticket: set it in the launcher's Online page.");
+            Check(watchTicket.release==std::string(release->game_id,4),
+                  ("This match is played with "+watchTicket.release+": start the ticket with that game image; this one is "
+                   +std::string(release->game_id,4)+".").c_str());
+            liveWatch=std::make_unique<mscharged::platform::LiveWatch>(launch.settings.online_server,watchTicket,
+                [](const std::string& text) {
+                    mscharged::platform::SessionLogLine(text);
+                    std::fprintf(stderr,"%s\n",text.c_str());
+                });
+            std::fprintf(stderr,"Watching: match %lld from %s, waiting for its game\n",
+                         static_cast<long long>(watchTicket.match),launch.settings.online_server.c_str());
+            int game=0;
+            std::string error;
+            Check(liveWatch->WaitForGame(std::chrono::seconds(90),game,replayStream,error)
+                  && mscharged::replay::ReadSetup(replayStream.data(),replayStream.size(),replaySetup,error),
+                  ("Cannot watch this match: "+error).c_str());
+            playersTicket=watchTicket;
+            playersGame=game;
+#else
+            Check(false,"Watching a match is not in this build.");
+#endif
+        } else if(!launch.replay_path.empty()) {
+            std::vector<std::uint8_t> bytes;
+            std::string error;
+            mscharged::replay::FileInfo info;
+            const bool read=mscharged::replay::ReadReplayFile(launch.replay_path,bytes,error)
+                && mscharged::replay::DecodeFile(bytes.data(),bytes.size(),info,replayStream,error)
+                && mscharged::replay::ReadSetup(replayStream.data(),replayStream.size(),replaySetup,error);
+            Check(read,("This replay cannot be played: "+error).c_str());
+            Check(info.game_id==release->game_id && info.revision==release->revision,
+                  ("This replay was recorded with "+info.game_id+" (revision "+std::to_string(info.revision)
+                   +"). Start it with that game image; this one is "+release->game_id+" (revision "
+                   +std::to_string(release->revision)+").").c_str());
+            if(launch.replay_match>0 && launch.replay_game>0) {
+                mscharged::replay::WatchTicket kept;
+                kept.match=launch.replay_match;
+                kept.game=launch.replay_game;
+                kept.ticket=launch.replay_ticket;
+                kept.release=std::string(release->game_id,4);
+                playersTicket=kept;
+                playersGame=kept.game;
+            }
+            std::string line="Replay: "+mscharged::PathUtf8(launch.replay_path)+", "
+                +mscharged::replay::MatchLength(replaySetup.steps)+", recorded by "+info.build;
+            if(info.build!=mscharged::build::version)line+=" (another build: the match may play differently)";
+            std::fprintf(stderr,"%s\n",line.c_str()); // the console and the log
+        }
+        // A replay plays (a file, or a Watch link's live match): this program
+        // only shows a match played elsewhere, from its inputs. Nothing the
+        // viewer does reaches it (the game sees its players stand still), the
+        // system cursor shows, and nothing talks to a server but the stream:
+        // no competitive play, reports, online pages, menus or Discord status.
+        const bool spectating=!replayStream.empty();
         mscharged::platform::SessionLogLine("Game: " + std::string(release->title) + ", "
             + mscharged::ReleaseLabel(*release) + " (" + release->game_id + ")"
             + (releaseNote.empty() ? "" : ". " + releaseNote));
+        // Sets pair only players of one version: the server hears which.
+        mscharged::platform::ProfileService::SetPlayedGame(std::string(release->game_id,4));
         const std::string languageLabel = languageChoice.automatic
             ? "Automatic (" + std::string(languageChoice.language->label) + ")" : languageChoice.language->label;
         mscharged::platform::SessionLogLine(languageChoice.unavailable
@@ -414,7 +766,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         case mscharged::GameCode::Usa: break;
         }
         const auto modulePath=executableDirectory/moduleFilename;
-        Check(std::filesystem::is_regular_file(modulePath),"Original-main source module is missing beside the executable");
+        Check(mscharged::platform::NativeModuleAvailable(modulePath),"Original-main source module is missing beside the executable");
         // Real host window/device/FIFO owner exists before any original module
         // constructors. Original main still owns its GXInit/glStartup decisions.
         if(mscharged::MoveOldDataFolder(executableDirectory))
@@ -422,6 +774,27 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         const auto dataDirectory = std::filesystem::absolute(mscharged::DataFolder(executableDirectory));
         mscharged::platform::SessionLogLine("Data: "+mscharged::PathUtf8(dataDirectory));
         std::filesystem::create_directories(dataDirectory);
+        // Two games of one folder would share its save, and both would take
+        // the player's competitive sets. A game that only plays a match back
+        // (a Watch link, a replay) watches beside it instead: from a copy of
+        // the save, with the keyboard alone (the Wii Remotes and gamepads stay
+        // the other game's), without competitive play, online pages, Discord
+        // status or window memory.
+        const auto titleSaveFolder=mscharged::TitleSaveFolder(
+            mscharged::ResolveSaveFolder(launch.settings, launch.config.path, executableDirectory),
+            mscharged::ReadDiscTitleId(launch.disc_path));
+        std::filesystem::path watcherFolder;
+        if(mscharged::platform::LockGameFolder(dataDirectory))
+            mscharged::platform::RemoveEndedWatchers(dataDirectory);
+        else {
+            Check(!launch.replay_path.empty(),
+                "Recharged already runs a game from this folder. Close it first, or switch to its window.");
+            watcherFolder=mscharged::platform::PrepareWatcherFolder(dataDirectory,titleSaveFolder);
+            mscharged::platform::SessionLogLine("Watching beside the game that runs from this folder: from "
+                +mscharged::PathUtf8(watcherFolder)+", with a copy of its save; keyboard only, without competitive "
+                "play, online pages, Discord status or window memory");
+        }
+        const bool watcher=!watcherFolder.empty();
         // Aurora reads its paths as UTF-8; string() would give Windows' ANSI code page (#97).
         const auto dataPath = mscharged::PathUtf8(dataDirectory);
         AuroraConfig config{};
@@ -451,6 +824,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         const auto& logLevel=launch.settings.log_level;
         config.logLevel=logLevel=="debug"?LOG_DEBUG:logLevel=="warning"?LOG_WARNING:
             logLevel=="error"?LOG_ERROR:LOG_INFO;
+        // At debug level every log line begins with its time.
+        mscharged::platform::SetSessionLogTimes(logLevel=="debug");
         config.logCallback=mscharged::platform::ConsoleLog;
         config.enableBackendValidation=launch.settings.graphics_validation;
         config.vsync=launch.settings.vsync;
@@ -461,7 +836,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         config.sampleShading=antialiasing.sample_shading;
         // mods.dump_textures: Aurora saves each game texture no pack replaces
         // to data/texture_dumps, named for texture packs.
-        config.allowTextureDumps=launch.settings.dump_textures;
+        config.allowTextureDumps=launch.settings.dump_textures && !watcher;
         // The native Wii Remote driver (platform/wiimote_hid) owns physical
         // remotes, including DolphinBar mode 4 and its IR sensor bar; SDL's
         // own Wii HID driver must not open the same devices.
@@ -479,6 +854,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             +", graphics card "+shown.gpu
             +", performance overlay "+(shown.fps_overlay?shown.fps_overlay_corner:std::string("off"))
             +", graphics validation "+(shown.graphics_validation?"on":"off"));
+        if(shown.graphics_validation)
+            mscharged::platform::SessionLogLine("Graphics validation (Advanced > API validation) is on: every graphics "
+                "call is checked and frames are slower than in play; turn it off to play or record frame times.");
         mscharged::platform::SessionLogLine(std::string("Startup: initializing ")
             +graphics->label+" graphics and the window");
         shaderCacheUse.emplace(mscharged::platform::ShaderCacheDirectory(executableDirectory));
@@ -495,13 +873,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // The game draws its own pointer (the Wii Remote's hand) where a player
         // points, the mouse included: the system cursor stays hidden over the
         // window. A layer above that takes the mouse (ImGui) shows it again.
+        // A replay's viewer points at nothing in the game: it shows.
         const auto cursorLayer=aurora::input::register_layer({
             .label="recharged.cursor",
             .priority=aurora::input::kGameLayerPriority,
             .onEvent=[](const aurora::input::InputEvent&,void*){return aurora::input::EventResult::Pass;},
-            .pointerMode=[](void*){return aurora::input::PointerMode::Hidden;},
+            .pointerMode=spectating ? +[](void*){return aurora::input::PointerMode::Visible;}
+                                    : +[](void*){return aurora::input::PointerMode::Hidden;},
         });
-        if(cursorLayer==aurora::input::kInvalidLayerId)
+        if(cursorLayer==aurora::input::kInvalidLayerId && !spectating)
             mscharged::platform::SessionLogLine("Startup: the system cursor stays visible over the game");
         mscharged::platform::SessionLogLine("Startup: graphics ready");
         // [mods]: HD texture packs, swapped in by Aurora (host graphics only).
@@ -585,8 +965,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 }
             }
         }
-        mscharged::platform::SetNativeAIOutputGain(launch.settings.mute ? 0.0f :
-            float(launch.settings.master_volume)/100.0f);
+        // The sound's volume, off while a replay plays faster than real time
+        // (replaySoundHeld): its sound would only rush along.
+        bool replaySoundHeld=false;
+        auto applyVolume=[&] {
+            mscharged::platform::SetNativeAIOutputGain(launch.settings.mute || replaySoundHeld ? 0.0f :
+                float(launch.settings.master_volume)/100.0f);
+        };
+        applyVolume();
         mscharged::platform::SessionLogLine(launch.settings.fullscreen ? "Startup: switching to fullscreen"
                                                                         : "Startup: setting the window size");
         Check(SDL_SetWindowFullscreen(host.window,launch.settings.fullscreen), "Requested launch window mode rejected");
@@ -635,6 +1021,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             aurora_shutdown();
             throw;
         }
+#if defined(__SWITCH__)
+        charged_switch_end_startup_boost();
+#endif
         if(!graphicsPrepared) {
             aurora_shutdown();
             // [launcher] reopen_after_game: the launcher comes back instead (POSIX: in this process).
@@ -661,7 +1050,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // Native EXI hardware precedes the original SRAM cache initializer.
         // Preserve an existing image; first run explicitly uses the native
         // virgin policy, independently of disc/locale/SC preferences.
-        mscharged::platform::InitializeNativeRTC(dataDirectory / "native-rtc.bin",
+        mscharged::platform::InitializeNativeRTC((watcher ? watcherFolder : dataDirectory) / "native-rtc.bin",
             mscharged::platform::CreateVirginRTCImage());
         __OSInitSram();
         Check(__OSSyncSram(), "Original SRAM initialization did not complete its real EXI read");
@@ -702,10 +1091,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // One isolated native title profile. UID is an explicit native IOS
         // process identity, independent of the host account/retail console.
         // Each title keeps its own storage in the save folder (the USA one
-        // the folder itself), as titles have separate homes on a Wii.
-        const auto saveFolder=mscharged::TitleSaveFolder(
-            mscharged::ResolveSaveFolder(launch.settings, launch.config.path, executableDirectory),
-            mscharged::ReadDiscTitleId(launch.disc_path));
+        // the folder itself), as titles have separate homes on a Wii. A
+        // watcher plays from its copy.
+        const auto saveFolder=watcher ? watcherFolder/"nand" : titleSaveFolder;
         const auto discBootIdentity=mscharged::platform::InitializeNativeFilesystemForDisc(
             {launch.disc_path, saveFolder, 0x1001});
         mscharged::platform::InitializeNativeSTMDevice();
@@ -729,7 +1117,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         players.keyboard = -1;
         players.mouse_with_controller = launch.settings.mouse_pointer;
         for (int player = 0; player < 4; ++player) {
-            const auto& device = launch.settings.players[player];
+            const auto& device = watcher ? std::string(player == 0 ? "keyboard" : "off") : launch.settings.players[player];
             if (device == "keyboard") players.keyboard = player;
             else if (device.rfind("gamepad", 0) == 0) players.gamepads[device.back() - '1'] = player;
             else if (device != "off") players.remotes[device] = player;
@@ -746,19 +1134,25 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         for (std::size_t pad = 0; pad < desktop.gamepad_profiles.size(); ++pad) {
             const auto& profile = launch.settings.PadProfileOf(pad);
             desktop.gamepad_profiles[pad] = {mscharged::platform::ParseGamepadBindings(profile.inputs),
-                                             profile.swap_sticks, launch.settings.PadProfileIndex(pad) < 0,
+                                             profile.sticks, profile.follows.has_value(),
                                              profile.inner_deadzone, profile.outer_deadzone, profile.trigger_press,
-                                             profile.octagon_stick, profile.gyro_pointer, profile.gyro_speed};
+                                             profile.octagon_stick, profile.gyro_pointer, profile.gyro_speed,
+                                             profile.follows.value_or(mscharged::GamepadLayout::Default)};
         }
         mscharged::platform::WpadSDLSettings wpad{static_cast<std::uint8_t>(launch.settings.sensor_bar=="top"?1:0),
             static_cast<std::uint8_t>(launch.settings.ir_sensitivity),true,launch.settings.rumble};
         wpad.speaker_volume=static_cast<std::uint8_t>((launch.settings.speaker_volume*127+50)/100);
         wpad.remote_speaker=launch.settings.speaker_volume>0;
+        const bool speakerAtStart=wpad.remote_speaker;
         // Original WPADControlSpeaker ON: 0x08 in the European game, 0x80 in the others.
         wpad.remote_speaker_reg01=release->code==mscharged::GameCode::Europe ? 0x08 : 0x80;
-        wpad.bluetooth_search=launch.settings.bluetooth_search;
+        wpad.bluetooth_search=launch.settings.bluetooth_search && !watcher;
         mscharged::platform::InitializeNativeHardwareInput(host.window,wpad,
             mscharged::platform::GetNativeSTMInput(), desktop, players);
+        if(spectating) {
+            mscharged::platform::SetNativeWpadWatchHold(true);
+            mscharged::platform::SessionLogLine("Controls: a replay plays; the game sees no player's input");
+        }
         {
             const auto& s=launch.settings;
             const std::string line="Wii Remote settings: sensor bar "+s.sensor_bar+", sensitivity "
@@ -769,7 +1163,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::SessionLogLine("Hotkeys: screenshot "+key(mscharged::HotkeyScreenshot)
                 +", HUD "+key(mscharged::HotkeyHud)+" (matches start with the HUD "+(s.show_hud ? "shown)" : "hidden)")
                 +", stretch "+key(mscharged::HotkeyStretch)+", 3D resolution "+key(mscharged::HotkeyResolutionUp)
-                +"/"+key(mscharged::HotkeyResolutionDown)+", fullscreen "+key(mscharged::HotkeyFullscreen));
+                +"/"+key(mscharged::HotkeyResolutionDown)+", fullscreen "+key(mscharged::HotkeyFullscreen)
+                +", game menu "+key(mscharged::HotkeyPanel)+" (and HOME), game options "
+                +key(mscharged::HotkeyOptions));
             for (const auto& device : s.players) {
                 if (device.rfind("gamepad", 0) != 0) continue;
                 const std::size_t pad = std::size_t(device.back() - '1');
@@ -780,7 +1176,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     + std::to_string(profile.outer_deadzone) + "%, trigger press point "
                     + std::to_string(profile.trigger_press) + "%, pointer "
                     + (profile.gyro_pointer ? "gyro (speed " + std::to_string(profile.gyro_speed) + "%)"
-                                            : std::string(profile.swap_sticks ? "left stick" : "right stick")));
+                                            : profile.sticks == mscharged::GamepadSticks::Split ? std::string("right stick")
+                                            : profile.sticks == mscharged::GamepadSticks::Swapped
+                                                ? std::string("left stick")
+                                                : std::string("left stick, with the Nunchuk stick")));
             }
         }
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
@@ -824,10 +1223,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // [gameplay] tweaks: the enabled set, before original main, with
         // the No HUD bit of [hotkeys] show_hud = false.
         {
-            const unsigned tweaks=launch.settings.GameTweakMask();
+            // A replay plays with the tweaks it was recorded with, the title
+            // passed at once (Skip intro).
+            const unsigned moduleTweaks=replayStream.empty() ? launch.settings.ModuleTweakMask()
+                : (replaySetup.tweaks&~kReplayViewerTweaks)|(launch.settings.ModuleTweakMask()&kReplayViewerTweaks)
+                    |mscharged::GameTweakBit(mscharged::GameTweak::SkipIntro);
+            const unsigned tweaks=replayStream.empty() ? launch.settings.GameTweakMask() : moduleTweaks;
             auto* configureTweaks=reinterpret_cast<void(*)(unsigned)>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_tweaks"));
-            if(configureTweaks) configureTweaks(launch.settings.ModuleTweakMask());
+            if(configureTweaks) configureTweaks(moduleTweaks);
             const auto line="Tweaks: "+(configureTweaks || !tweaks ? mscharged::DescribeGameTweaks(tweaks)
                 : "none (this build's game module has no tweaks)");
             mscharged::platform::SessionLogLine(line.c_str());
@@ -837,28 +1241,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_hd_recolour")))
                 configureRecolour(mscharged::TexturePackRecolourHook(reinterpret_cast<ChargedPresenceSnapshotFunction>(
                     mscharged::platform::FindNativeModuleSymbol(module,"charged_presence_snapshot"))));
-            // Training: the item of the team that trains, and Start training's match.
-            if(auto* configureTraining=reinterpret_cast<void(*)(int,bool,int,int)>(
-                   mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training"))) {
-                const auto& s=launch.settings;
-                const auto& item=mscharged::kTrainingItemKinds[std::size_t(
-                    std::max(mscharged::TrainingIndex(mscharged::kTrainingItems,s.training_item),0))];
-                configureTraining(item.type,
-                    launch.start_training,mscharged::TrainingIndex(mscharged::kTrainingCaptains,s.training_captain),
-                    mscharged::TrainingIndex(mscharged::kTrainingStadiums,s.training_stadium));
-                // And how many of it, and whether a single one is always giant.
-                if(auto* configureItem=reinterpret_cast<void(*)(int,bool)>(
-                       mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_item")))
-                    configureItem(item.count,item.giant);
-                if(auto* configureOpponent=reinterpret_cast<void(*)(int,int,bool,bool,int,bool)>(
-                       mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_opponent")))
-                    configureOpponent(mscharged::TrainingIndex(mscharged::kTrainingCaptains,s.training_away_captain),
-                        s.training_away_fielders,s.training_away_goalie,s.training_skip_goals,
-                        mscharged::TrainingIndex(mscharged::kTrainingSkills,s.training_away_skill),
-                        s.training_side=="away");
-                if(launch.start_training)
-                    mscharged::platform::SessionLogLine(("Start training: "+s.training_captain+" in "
-                        +s.training_stadium).c_str());
+            // Training: the item of the team that trains and its opponent.
+            ConfigureTraining(module,launch.settings);
+            // And its buttons' texts in the game (Strikers 101's FREE PLAY).
+            if(auto* configureTrainingTexts=reinterpret_cast<void(*)(const unsigned short*,const unsigned short*)>(
+                   mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_texts"))) {
+                const std::u16string freePlay=mscharged::platform::ScreenName(texts::T("menus.training.free_play"));
+                const std::u16string options=mscharged::platform::ScreenName(texts::T("menus.training.options"));
+                configureTrainingTexts(reinterpret_cast<const unsigned short*>(freePlay.c_str()),
+                                       reinterpret_cast<const unsigned short*>(options.c_str()));
             }
             // No HUD (issue #58): the HUD key shows or hides the match HUD, whatever show_hud says.
             mscharged::platform::SetHudKey(reinterpret_cast<void(*)()>(
@@ -962,9 +1353,203 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             configureRev1(true);
             mscharged::platform::SessionLogLine("Release data: revision 1 on the revision 2 game code");
         }
+        // Match replays (tweak patch 0071): every offline match is kept as a
+        // replay ([replays] record) in the replays folder beside the program,
+        // and --replay plays one back.
+        const auto replayTake=reinterpret_cast<ChargedTakeReplayFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_take_replay"));
+        const auto replayFinish=reinterpret_cast<ChargedFinishReplayFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_finish_replay"));
+        const auto replayStatus=reinterpret_cast<ChargedReplayStatusFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_replay_status"));
+        const auto replayFolder=mscharged::replay::ReplayFolder(executableDirectory);
+        // Online games' replays to the WFC server: streamed as they are played
+        // and sent after each game when it asks (online_replays.h), once the
+        // match reports run.
+        // RECHARGED_TEST_LIVE_BEHIND=<seconds> with --replay: the replay plays
+        // as a match watched live that far behind its stream, which grows as
+        // the match would (tests of catching up, without a server): its whole
+        // steps' ends every 100 ms of the match, as the players' games send.
+        struct {
+            double behind=-1.0;
+            std::vector<std::size_t> ends;
+            std::size_t first=0,fed=0;
+            std::chrono::steady_clock::time_point start{};
+            ChargedFeedLiveReplayFunction feed=nullptr;
+        } liveTest;
+        if(const char* value=std::getenv("RECHARGED_TEST_LIVE_BEHIND"); value && *value && !liveWatch) {
+            char* end=nullptr;
+            const double seconds=std::strtod(value,&end);
+            if(end!=value && seconds>=0.0 && seconds<3600.0) liveTest.behind=seconds;
+        }
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+        // Online games are recorded for the server whether or not this PC keeps
+        // replays: streamed while played, sent when the server asks.
+        bool recordingOnline=false;
+        std::unique_ptr<mscharged::platform::OnlineReplays> onlineReplays;
+#endif
         {
-            auto* configurePerformanceMode=reinterpret_cast<void(*)(bool)>(
-                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_performance_mode"));
+            const auto configureReplays=reinterpret_cast<ChargedConfigureReplaysFunction>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_replays"));
+            const bool record=launch.settings.replays_record && replayStream.empty() && configureReplays && replayTake;
+            if(configureReplays)configureReplays(record?1:0);
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+            const auto configureOnline=reinterpret_cast<ChargedConfigureReplaysFunction>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_online_replays"));
+            recordingOnline=replayStream.empty() && configureOnline && replayTake;
+            if(configureOnline)configureOnline(recordingOnline?1:0);
+#endif
+            std::string line="Replays: ";
+            if(liveWatch) {
+                // The stream so far, then the rest as the reader gets it.
+                const auto configureLive=reinterpret_cast<ChargedConfigureLiveReplayFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_live_replay"));
+                const auto feedLive=reinterpret_cast<ChargedFeedLiveReplayFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_feed_live_replay"));
+                constexpr unsigned kMostLiveStream=8u<<20; // the server's most for a game
+                Check(configureLive && feedLive && replayStatus
+                      && configureLive(replayStream.data(),unsigned(replayStream.size()),kMostLiveStream),
+                      "This build's game module cannot play this match live");
+                // The parts of cutscenes its players skip (a module without
+                // them plays every cutscene in full, then catches up).
+                const auto feedSkip=reinterpret_cast<ChargedFeedLiveSkipFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_feed_live_skip"));
+                liveWatch->Feed(feedLive,feedSkip);
+                sReplaySpeedSetter=reinterpret_cast<ChargedSetReplaySpeedFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_set_replay_speed"));
+                SDL_AddEventWatch(ReplaySpeedKeys,nullptr);
+                line+="watching a match live, none recorded";
+            } else if(!replayStream.empty() && liveTest.behind>=0.0) {
+                mscharged::replay::StreamReader reader;
+                std::string error;
+                Check(reader.Open(replayStream.data(),replayStream.size(),error),
+                      ("This replay cannot be played: "+error).c_str());
+                liveTest.ends.push_back(reader.Position());
+                while(reader.SkipWholeSteps(5)>0) liveTest.ends.push_back(reader.Position());
+                liveTest.first=liveTest.fed=std::min(liveTest.ends.size()-1,std::size_t(liveTest.behind*10.0));
+                const auto configureLive=reinterpret_cast<ChargedConfigureLiveReplayFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_live_replay"));
+                liveTest.feed=reinterpret_cast<ChargedFeedLiveReplayFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_feed_live_replay"));
+                Check(configureLive && liveTest.feed && replayStatus
+                      && configureLive(replayStream.data(),unsigned(liveTest.ends[liveTest.fed]),
+                                       unsigned(replayStream.size())),
+                      "This build's game module cannot play this match live");
+                if(liveTest.fed+1==liveTest.ends.size()) liveTest.feed(nullptr,0,1); // all of it at once
+                // Its players' skips, as the server would pass them on.
+                if(const auto feedSkip=reinterpret_cast<ChargedFeedLiveSkipFunction>(
+                       mscharged::platform::FindNativeModuleSymbol(module,"charged_feed_live_skip")))
+                    for(unsigned n=0;n<replaySetup.skip_count;++n)
+                        feedSkip(replaySetup.skips[n].section,replaySetup.skips[n].after);
+                liveTest.start=std::chrono::steady_clock::now();
+                sReplaySpeedSetter=reinterpret_cast<ChargedSetReplaySpeedFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_set_replay_speed"));
+                SDL_AddEventWatch(ReplaySpeedKeys,nullptr);
+                char text[96];
+                std::snprintf(text,sizeof text,"playing one as if live, %.1f s behind its stream, none recorded",
+                              double(liveTest.first)/10.0);
+                line+=text;
+            } else if(!replayStream.empty()) {
+                const auto configureReplay=reinterpret_cast<ChargedConfigureReplayFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_replay"));
+                Check(configureReplay && replayStatus
+                      && configureReplay(replayStream.data(),unsigned(replayStream.size())),
+                      "This build's game module cannot play this replay");
+                sReplaySpeedSetter=reinterpret_cast<ChargedSetReplaySpeedFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_set_replay_speed"));
+                SDL_AddEventWatch(ReplaySpeedKeys,nullptr);
+                line+="playing one, none recorded";
+            } else if(record) line+="recorded to "+mscharged::PathUtf8(replayFolder)
+                +(launch.settings.replays_keep ? " (the newest "+std::to_string(launch.settings.replays_keep)+" kept)" : "");
+            else line+=configureReplays ? "off" : "off (this build's game module records none)";
+            std::fprintf(stderr,"%s\n",line.c_str());
+        }
+        // A replay poses its characters on worker threads (tweak patch 0091):
+        // they help only replays, so only a program that plays one starts them.
+        // RECHARGED_PARALLEL_POSE=0 turns them off.
+        std::unique_ptr<mscharged::runtime::ParallelJobs> parallelJobs;
+        if(!replayStream.empty()) {
+            const auto configureJobs=reinterpret_cast<ChargedConfigureParallelJobsFunction>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_parallel_jobs"));
+            const char* setting=std::getenv("RECHARGED_PARALLEL_POSE");
+            const unsigned workers=mscharged::runtime::ParallelJobs::DefaultWorkers(std::thread::hardware_concurrency());
+            if(configureJobs && workers && !(setting && std::strcmp(setting,"0")==0)) {
+                parallelJobs=std::make_unique<mscharged::runtime::ParallelJobs>(workers);
+                configureJobs(parallelJobs->Table());
+                std::fprintf(stderr,"Replays: the characters are posed on %u more threads\n",workers);
+            }
+        }
+        // A finished recording to its file.
+        auto keepReplay=[&,gameId=std::string(release->game_id),revision=int(release->revision)](
+                            const std::vector<std::uint8_t>& stream) {
+            mscharged::replay::Setup setup;
+            std::string error;
+            std::string line="Replay: ";
+            if(!mscharged::replay::ReadSetup(stream.data(),stream.size(),setup,error))
+                line+="not kept ("+error+")";
+            else try {
+                mscharged::replay::FileInfo info;
+                info.build=mscharged::build::version;
+                info.game_id=gameId;
+                info.revision=revision;
+                info.created=std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+                mscharged::replay::Summarize(setup,info);
+                const auto bytes=mscharged::replay::EncodeFile(info,stream.data(),stream.size());
+                [[maybe_unused]] const bool online=setup.online && setup.series>0 && setup.series_game>0;
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+                // This PC keeps no replays: an online game goes to the server only.
+                if(!launch.settings.replays_record) {
+                    if(onlineReplays && online) {
+                        onlineReplays->Kept(std::uint64_t(setup.series),setup.series_game,bytes);
+                        line+="for the server only, none kept here ("+mscharged::replay::MatchLength(setup.steps)+", "
+                            +std::to_string(setup.score[0])+"-"+std::to_string(setup.score[1])+")";
+                    } else line+="not kept (Keep replays is off)";
+                    std::fprintf(stderr,"%s\n",line.c_str());
+                    return;
+                }
+#endif
+                const auto path=mscharged::replay::WriteReplay(replayFolder,
+                    mscharged::replay::ReplayFileName(info.created),bytes,error);
+                if(path.empty()) line+="not kept ("+error+")";
+                else {
+                    line+="kept "+mscharged::PathUtf8(path.filename())+" ("+mscharged::replay::MatchLength(setup.steps)
+                        +", "+std::to_string(setup.score[0])+"-"+std::to_string(setup.score[1])+", "
+                        +std::to_string((bytes.size()+1023)/1024)+" KB)";
+                    if(const int removed=mscharged::replay::PruneReplays(replayFolder,launch.settings.replays_keep))
+                        line+="; "+std::to_string(removed)+" older removed";
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+                    // An online game's: the server may ask for it.
+                    if(onlineReplays && online)
+                        onlineReplays->Kept(std::uint64_t(setup.series),setup.series_game,path);
+#endif
+                }
+            } catch(const std::exception& failure) {
+                line+=std::string("not kept (")+failure.what()+")";
+            }
+            std::fprintf(stderr,"%s\n",line.c_str());
+        };
+        auto takeReplays=[&] {
+            if(!replayTake)return;
+            for(int n=0;n<8;++n) {
+                const unsigned size=replayTake(nullptr,0);
+                if(!size)break;
+                std::vector<std::uint8_t> stream(size);
+                if(replayTake(stream.data(),size)!=size)break;
+                keepReplay(stream);
+            }
+        };
+        // The game closes during a match: what was recorded is kept.
+        std::function<void()> replayExit=[&] {
+            if(replayFinish)replayFinish();
+            takeReplays();
+        };
+        sReplayExit=&replayExit;
+        struct ReplayForPowerOff { ~ReplayForPowerOff() { sReplayExit=nullptr; sReplaySpeedSetter=nullptr; } } replayForPowerOff;
+        // Also switched in the menus' DISPLAY page (from the next match).
+        auto* configurePerformanceMode=reinterpret_cast<void(*)(bool)>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_performance_mode"));
+        {
             if(configurePerformanceMode)
                 configurePerformanceMode(launch.settings.performance_mode);
             const std::string line="Performance mode: "+std::string(launch.settings.performance_mode?"on":"off")
@@ -974,10 +1559,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             std::fprintf(stderr,"%s\n",line.c_str());
         }
         // [audio] sound levels: like the master volume a host setting,
-        // whatever the tweak set; the game module's hooks apply them.
+        // whatever the tweak set; the game module's hooks apply them (again
+        // as the overlay's Settings change them).
+        void(*configureSoundVolumes)(const int*,int)=nullptr;
         {
             const auto& volumes=launch.settings.sound_volumes;
-            auto* configureSoundVolumes=reinterpret_cast<void(*)(const int*,int)>(
+            configureSoundVolumes=reinterpret_cast<void(*)(const int*,int)>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_sound_volumes"));
             if(configureSoundVolumes)
                 configureSoundVolumes(volumes.data(),int(volumes.size()));
@@ -1005,21 +1592,38 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // display.frame_rate: above the original, Aurora
         // presents each frame as the game swaps and paces the next; VI retraces
         // keep their real rate for everything that counts them.
+        // display.background_throttle: in play, at most
+        // display.background_frame_rate while the window is minimized or,
+        // outside Steam's Game Mode, another window has the focus; the
+        // original's rate included.
+        // The menus' DISPLAY page changes them while the game runs (pacePlay).
         std::optional<mscharged::runtime::HostFramePacing> framePacing;
+        auto* configurePacing=reinterpret_cast<void(*)(void(*)())>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_frame_pacing"));
+        // The background rate the settings ask for, 0 for none.
+        const auto backgroundRateOf=[interactive](const mscharged::Settings& settings,mscharged::FrameRate rate) {
+            int backgroundHz=interactive && settings.background_throttle ? settings.background_frame_rate : 0;
+            // 60 FPS holds nothing at the original rate.
+            if(rate.kind==mscharged::FrameRate::Kind::Original
+               && mscharged::BackgroundFrameRate(rate,backgroundHz,0.0)==rate) backgroundHz=0;
+            return backgroundHz;
+        };
         {
             const auto rate=mscharged::ParseFrameRate(launch.settings.frame_rate).value_or(mscharged::FrameRate{});
-            auto* configurePacing=reinterpret_cast<void(*)(void(*)())>(
-                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_frame_pacing"));
+            const int backgroundHz=backgroundRateOf(launch.settings,rate);
             std::string line="Frame rate: ";
-            if(rate.kind==mscharged::FrameRate::Kind::Original)
+            if(!configurePacing || !nativeSend)
+                line+=rate.kind==mscharged::FrameRate::Kind::Original ? mscharged::DescribeFramePacing(rate,{},0.0)
+                    : "original (this build's game module has no frame pacing)";
+            else if(rate.kind==mscharged::FrameRate::Kind::Original && !backgroundHz)
                 line+=mscharged::DescribeFramePacing(rate,{},0.0);
-            else if(!configurePacing || !nativeSend)
-                line+="original (this build's game module has no frame pacing)";
             else {
-                framePacing.emplace(rate,launch.settings.vsync,host.window);
-                configurePacing(aurora_paced_video_swap);
+                framePacing.emplace(rate,launch.settings.vsync,host.window,configurePacing,backgroundHz,
+                    !mscharged::UnderGamescope());
                 line+=framePacing->Description();
             }
+            if(framePacing && backgroundHz)
+                line+="; "+std::to_string(backgroundHz)+" FPS at most in the background";
             mscharged::platform::SessionLogLine(line);
             std::fprintf(stderr,"%s\n",line.c_str());
         }
@@ -1028,15 +1632,32 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // A host setting like the sound levels, whatever the tweak set.
         auto presenceSnapshot=reinterpret_cast<ChargedPresenceSnapshotFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_presence_snapshot"));
+        // Override retail menus (development switch): the match's pause menu,
+        // read after a frame for the host's own drawing of it.
+        auto menuSnapshot=reinterpret_cast<ChargedMenuSnapshotFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_menu_snapshot"));
+        auto menuTexture=reinterpret_cast<ChargedMenuTextureFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_menu_texture"));
+        auto menuTextureObjects=reinterpret_cast<ChargedMenuTextureObjectsFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_menu_texture_objects"));
+        auto menuCommand=reinterpret_cast<ChargedMenuCommandFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_menu_command"));
         std::optional<mscharged::platform::DiscordPresence> discordPresence;
         std::optional<mscharged::platform::GamePresence> gamePresence;
-        {
-            const bool ownApplication=!launch.settings.discord_application_id.empty();
-            const std::string application=ownApplication ? launch.settings.discord_application_id
-                : std::string(mscharged::build::discord_application_id);
+        const bool discordOwnApplication=!launch.settings.discord_application_id.empty();
+        const std::string discordApplication=discordOwnApplication ? launch.settings.discord_application_id
+            : std::string(mscharged::build::discord_application_id);
+        // Started here and again when the menus' ADVANCED page switches it on.
+        auto startDiscord=[&] {
+            const bool ownApplication=discordOwnApplication;
+            const std::string& application=discordApplication;
             std::string line="Discord status: ";
             if(!launch.settings.discord_status)
                 line+="off";
+            else if(watcher)
+                line+="off (the game that runs from this folder shows it)";
+            else if(spectating)
+                line+="off (a replay plays)";
             else if(application.empty())
                 line+="off (this build has no Discord application)";
             else if(!presenceSnapshot)
@@ -1061,20 +1682,27 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             }
             mscharged::platform::SessionLogLine(line);
             std::fprintf(stderr,"%s\n",line.c_str());
-        }
+        };
+        startDiscord();
         // Enforced updates: a release plays online only while it is the newest
         // release (launcher/online_gate.h). The gate tells the module its
         // verdict; the main menu's Online asks the module (tweak patch 0054).
+        // The host keeps it too (OnlineGateState's numbers): its online pages
+        // and challenge prompts start nothing online while it is closed.
+        std::atomic<int> onlineGateState{0};
         std::unique_ptr<mscharged::launcher::OnlineGate> onlineGate;
-        if(auto* configureOnlineGate=reinterpret_cast<void(*)(int)>(
+        if(auto* configureOnlineGate=spectating ? nullptr : reinterpret_cast<void(*)(int)>(
                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_online_gate")))
             onlineGate=std::make_unique<mscharged::launcher::OnlineGate>(mscharged::launcher::CurrentBuild(),
                 executableDirectory,launch.update_verified,
-                [configureOnlineGate](mscharged::launcher::OnlineGateState state,const std::string& line) {
+                [configureOnlineGate,&onlineGateState](mscharged::launcher::OnlineGateState state,
+                                                       const std::string& line) {
+                    onlineGateState.store(static_cast<int>(state));
                     configureOnlineGate(static_cast<int>(state));
                     mscharged::platform::SessionLogLine(line);
                     std::fprintf(stderr,"%s\n",line.c_str());
                 });
+        if(spectating) mscharged::platform::SessionLogLine("Online: off (a replay plays)");
 #ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
         // The WFC server's match reports: the online series this computer
         // plays, and the error codes its online menus show, go to the server
@@ -1087,6 +1715,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             const std::string http=mscharged::platform::HttpUnavailable();
             if(launch.settings.online_server.empty())
                 line+="off (no online server)";
+            else if(spectating)
+                line+="off (a replay plays)";
             else if(!onlineMatchSnapshot)
                 line+="off (this build's game module records no online matches)";
             else if(!http.empty())
@@ -1107,6 +1737,29 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         auto desyncDossier=reinterpret_cast<ChargedDesyncDossierFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_desync_dossier"));
         if(onlineReports&&desyncDossier)onlineReports->KeepDossiers(dataDirectory/"desyncs");
+        // Recorded matches go to the server too: the reports say this game
+        // sends their replays when asked, and its online games stream as they
+        // are played while the server takes them.
+        const auto nameOnlineSeries=reinterpret_cast<ChargedNameOnlineSeriesFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_name_online_series"));
+        if(onlineReports && recordingOnline && nameOnlineSeries) {
+            const auto configureLive=reinterpret_cast<ChargedConfigureLiveFunction>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_live"));
+            const auto takeLive=reinterpret_cast<ChargedTakeLiveFunction>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_take_live"));
+            const bool live=configureLive && takeLive;
+            if(live)configureLive(1);
+            onlineReports->SetReplays(true);
+            onlineReplays=std::make_unique<mscharged::platform::OnlineReplays>(launch.settings.online_server,
+                onlineReports->ReplayAnswers(),live ? takeLive : nullptr,[](const std::string& text) {
+                    mscharged::platform::SessionLogLine(text);
+                    std::fprintf(stderr,"%s\n",text.c_str());
+                });
+            const std::string line=std::string("Online replays: sent when the server asks")
+                +(live ? ", streamed while played" : "");
+            mscharged::platform::SessionLogLine(line);
+            std::fprintf(stderr,"%s\n",line.c_str());
+        }
 #endif
         if(axModuleMemory)axModuleMemory->ConfirmLoaded(module);
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
@@ -1171,6 +1824,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             // The opt-in frame timing log completes before the process ends.
             removal.before_removal=[](void*){
                 mscharged::platform::StopFreezeWatch();
+                if(sReplayExit && *sReplayExit)(*sReplayExit)();
+                // The last calls get a few seconds; a stuck one doesn't hold the close.
+                if(sCompetitive && *sCompetitive && !(*sCompetitive)->StopForExit(std::chrono::seconds(1)))
+                    mscharged::platform::SessionLogLine("Competitive: the game closes without waiting for the server");
                 mscharged::runtime::FrameTimingLog::FinishForProcessExit();
                 mscharged::runtime::LogGraphicsPipelineStats();
                 // The power-off path ends with TerminateProcessNow: hand the last lines to the log and console.
@@ -1260,6 +1917,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         };
         // Once a second, after a game frame: the game's state for the Discord status.
         std::chrono::steady_clock::time_point lastPresence{};
+        std::optional<mscharged::platform::SetText> presenceSet; // a set's game: its opponent and games
         auto observePresence = [&] {
             if(!discordPresence)return;
             const auto now=std::chrono::steady_clock::now();
@@ -1269,7 +1927,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!presenceSnapshot(&snapshot,sizeof snapshot))return;
             const auto unixNow=std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
-            discordPresence->Show(gamePresence->Describe(snapshot,unixNow));
+            discordPresence->Show(gamePresence->Describe(snapshot,unixNow,presenceSet ? &*presenceSet : nullptr));
         };
         // Once a second, after a game frame: the online series for the match reports.
 #ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
@@ -1293,6 +1951,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             lastOnlineMatch=now;
             ChargedOnlineMatchSnapshot snapshot{};
             if(onlineMatchSnapshot(&snapshot,sizeof snapshot))onlineReports->Observe(snapshot);
+            // The recordings of a series' games name it as the reports do.
+            if(onlineReplays && nameOnlineSeries && onlineReports->LastModuleSeries())
+                nameOnlineSeries(onlineReports->LastModuleSeries(),onlineReports->LastSeriesNumber());
 #endif
         };
         // Existing actual source GX/state/material/font/view initialization is
@@ -1308,6 +1969,23 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // The host overlay: the performance overlay (display.fps_overlay) and
         // the messages of the display hotkeys.
         std::optional<mscharged::runtime::HostOverlay> hostOverlay;
+        if(nativeSend) {
+            // Recharged's own texts in the player's language ([interface]
+            // language), their characters noted for the fonts.
+            const auto language=mscharged::texts::Load(executableDirectory/"assets"/"lang",
+                launch.settings.interface_language,mscharged::platform::PcLanguages());
+            mscharged::platform::NoteNameGlyphs(mscharged::texts::AllTexts());
+            mscharged::platform::SessionLogLine("Interface language: "+language);
+            // The window's title says what this run plays after the port's
+            // name and build: a replay (a file, or a game the server keeps) or
+            // a match watched live.
+            const char* kind=watching
+                ? (watchTicket.game>0 ? mscharged::texts::T("common.window.replay")
+                                      : mscharged::texts::T("common.window.spectator"))
+                : !launch.replay_path.empty() ? mscharged::texts::T("common.window.replay") : nullptr;
+            if(kind && !SDL_SetWindowTitle(host.window,(windowTitle+" - "+kind).c_str()))
+                mscharged::platform::SessionLogLine(std::string("Window title: ")+SDL_GetError());
+        }
         if(nativeSend)
             hostOverlay.emplace(executableDirectory/"assets"/"launcher"/"Roboto-Medium.ttf",
                 launch.settings.fps_overlay ? std::optional(mscharged::runtime::ParseOverlayCorner(
@@ -1316,7 +1994,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // display.remember_window: not in Steam's Game Mode, for a window size
         // from the command line or without a settings file.
         std::optional<mscharged::runtime::WindowMemory> windowMemory;
-        if(nativeSend && interactive && !resizeCheck && launch.settings.remember_window && launch.config.exists
+        if(nativeSend && interactive && !resizeCheck && !watcher && launch.settings.remember_window && launch.config.exists
            && launch.width_source!=mscharged::SettingSource::CommandLine && !mscharged::UnderGamescope())
             windowMemory.emplace(host.window,launch.config.path);
         // The 3D resolution the hotkeys step from, for this run.
@@ -1327,6 +2005,461 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         auto netplaySnapshot=reinterpret_cast<ChargedNetplaySnapshotFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_netplay_snapshot"));
         std::chrono::steady_clock::time_point lastNetplay{};
+        // Competitive play: with the launcher's session for these settings, the
+        // game's WFC login goes to the profile service, the accepted match's
+        // rules to the module, and its series' result back to the server.
+        auto wfcSnapshot=reinterpret_cast<ChargedWfcSnapshotFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_wfc_snapshot"));
+        auto configureCompetitive=reinterpret_cast<ChargedConfigureCompetitiveFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_competitive"));
+        std::unique_ptr<mscharged::platform::CompetitiveHost> competitive;
+        sCompetitive=&competitive;
+        struct CompetitiveForPowerOff { ~CompetitiveForPowerOff() { sCompetitive=nullptr; } } competitiveForPowerOff;
+        {
+            std::string off;
+            if(watcher)
+                off="watching beside the game that runs from this folder";
+            else if(spectating)
+                off="a replay plays";
+            else if(wfcSnapshot && configureCompetitive)
+                competitive=mscharged::platform::CompetitiveHost::Start(launch.settings.profile_server,
+                    mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
+                    [](const std::string& text) {
+                        // On the console and in the log, with the time (at log level
+                        // debug the log gives every line its time).
+                        const std::string time=mscharged::platform::SessionLogTimes() ? std::string()
+                            : mscharged::platform::LogTimeStamp();
+                        std::fprintf(stderr,"%s%s\n",time.c_str(),text.c_str());
+                    },&off);
+            else off="this build's game module has no competitive play";
+            const auto line=competitive ? "Competitive: on, signed in as "+competitive->PlayerName()
+                : "Competitive: off ("+off+")";
+            std::fprintf(stderr,"%s\n",line.c_str());
+        }
+        // A set's game (the launcher's Ready to play!, or a set that went
+        // while this game runs): it starts itself into the set's RANKED search
+        // with the player's own Mii, and stays open once the set is done.
+        auto configureStart=reinterpret_cast<ChargedConfigureCompetitiveStartFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_competitive_start"));
+        auto endSet=reinterpret_cast<ChargedCompetitiveEndSetFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_competitive_end_set"));
+        // A rematch asked: the game waits for its answer in the main menu.
+        auto leaveOnline=reinterpret_cast<ChargedCompetitiveLeaveOnlineFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_competitive_leave_online"));
+        // The Recharged Game Menu's Play RANKED: the game goes by itself into a
+        // retail RANKED search against anybody, as a set's game into its set's.
+        auto startRanked=reinterpret_cast<ChargedStartRankedFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_start_ranked"));
+        auto stopRanked=reinterpret_cast<ChargedStopRankedFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_stop_ranked"));
+        int rankedStage=CHARGED_SET_NONE;
+        std::chrono::steady_clock::time_point rankedChecked{}, rankedSince{}, rankedReminded{};
+        // The set's players by their profile names on its RANKED screens (the
+        // game shows Mii names): this player's and the opponent's, given while
+        // the game plays a set (the module drops them at its end).
+        auto configureNames=reinterpret_cast<ChargedConfigureDisplayNamesFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_display_names"));
+        std::optional<std::pair<std::u16string,std::u16string>> namesGiven;
+        // A tournament's last game ends with its trophy's ceremony (tweak
+        // patch 0076), given for each game of a set that may end it.
+        auto configureTrophy=reinterpret_cast<ChargedConfigureTournamentTrophyFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_tournament_trophy"));
+        // A tournament set's players take the home side in turn (tweak patch 0079).
+        auto configureSetSide=reinterpret_cast<ChargedConfigureSetSideFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_set_side"));
+        // A tournament set's game that goes on from one that broke off
+        // (tweak patch 0080).
+        auto configureSetResume=reinterpret_cast<ChargedConfigureSetResumeFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_set_resume"));
+        // At debug level DWC's own reports of the WFC login, matchmaking and
+        // NAT negotiation, which the game switches off, go to the log.
+        if(launch.settings.log_level=="debug")
+            if(auto dwcReport=reinterpret_cast<ChargedConfigureDwcReportFunction>(
+                   mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_dwc_report")))
+                dwcReport(true);
+        if(launch.start_competitive) {
+            if(competitive && configureStart
+               && configureStart(launch.competitive_mii.data(),unsigned(launch.competitive_mii.size())))
+                competitive->PlaySet(launch.competitive_set);
+            else {
+                const std::string line="Competitive: set "+std::to_string(launch.competitive_set)
+                    +" cannot start ("+(competitive ? "this build's game module has no sets" : "competitive play is off")+")";
+                std::fprintf(stderr,"%s\n",line.c_str());
+            }
+        }
+        std::chrono::steady_clock::time_point lastCompetitive{};
+        // While the game is in its menus: which keys open the online panel, in
+        // the top-left corner (set with the overlay; none without it).
+        std::optional<mscharged::runtime::HostOverlay::Hint> panelHint;
+        std::chrono::steady_clock::time_point panelHintChecked{};
+#if defined(__SWITCH__)
+        std::chrono::steady_clock::time_point loadingChecked{};
+#endif
+        // The set this game played last, for the card that offers it again.
+        std::optional<mscharged::platform::CompetitiveHost::SetEnd> afterSet;
+        // The last set this game played with a result (not a tournament's):
+        // QUICK PLAY's REMATCH <name>, for the rest of the run.
+        std::optional<mscharged::platform::CompetitiveHost::SetEnd> sessionSet;
+        // A set started in this game that waits for the main menu or the
+        // online menu (the player is somewhere else in the menus).
+        bool setStartedHere=false;
+        std::chrono::steady_clock::time_point setWaiting{}, setReminded{};
+        // The players' buttons are held while a card asks something or the
+        // set's game passes its menus unseen.
+        bool walkHold=false;
+        // Recharged's menus all close (a set going on into the game; set once
+        // they exist).
+        std::function<void()> closeMenus;
+        // A set of the profile server's tournament READY asked for: it goes on
+        // from the trophy room (true when `match` is that set's), and back
+        // there its page comes again (set once the menus exist).
+        std::function<bool(std::int64_t match)> tournamentSetStarts;
+        std::function<bool(std::int64_t match,bool over)> tournamentSetEnds;
+        // The set on its way is a tournament's (one game a match): its
+        // forfeit gives that game up.
+        bool tournamentSetOn=false;
+        auto holdButtons = [&] { mscharged::platform::SetNativeWpadHold(walkHold); };
+        std::optional<mscharged::platform::AlertSound> challengeSound;
+        // A challenge's chime at the master volume (not when muted), and the
+        // window flashes while it is in the background.
+        auto alert = [&] {
+            if(!launch.settings.mute) {
+                if(!challengeSound) challengeSound.emplace();
+                challengeSound->Play(float(launch.settings.master_volume)/100.0f);
+            }
+#if !defined(__SWITCH__) // no window to flash on the Switch
+            if(host.window && !(SDL_GetWindowFlags(host.window)&SDL_WINDOW_INPUT_FOCUS))
+                SDL_FlashWindow(host.window,SDL_FLASH_UNTIL_FOCUSED);
+#endif
+        };
+        auto observeCompetitive = [&] {
+            if(!competitive)return;
+            const auto now=std::chrono::steady_clock::now();
+            if(now-lastCompetitive<std::chrono::seconds(1))return;
+            lastCompetitive=now;
+            ChargedWfcSnapshot wfc{};
+            if(!wfcSnapshot(&wfc,sizeof wfc))return;
+            ChargedPresenceSnapshot game{};
+            const bool known=presenceSnapshot && presenceSnapshot(&game,sizeof game);
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+            // How the online series' games ended: one that broke off is
+            // reported with its score then.
+            if(onlineMatchSnapshot) {
+                ChargedOnlineMatchSnapshot online{};
+                if(onlineMatchSnapshot(&online,sizeof online)) competitive->ObserveOnline(online);
+            }
+#endif
+            std::optional<ChargedCompetitiveRules> rules;
+            if(competitive->Observe(wfc,known ? &game : nullptr,rules))
+                configureCompetitive(rules ? &*rules : nullptr,sizeof(ChargedCompetitiveRules));
+            const auto set=competitive->CurrentSet();
+            if(set) presenceSet=mscharged::platform::SetText{set->opponent,set->won,set->lost,set->games};
+            else presenceSet.reset();
+            if(configureNames) {
+                std::optional<std::pair<std::u16string,std::u16string>> names;
+                if(set) names.emplace(mscharged::platform::ScreenName(competitive->PlayerName()),
+                    mscharged::platform::ScreenName(set->opponent));
+                if(names!=namesGiven) {
+                    const auto units=[](const std::u16string& name) {
+                        return name.empty() ? nullptr : reinterpret_cast<const unsigned short*>(name.c_str());
+                    };
+                    if(names) configureNames(units(names->first),units(names->second));
+                    else configureNames(nullptr,nullptr);
+                    namesGiven=std::move(names);
+                }
+            }
+            // A set that went while this game is in its menus: it goes on into
+            // RANKED from the main menu or the online menu, without closing.
+            if(const auto start=competitive->TakeSetStart()) {
+                if(configureStart
+                   && configureStart(launch.competitive_mii.data(),unsigned(launch.competitive_mii.size()))) {
+                    competitive->PlaySet(start->match);
+                    afterSet.reset();
+                    setStartedHere=true;
+                    alert();
+                    // The menus it was challenged or accepted from close: the
+                    // game goes on into the set (a tournament's from the
+                    // trophy room, which stays).
+                    if(!(tournamentSetStarts && tournamentSetStarts(start->match)) && closeMenus) closeMenus();
+                    if(hostOverlay)
+                        hostOverlay->ShowMessage(texts::T("menus.messages.set_start",{{"name",start->opponent}}),now);
+                } else mscharged::platform::SessionLogLine("Competitive: set "+std::to_string(start->match)
+                    +" cannot start here (this build's game module has no sets)");
+            }
+            // The set's game is done: it stays open, and the card offers the
+            // set again.
+            if(auto end=competitive->TakeSetEnd()) {
+                if(endSet) endSet();
+                namesGiven.reset();
+                setStartedHere=false;
+                using How=mscharged::platform::CompetitiveHost::SetEnd::How;
+                const std::string opponent=end->opponent.empty()
+                    ? std::string(texts::T("menus.messages.unnamed_opponent")) : end->opponent;
+                // Without a game played it has no result, and a stopped set the
+                // server no longer keeps cannot be played again: only a message.
+                // Only a set with a result (played out or forfeited) has a
+                // rematch: one a player left is over, with a message.
+                // A tournament's set: no rematch, its page says what comes next.
+                const bool result=end->how==How::Over || end->how==How::Forfeited || end->how==How::OpponentForfeited;
+                const bool tournamentSet=tournamentSetEnds && tournamentSetEnds(end->match,result);
+                if(result && !tournamentSet) sessionSet=*end;
+                if(tournamentSet) {
+                } else if(end->how==How::Replaced) {
+                    // A second Recharged of the player's took the set: this game has no part in it.
+                    if(hostOverlay)
+                        hostOverlay->ShowMessage(texts::T("menus.messages.set_replaced",{{"name",opponent}}),now);
+                } else if(end->how==How::NoResult) {
+                    if(hostOverlay)
+                        hostOverlay->ShowMessage(texts::T("menus.messages.set_no_result",{{"name",opponent}}),now);
+                } else if(end->how==How::Left || end->how==How::OpponentLeft || end->how==How::OpponentGone) {
+                    // The opponent's Back, launcher or closed game: a line from
+                    // the dressing room.
+                    const std::string gone[]={
+                        texts::T("menus.set_end.gone_tears",{{"name",opponent}}),
+                        texts::T("menus.set_end.gone_crying",{{"name",opponent}}),
+                        texts::T("menus.set_end.gone_home",{{"name",opponent}}),
+                        texts::T("menus.set_end.gone_lineup",{{"name",opponent}}),
+                        texts::T("menus.set_end.gone_kritters",{{"name",opponent}})};
+                    if(hostOverlay)
+                        hostOverlay->ShowMessage(end->how==How::Left
+                            ? texts::T("menus.set_end.you_left_title",{{"name",opponent}})
+                            : gone[std::uint64_t(end->match)%std::size(gone)],now);
+                } else if(end->how!=How::Over && end->how!=How::Forfeited && end->how!=How::OpponentForfeited
+                          && !end->can_play_again) {
+                    if(hostOverlay)
+                        hostOverlay->ShowMessage(texts::T("menus.messages.set_stopped",{{"name",opponent}}),now);
+                } else afterSet=std::move(end);
+            }
+            // The set's game passes its menus unseen: nobody steps into them.
+            if(walkHold!=(wfc.set_unseen!=0)) {
+                walkHold=wfc.set_unseen!=0;
+                holdButtons();
+            }
+            // Started here and not on its way yet: say where it goes on from
+            // (not during a match).
+            if(setStartedHere && wfc.set_stage==CHARGED_SET_BOOT && !competitive->InMatch()) {
+                if(setWaiting==std::chrono::steady_clock::time_point{}) setWaiting=now;
+                else if(hostOverlay && now-setWaiting>=std::chrono::seconds(6)
+                        && now-setReminded>=std::chrono::seconds(15)) {
+                    setReminded=now;
+                    hostOverlay->ShowMessage(texts::T("menus.messages.set_waits"),now);
+                }
+            } else setWaiting={};
+        };
+        // Play RANKED's way there: the buttons are held while the game passes
+        // its menus unseen, and the player hears where it goes on from.
+        auto observeRanked = [&] {
+            if(!startRanked || !wfcSnapshot)return;
+            const auto now=std::chrono::steady_clock::now();
+            if(now-rankedChecked<std::chrono::milliseconds(250))return;
+            rankedChecked=now;
+            ChargedWfcSnapshot wfc{};
+            if(!wfcSnapshot(&wfc,sizeof wfc))return;
+            if(wfc.ranked_stage!=rankedStage) {
+                if(rankedStage!=CHARGED_SET_NONE && wfc.ranked_stage==CHARGED_SET_NONE)
+                    mscharged::platform::SessionLogLine("Ranked: the game is in RANKED (or the way there stopped)");
+                rankedStage=wfc.ranked_stage;
+                rankedSince=now;
+            }
+            if(walkHold!=(wfc.set_unseen!=0)) {
+                walkHold=wfc.set_unseen!=0;
+                holdButtons();
+            }
+            if(rankedStage==CHARGED_SET_BOOT && hostOverlay && now-rankedSince>=std::chrono::seconds(6)
+               && now-rankedReminded>=std::chrono::seconds(15)) {
+                rankedReminded=now;
+                hostOverlay->ShowMessage(texts::T("menus.messages.ranked_waits"),now);
+            }
+        };
+        // A question over everything (the menus' prompt page): a challenge
+        // (accept, and the set starts in this game; or decline), or after a set
+        // the same set again (a rematch, or Ready to play! again for one that
+        // stopped; or not now).
+        enum class CardKind { None, Challenge, AfterSet };
+        CardKind cardKind=CardKind::None;
+        std::int64_t cardMatch=0;
+        // What it asks, and the answer (1 its first button, 2 the second, 0
+        // none yet).
+        struct CardPrompt {
+            enum class Kind { Challenge, Rematch, SetOver, SetStopped } kind=Kind::Challenge;
+            bool shown=false;
+            int answer=0;
+            std::string opponent, rules, reason;
+            std::string title;  // a stopped set's own title, or empty
+            std::string kicker; // a stopped set's own kicker, or empty
+            std::string primary, note; // a stopped set's first button and its note, or empty
+            std::string avatar; // the opponent's Discord picture (URL), or empty
+            std::string mii;    // their Mii's record (base64), or empty
+            bool random=false;  // a search for a random opponent asks the player
+            bool hasScore=false;
+            int won=0, lost=0, games=0;
+            // Whose turn the set is, or its rematch would be: 1 the player's,
+            // 0 the opponent's, -1 not said; `pick`: the first answer picks the
+            // stadium (a rematch that is the player's turn), `stadium` so far.
+            int turn=-1;
+            bool pick=false;
+            std::string stadium;
+        } cardPrompt;
+        // Counts the prompts asked: the menus get a new one only when it changes.
+        int cardPromptVersion=0;
+        // A rematch the player asks for on the card after a set: the game
+        // leaves the online menus for the main menu and waits there; the box
+        // in the corner says for whom and how long
+        // (CompetitiveHost::PendingRequest), the end comes as a message.
+        auto askRematch=[&](std::int64_t match,const std::string& stadium,const std::string& opponent) {
+            competitive->PlayAgain(match,true,stadium,opponent);
+            if(leaveOnline) leaveOnline();
+        };
+        // What the player waits for, as the box and QUICK PLAY say it: a
+        // small title, and for whom and how long (a search: since when).
+        struct RequestWords { std::string title, text; };
+        auto describeRequest=[&](const mscharged::platform::CompetitiveHost::PendingAsk& asked,
+                                 std::chrono::steady_clock::time_point now) {
+            using Kind=mscharged::platform::CompetitiveHost::RequestKind;
+            namespace texts=mscharged::texts;
+            if(asked.kind==Kind::Search) {
+                const long long seconds=std::max<long long>(0,
+                    std::chrono::floor<std::chrono::seconds>(now-asked.since).count());
+                const std::string time=std::to_string(seconds/60)+(seconds%60<10 ? ":0" : ":")
+                    +std::to_string(seconds%60);
+                return RequestWords{texts::T("menus.status.search_title"),
+                                    texts::T("menus.status.search_running",{{"time",time}})};
+            }
+            const std::string name=asked.opponent.empty()
+                ? std::string(texts::T("menus.messages.unnamed_opponent")) : asked.opponent;
+            const std::string left=std::to_string(std::max<long long>(0,
+                std::chrono::ceil<std::chrono::seconds>(asked.deadline-now).count()));
+            return asked.kind==Kind::Challenge
+                ? RequestWords{texts::T("menus.status.challenge_title"),
+                               texts::T("menus.status.challenge_waiting",{{"name",name},{"seconds",left}})}
+                : RequestWords{texts::T("menus.status.rematch_title"),
+                               texts::T("menus.status.rematch_waiting",{{"name",name},{"seconds",left}})};
+        };
+        std::chrono::steady_clock::time_point rematchShown{};
+        // RECHARGED_CAPTURE_ONLINE=request's box: since when, and cancelled.
+        std::chrono::steady_clock::time_point sampleRequestSince{};
+        bool sampleRequestCancelled=false;
+        // Online play waits for an update (the gate above): a prompt's answer
+        // that would start a set (accept, rematch, play again) is not offered.
+        auto onlineLocked=[&] {
+            return onlineGateState.load()!=static_cast<int>(mscharged::launcher::OnlineGateState::Open);
+        };
+        auto serviceChallengeCard = [&](std::chrono::steady_clock::time_point now) {
+            if(!competitive || !hostOverlay)return;
+            if(const auto notice=competitive->TakeNotice()) hostOverlay->ShowMessage(*notice,now);
+            const auto invitation=competitive->PendingInvitation();
+            CardKind kind=CardKind::None;
+            std::int64_t match=0;
+            if(invitation) {
+                // A challenge (their rematch, too) takes the place of the
+                // card that offers the last set again.
+                kind=CardKind::Challenge;
+                match=invitation->match;
+                afterSet.reset();
+            } else if(afterSet && !competitive->InMatch()) {
+                // The last set again, once back in the menus.
+                kind=CardKind::AfterSet;
+                match=afterSet->match;
+            }
+            if(kind!=cardKind || match!=cardMatch) {
+                // The stadium the player was picking for the rematch, which
+                // the opponent's rematch (their invitation) takes over.
+                const std::string picking=cardKind==CardKind::AfterSet && cardPrompt.pick ? cardPrompt.stadium
+                    : std::string();
+                cardKind=kind;
+                cardMatch=match;
+                cardPrompt=CardPrompt{};
+                cardPrompt.shown=kind!=CardKind::None;
+                ++cardPromptVersion;
+                if(kind==CardKind::Challenge) {
+                    cardPrompt.kind=invitation->rematch ? CardPrompt::Kind::Rematch : CardPrompt::Kind::Challenge;
+                    cardPrompt.random=invitation->random;
+                    cardPrompt.opponent=invitation->from;
+                    cardPrompt.avatar=invitation->avatar;
+                    cardPrompt.mii=invitation->mii;
+                    cardPrompt.rules=invitation->rules;
+                    cardPrompt.turn=invitation->turn;
+                    cardPrompt.pick=invitation->rematch && invitation->turn==1;
+                    cardPrompt.stadium=cardPrompt.pick && !picking.empty() ? picking : invitation->stadium;
+                    mscharged::platform::SessionLogLine("Competitive: "+invitation->from
+                        +(invitation->rematch ? " wants a rematch" : " challenges you")
+                        +" (match "+std::to_string(match)+")");
+                    alert();
+                } else if(kind==CardKind::AfterSet) {
+                    using How=mscharged::platform::CompetitiveHost::SetEnd::How;
+                    const auto& end=*afterSet;
+                    const std::string opponent=end.opponent.empty()
+                        ? std::string(texts::T("menus.messages.unnamed_opponent")) : end.opponent;
+                    namespace texts=mscharged::texts;
+                    // A set with a result: its rematch is the other player's turn.
+                    if(end.how==How::Over || end.how==How::Forfeited || end.how==How::OpponentForfeited) {
+                        cardPrompt.turn=end.rematch_turn;
+                        cardPrompt.pick=end.rematch_turn==1;
+                        cardPrompt.stadium=end.stadium;
+                    }
+                    if(end.how==How::Over) {
+                        cardPrompt.kind=CardPrompt::Kind::SetOver;
+                    } else if(end.how==How::Forfeited || end.how==How::OpponentForfeited) {
+                        // A set given up in its match: over, for the one who stayed.
+                        const bool mine=end.how==How::Forfeited;
+                        cardPrompt.kind=CardPrompt::Kind::SetStopped;
+                        if(!mine) cardPrompt.kicker=texts::T("menus.set_end.opponent_forfeited_kicker");
+                        cardPrompt.title=mine ? texts::T("menus.set_end.forfeited_title",{{"name",opponent}})
+                            : texts::T("menus.set_end.opponent_forfeited_title",{{"name",opponent}});
+                        cardPrompt.reason=mine ? std::string(texts::T("menus.set_end.forfeited_reason"))
+                            : texts::T("menus.set_end.opponent_forfeited_reason",{{"name",opponent}});
+                        cardPrompt.primary=texts::T("menus.set_end.rematch");
+                        cardPrompt.note=texts::T("menus.set_end.rematch_note",{{"name",opponent}});
+                    } else {
+                        // A set that stopped before its games met and that the
+                        // server keeps: it waits, and Not now calls it off.
+                        cardPrompt.kind=CardPrompt::Kind::SetStopped;
+                        cardPrompt.title=texts::T("menus.set_end.stopped_title",{{"name",opponent}});
+                        cardPrompt.reason=end.how==How::Failed ? std::string(texts::T("menus.set_end.failed_reason"))
+                            : texts::T("menus.set_end.not_ready_reason",{{"name",opponent}});
+                        cardPrompt.primary=texts::T("menus.set_end.play_again");
+                        cardPrompt.note=texts::T("menus.set_end.play_again_call_off_note",{{"name",opponent}});
+                    }
+                    cardPrompt.opponent=opponent;
+                    cardPrompt.avatar=end.opponent_avatar;
+                    cardPrompt.mii=end.opponent_mii;
+                    cardPrompt.hasScore=end.how==How::Over || end.won+end.lost>0;
+                    cardPrompt.won=end.won;
+                    cardPrompt.lost=end.lost;
+                    cardPrompt.games=end.games;
+                }
+            }
+            if(kind==CardKind::None)return;
+            // The prompt's buttons (B or BACK: the second).
+            if(!cardPrompt.answer)return;
+            // Locked, the prompt's one button is its second answer (buildPrompt).
+            const bool accept=cardPrompt.answer==1 && !onlineLocked();
+            cardPrompt.answer=0;
+            if(kind==CardKind::Challenge) {
+                competitive->Answer(cardMatch,accept,cardPrompt.pick ? cardPrompt.stadium : std::string());
+                hostOverlay->ShowMessage(accept ? texts::T("menus.messages.challenge_accepted")
+                    : texts::T("menus.messages.challenge_declined"),now);
+                return;
+            }
+            using How=mscharged::platform::CompetitiveHost::SetEnd::How;
+            // A set with a result goes again as a rematch (a new challenge);
+            // one that only stopped, by Ready to play! again.
+            const How how=afterSet->how;
+            const bool rematch=how==How::Over || how==How::Forfeited || how==How::OpponentForfeited;
+            const std::string opponent=afterSet->opponent.empty()
+                ? std::string(texts::T("menus.messages.unnamed_opponent")) : afterSet->opponent;
+            if(accept && rematch) askRematch(cardMatch,cardPrompt.pick ? cardPrompt.stadium : std::string(),opponent);
+            else if(accept) {
+                competitive->PlayAgain(cardMatch,false);
+                hostOverlay->ShowMessage(texts::T("menus.messages.ready_again",{{"name",opponent}}),now);
+            } else if(how==How::CalledOff || how==How::Failed) {
+                // Not now: the stopped set is called off, so neither player
+                // keeps it and both can take another challenge at once.
+                competitive->CallOff(cardMatch);
+            }
+            afterSet.reset();
+        };
+        bool netplaySession=false;
         auto observeNetplay = [&] {
             if((!hostOverlay && !framePacing) || !netplaySnapshot)return;
             const auto now=std::chrono::steady_clock::now();
@@ -1334,6 +2467,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             lastNetplay=now;
             ChargedNetplaySnapshot snapshot{};
             if(!netplaySnapshot(&snapshot,sizeof snapshot))return;
+            netplaySession=snapshot.network!=0;
             if(framePacing && framePacing->SetRollbackCap(snapshot.rollback!=0)) {
                 const auto line="Frame rate: "+framePacing->Description();
                 mscharged::platform::SessionLogLine(line);
@@ -1350,6 +2484,1221 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             }
             hostOverlay->SetNetwork(network);
         };
+        // The input of Recharged's menus (F1 or HOME): online the game goes
+        // on; in an offline match in play opening them presses the game's pause.
+        // The players point at its pages as at the game's menus (the same
+        // pointer centre as the mouse's camera).
+        std::optional<mscharged::runtime::MenuInput> menuInput;
+        // (None while a replay plays: they pause an offline match, and their
+        // pages go online.)
+        if(hostOverlay && interactive && !spectating) {
+            menuInput.emplace(host.window,desktop.kpad_sensor_height);
+            menuInput->SetPauseRule([&] {
+                ChargedPresenceSnapshot game{};
+                if(netplaySession || !presenceSnapshot || !presenceSnapshot(&game,sizeof game))return false;
+                // Not online, nor the title screen's demo (mode 2), nor with the
+                // computer playing both teams (none of this machine's pads pause).
+                if(!game.in_match || game.online || game.mode==2 || !game.human_sides)return false;
+                // Paused already (its pause menu is open), and only in play.
+                if(game.match_menu)return false;
+                return game.game_state==1 || game.game_state==5 || game.game_state==6; // kick-off, play, overtime
+            });
+        }
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+        // The menus' online pages (the player's set, friends online, players
+        // available, with their data from the server on a thread of its own
+        // while the menus show) and Recharged's options (saved to the settings
+        // file at once; the game gets them between matches).
+        // The players' pictures: downloaded on a thread, uploaded to Aurora's
+        // ImGui on the menus' (owner) thread when drawn; initials until then.
+        mscharged::overlay::OverlayImageCache overlayPictures([](int width,int height,const void* rgba) {
+            return aurora_imgui_add_texture(std::uint32_t(width),std::uint32_t(height),rgba);
+        });
+        std::string overlayPicturesError;
+        std::unique_ptr<mscharged::platform::OnlinePanelFeed> panelFeed;
+        bool panelFeedLate=false; // started once more after a sign-in in this game
+        auto optionTweaks=launch.settings.tweaks;
+        // The player's own Mii (the one sets use) as the face on the Online
+        // tab's own card when there is no Discord picture: drawn on a thread
+        // from the game image's Mii parts, uploaded to ImGui once.
+        struct OwnMiiFace {
+            std::vector<std::uint8_t> rgba;
+            int width=0, height=0;
+        };
+        std::future<std::optional<OwnMiiFace>> ownMiiFace;
+        ImTextureID ownMiiTexture{};
+        // Other players' Mii heads in the menus, from their records the server
+        // sends (the game's menus show Miis, never Discord pictures).
+        mscharged::runtime::MiiHeads miiHeads(launch.disc_path);
+        // The Miis of the player's save that went online (each has its WFC
+        // profile in its friend code), for the server: others' menus show them.
+        auto ownMiisForServer=[&]() {
+            std::vector<mscharged::platform::UploadedMii> miis;
+            try {
+                const auto installed=mscharged::platform::InstalledMiis(
+                    mscharged::TitleSaveFolder(mscharged::ResolveSaveFolder(launch.settings,launch.config.path,
+                        executableDirectory),release->title_id),
+                    mscharged::platform::SaveTitle{release->title_id,0x1001,release->title_group});
+                for(const auto& mii:installed.miis)
+                    if(mii.friend_code!=0 && mii.record.size()==74 && miis.size()<32)
+                        miis.push_back({std::int32_t(std::uint32_t(mii.friend_code&0xFFFFFFFFu)),mii.record,
+                            mscharged::platform::ReadOnlineSlot(mii.slot) ? mii.slot : std::string()});
+            } catch(const std::exception& error) {
+                mscharged::platform::SessionLogLine(std::string("Menus: your Miis are not sent (")+error.what()+")");
+            }
+            return miis;
+        };
+        // The player's own Mii (the launcher's): RANKED with it, its face in the menus.
+        const bool ownMii=std::any_of(launch.competitive_mii.begin(),launch.competitive_mii.end(),
+            [](auto b) { return b!=0; });
+        if(ownMii)
+            ownMiiFace=std::async(std::launch::async,
+                [disc=launch.disc_path,id=launch.competitive_mii,
+                 nand=mscharged::TitleSaveFolder(mscharged::ResolveSaveFolder(launch.settings,launch.config.path,
+                     executableDirectory),release->title_id),
+                 title=mscharged::platform::SaveTitle{release->title_id,0x1001,release->title_group}]()
+                    -> std::optional<OwnMiiFace> {
+                    try {
+                        const auto miis=mscharged::platform::InstalledMiis(nand,title);
+                        for(const auto& mii:miis.miis)
+                            if(mii.create_id==id) {
+                                namespace head=mscharged::platform::mii;
+                                head::MiiHeadOptions options;
+                                options.width=options.height=128;
+                                options.background=head::MiiHeadOptions::Background::Favorite;
+                                auto image=head::RenderMiiHead(head::ReadMiiPartsFromImage(disc),mii.record,options);
+                                return OwnMiiFace{std::move(image.pixels),image.width,image.height};
+                            }
+                    } catch(const std::exception& error) {
+                        mscharged::platform::SessionLogLine(std::string("Overlay: your Mii's face is not drawn (")
+                            +error.what()+")");
+                    }
+                    return std::nullopt;
+                });
+        // [online] challenge_rules: chosen in the launcher or on the Online tab.
+        std::string challengeRules=launch.settings.challenge_rules;
+        // The player's own presets (the launcher's Match rules page, files in
+        // match-presets beside the settings file), read as the menus open.
+        std::vector<mscharged::overlay::OnlinePanelPreset> myPresets;
+        std::vector<mscharged::overlay::OnlinePanelPreset> builtInPresets;
+        for(const auto& preset:mscharged::launcher::BuiltInMatchPresets())
+            builtInPresets.push_back({preset.name,mscharged::launcher::ChallengeRules(preset),0});
+        // The 3D resolutions the Settings tab offers, by the height they draw at.
+        std::vector<std::string> displayResolutions;
+        std::optional<unsigned> pendingTweaks;
+        std::string overlayNotice;
+        bool overlayOpen=false; // the menus show (the online data comes)
+        auto setTweaks=reinterpret_cast<void(*)(unsigned)>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_set_tweaks"));
+        // A match (not the title screen's demo) is played.
+        auto inMatch=[&] {
+            ChargedPresenceSnapshot game{};
+            return presenceSnapshot && presenceSnapshot(&game,sizeof game) && game.in_match && game.mode!=2;
+        };
+        // The server's version is at least major.minor.patch ("1.2.1").
+        auto versionAtLeast=[](const std::string& text,int major,int minor,int patch) {
+            int parts[3]={0,0,0};
+            if(std::sscanf(text.c_str(),"%d.%d.%d",&parts[0],&parts[1],&parts[2])<2)return false;
+            return std::tie(parts[0],parts[1],parts[2])>=std::tie(major,minor,patch);
+        };
+        // The Settings tab's and Recharged's menus' model of the display and
+        // sound, and their changes of the settings and the game options: at
+        // once, and saved for the next time.
+        // The launcher's Advanced settings the menus show: as saved (most
+        // count from the next start; the running game keeps its own).
+        mscharged::Settings advanced=launch.settings;
+        std::vector<std::string> graphicsApis; // the choices' settings, as the menus list them
+        std::vector<std::string> graphicsCards;
+#if defined(MSCHARGED_HAS_GRAPHICS_CARDS)
+        std::future<std::vector<mscharged::platform::GraphicsCard>> cardScan;
+        std::optional<std::vector<mscharged::platform::GraphicsCard>> cardsFound;
+#endif
+        // The graphics cards, listed once in the background from the first
+        // time a menu shows (a Vulkan instance of its own: not while the
+        // Advanced page is being used).
+        auto pollGraphicsCards=[&] {
+#if defined(MSCHARGED_HAS_GRAPHICS_CARDS) && !defined(__APPLE__)
+            if(!cardsFound && !cardScan.valid())
+                cardScan=std::async(std::launch::async,mscharged::platform::ListGraphicsCards);
+            if(!cardsFound && cardScan.valid()
+               && cardScan.wait_for(std::chrono::seconds(0))==std::future_status::ready) {
+                try { cardsFound=cardScan.get(); } catch(const std::exception&) { cardsFound.emplace(); }
+            }
+#endif
+        };
+        auto buildAdvanced=[&](mscharged::overlay::GameSettingsModel& settings) {
+            settings.launcher_sizes.clear();
+            settings.launcher_size=0;
+            for(std::size_t n=0;n<mscharged::kLauncherSizes.size();++n) {
+                settings.launcher_sizes.push_back(texts::ChoiceLabel("launcher_sizes",mscharged::kLauncherSizes[n]));
+                if(advanced.ui_scale==mscharged::kLauncherSizes[n].value) settings.launcher_size=int(n);
+            }
+            // The graphics API: Automatic only where it may pick between two (Windows).
+            graphicsApis.clear();
+            settings.graphics_apis.clear();
+            if(mscharged::kGraphicsBackends.size()>1) {
+                graphicsApis.push_back("auto");
+                settings.graphics_apis.push_back(texts::T("menus.advanced.automatic"));
+            }
+            for(const auto& choice:mscharged::kGraphicsBackends) {
+                graphicsApis.push_back(choice.value);
+                settings.graphics_apis.push_back(choice.label);
+            }
+            settings.graphics_api=0;
+            for(std::size_t n=0;n<graphicsApis.size();++n)
+                if(advanced.backend==graphicsApis[n]) settings.graphics_api=int(n);
+            // The graphics cards, listed once in the background.
+            graphicsCards.assign(1,"auto");
+            settings.graphics_cards.assign(1,texts::T("menus.advanced.automatic_fastest"));
+            settings.graphics_card=0;
+#if defined(MSCHARGED_HAS_GRAPHICS_CARDS) && !defined(__APPLE__)
+            settings.graphics_cards_shown=true;
+            pollGraphicsCards();
+            settings.graphics_cards_listing=!cardsFound;
+            if(cardsFound)
+                for(const auto& card:*cardsFound) {
+                    bool twin=false;
+                    for(const auto& other:*cardsFound) twin=twin || (other.id!=card.id && other.name==card.name);
+                    const std::string id=mscharged::GraphicsCardSetting(card.id);
+                    graphicsCards.push_back(id);
+                    settings.graphics_cards.push_back(card.name+(twin ? " ("+id+")" : ""));
+                }
+            if(advanced.gpu!="auto") {
+                const auto found=std::find(graphicsCards.begin(),graphicsCards.end(),advanced.gpu);
+                if(found!=graphicsCards.end()) settings.graphics_card=int(found-graphicsCards.begin());
+                else {
+                    // Not (yet) listed: kept as it is.
+                    graphicsCards.push_back(advanced.gpu);
+                    settings.graphics_cards.push_back(cardsFound
+                        ? texts::T("menus.advanced.card_not_found",{{"card",advanced.gpu}}) : advanced.gpu);
+                    settings.graphics_card=int(graphicsCards.size())-1;
+                }
+            }
+#endif
+            settings.frame_logging=advanced.frame_logging;
+            settings.graphics_validation=advanced.graphics_validation;
+            settings.log_detail=mscharged::kDefaultLogLevel;
+            for(std::size_t n=0;n<mscharged::kLogLevels.size();++n)
+                if(advanced.log_level==mscharged::kLogLevels[n].value) settings.log_detail=int(n);
+            settings.verbose_console=advanced.verbose_console;
+#if defined(_WIN32) || defined(__APPLE__)
+            settings.log_window_shown=true;
+#endif
+            settings.log_window=advanced.log_window;
+        };
+        // A display.frame_rate value as the DISPLAY page names it.
+        auto frameRateName=[](const std::string& value)->std::string {
+            if(value=="original") return texts::T("menus.display.rate_original");
+            if(value=="display") return texts::T("menus.display.rate_display");
+            if(value=="unlimited") return texts::T("menus.display.rate_unlimited");
+            return texts::T("menus.display.rate_fps",{{"rate",value}});
+        };
+        // The frame rate, VSync and background rate as the settings have them
+        // now: the host paces (or the game's VI again) from the next frame.
+        auto pacePlay=[&] {
+            const auto rate=mscharged::ParseFrameRate(launch.settings.frame_rate).value_or(mscharged::FrameRate{});
+            const int backgroundHz=backgroundRateOf(launch.settings,rate);
+            if(framePacing) framePacing->Configure(rate,launch.settings.vsync,backgroundHz);
+            else if(configurePacing && nativeSend
+                    && (rate.kind!=mscharged::FrameRate::Kind::Original || backgroundHz)) {
+                framePacing.emplace(rate,launch.settings.vsync,host.window,configurePacing,backgroundHz,
+                    !mscharged::UnderGamescope());
+                mscharged::platform::SessionLogLine("Frame rate: changed in the settings; "+framePacing->Description());
+            }
+        };
+        // The picture's style as the settings have it, from the next frame.
+        auto showPicture=[&] {
+            if(!nativeSend) return;
+            const auto& picture=launch.settings.picture;
+            mscharged::platform::SetNativeVideoOutputPicture(
+                picture=="sharp" ? mscharged::platform::NativeDesktopPicture::Sharp
+                : picture=="clean" ? mscharged::platform::NativeDesktopPicture::Clean
+                                   : mscharged::platform::NativeDesktopPicture::Signal,
+                launch.settings.tv_border);
+            mscharged::platform::SessionLogLine("Display: picture "+picture+(launch.settings.tv_border
+                ? ", TV border" : "")+" (Settings)");
+        };
+        // The modern picture to go back to from the TV's.
+        std::string modernPicture=launch.settings.picture=="soft" ? std::string("sharp") : launch.settings.picture;
+        auto buildSettings=[&](mscharged::overlay::GameSettingsModel& settings) {
+            settings.fullscreen=(SDL_GetWindowFlags(host.window)&SDL_WINDOW_FULLSCREEN)!=0;
+            settings.pictures={widescreen ? "16:9" : "4:3",texts::T("menus.display.stretch")};
+            if(widerView) settings.pictures.push_back(texts::T("menus.display.wider_view"));
+            settings.picture=widerOn ? 2 : stretch ? 1 : 0;
+            const std::string shape=widescreen ? "16:9" : "4:3";
+            settings.picture_about=widerView ? texts::T("menus.display.picture_about_wider",{{"shape",shape}})
+                : texts::T("menus.display.picture_about",{{"shape",shape}});
+            displayResolutions.clear();
+            if(nativeSend) {
+                const auto size=aurora_get_window_size();
+                const auto picture=mscharged::PictureSize(int(size.native_fb_width),int(size.native_fb_height),
+                    int(aspectWidth),int(aspectHeight),fill);
+                // As the launcher has them: Full, Native, 2x, 3x, 4x.
+                displayResolutions.emplace_back("window");
+                for(const auto value:mscharged::kRenderResolutions)
+                    if(value!="window") displayResolutions.emplace_back(value);
+                for(std::size_t n=0;n<displayResolutions.size();++n) {
+                    const auto& value=displayResolutions[n];
+                    settings.resolutions.emplace_back(mscharged::RenderResolutionLabel(value));
+                    if(value==renderResolution) settings.resolution=int(n);
+                }
+                const auto drawn=[&](std::string_view value) {
+                    return std::to_string(mscharged::RenderWidth(value,picture.width))+" \xC3\x97 "
+                        +std::to_string(mscharged::RenderHeight(value,picture.height));
+                };
+                settings.resolution_about=texts::T("menus.display.resolution_about",
+                    {{"full",drawn("window")},{"native",drawn("native")}});
+            }
+            settings.performance_numbers=launch.settings.fps_overlay;
+            settings.performance_corner=1;
+            for(std::size_t n=0;n<std::size(mscharged::overlay::kPerformanceCorners);++n)
+                if(launch.settings.fps_overlay_corner==mscharged::overlay::kPerformanceCorners[n])
+                    settings.performance_corner=int(n);
+            settings.performance_mode=launch.settings.performance_mode;
+            settings.picture_style=launch.settings.picture=="soft" ? 1 : 0;
+            settings.sharp=launch.settings.picture!="clean";
+            settings.upscaling_shown=nativeSend && renderResolution!="window";
+            settings.tv_border=launch.settings.tv_border;
+            settings.vsync=launch.settings.vsync;
+            settings.frame_rates.clear();
+            settings.frame_rate=-1;
+            for(std::size_t n=0;n<std::size(mscharged::overlay::kFrameRates);++n) {
+                settings.frame_rates.push_back(frameRateName(mscharged::overlay::kFrameRates[n]));
+                if(launch.settings.frame_rate==mscharged::overlay::kFrameRates[n]) settings.frame_rate=int(n);
+            }
+            settings.frame_rate_other=frameRateName(launch.settings.frame_rate);
+            settings.background_rate=0;
+            if(launch.settings.background_throttle)
+                for(std::size_t n=0;n<std::size(mscharged::kBackgroundFrameRates);++n)
+                    if(launch.settings.background_frame_rate==mscharged::kBackgroundFrameRates[n])
+                        settings.background_rate=int(n)+1;
+            settings.rumble=launch.settings.rumble;
+            settings.rumble_strength=launch.settings.rumble_strength;
+            settings.mouse_pointer=launch.settings.mouse_pointer;
+            settings.show_hud=launch.settings.show_hud;
+            settings.sensor_bar_top=launch.settings.sensor_bar=="top";
+            settings.ir_sensitivity=launch.settings.ir_sensitivity;
+            settings.speaker_volume=launch.settings.speaker_volume;
+            settings.discord_available=!discordApplication.empty() && presenceSnapshot;
+            settings.discord_status=launch.settings.discord_status;
+            settings.master_volume=launch.settings.master_volume;
+            settings.mute=launch.settings.mute;
+            settings.sound_volumes=launch.settings.sound_volumes;
+            settings.reopen_launcher=mscharged::platform::LauncherReopenOn();
+            settings.reopen_known=mscharged::platform::LauncherReopenKnown();
+            settings.training_item=std::max(mscharged::TrainingIndex(mscharged::kTrainingItems,
+                launch.settings.training_item),0);
+            settings.training_fielders=launch.settings.training_away_fielders;
+            settings.training_goalie=launch.settings.training_away_goalie;
+            settings.training_skip_goals=launch.settings.training_skip_goals;
+            settings.training_skill=std::max(mscharged::TrainingIndex(mscharged::kTrainingSkills,
+                launch.settings.training_away_skill),0);
+            buildAdvanced(settings);
+        };
+        auto applyOption=[&](const mscharged::overlay::GameOptionChange& change) {
+            const std::size_t index=mscharged::GameTweakIndex(change.tweak);
+            if(index<optionTweaks.size()) {
+                optionTweaks[index]=change.on;
+                try {
+                    mscharged::SaveGameTweak(launch.config.path,change.tweak,change.on);
+                } catch(const std::exception& error) {
+                    overlayNotice=texts::T("menus.notices.option_not_saved",{{"error",error.what()}});
+                }
+                auto settings=launch.settings;
+                settings.tweaks=optionTweaks;
+                pendingTweaks=settings.ModuleTweakMask();
+            }
+        };
+        auto applySetting=[&](const mscharged::overlay::GameSettingChange& change) {
+            namespace ov=mscharged::overlay;
+            const bool on=change.value!=0;
+            using ov::GameSetting;
+            std::function<void(mscharged::Settings&)> save;
+            switch(change.setting) {
+            case GameSetting::Fullscreen:
+                if(SDL_SetWindowFullscreen(host.window,on)) {
+                    if(on) mscharged::runtime::PlaceFullscreenWindow(host.window);
+                    mscharged::runtime::LockWindowShape(host.window,!on && !stretch && !widerOn,aspectWidth,
+                        aspectHeight);
+                    mscharged::platform::SessionLogLine(std::string("Display: ")+(on?"fullscreen":"windowed")
+                        +" (Settings)");
+                }
+                launch.settings.fullscreen=on;
+                save=[on](mscharged::Settings& s) { s.fullscreen=on; };
+                break;
+            case GameSetting::Picture: {
+                // As the stretch hotkey: the wider view when set up, else stretching.
+                widerOn=widerView && change.value==2;
+                stretch=change.value==1;
+                const bool windowed=!(SDL_GetWindowFlags(host.window)&SDL_WINDOW_FULLSCREEN);
+                mscharged::runtime::LockWindowShape(host.window,windowed && !stretch && !widerOn,aspectWidth,
+                    aspectHeight);
+                const bool wider=widerOn, stretched=stretch;
+                const std::string keep=launch.settings.aspect=="stretch"?std::string("auto"):launch.settings.aspect;
+                launch.settings.aspect=stretched?"stretch":keep;
+                if(widerView) launch.settings.wider_view=wider;
+                save=[wider,stretched,keep,canWiden=widerView](mscharged::Settings& s) {
+                    s.aspect=stretched?"stretch":keep;
+                    if(canWiden) s.wider_view=wider;
+                };
+                break;
+            }
+            case GameSetting::Resolution:
+                if(change.value>=0 && std::size_t(change.value)<displayResolutions.size()
+                   && displayResolutions[std::size_t(change.value)]!=renderResolution) {
+                    renderResolution=displayResolutions[std::size_t(change.value)];
+                    VISetFrameBufferScale(mscharged::RenderScale(renderResolution));
+                    mscharged::platform::SessionLogLine("Display: 3D resolution "+renderResolution+" (Settings)");
+                    launch.settings.resolution=renderResolution;
+                    save=[value=renderResolution](mscharged::Settings& s) { s.resolution=value; };
+                }
+                break;
+            case GameSetting::PerformanceNumbers:
+                launch.settings.fps_overlay=on;
+                hostOverlay->SetPerformance(on ? std::optional(mscharged::runtime::ParseOverlayCorner(
+                    launch.settings.fps_overlay_corner).value_or(mscharged::runtime::OverlayCorner::TopRight))
+                    : std::nullopt);
+                save=[on](mscharged::Settings& s) { s.fps_overlay=on; };
+                break;
+            case GameSetting::MasterVolume:
+            case GameSetting::Mute:
+                if(change.setting==GameSetting::Mute) launch.settings.mute=on;
+                else launch.settings.master_volume=std::clamp(change.value,0,100);
+                applyVolume();
+                save=[volume=launch.settings.master_volume,mute=launch.settings.mute](mscharged::Settings& s) {
+                    s.master_volume=volume;
+                    s.mute=mute;
+                };
+                break;
+            case GameSetting::SoundVolume:
+                if(change.group>=0 && std::size_t(change.group)<launch.settings.sound_volumes.size()) {
+                    launch.settings.sound_volumes[std::size_t(change.group)]=std::clamp(change.value,0,100);
+                    const auto& volumes=launch.settings.sound_volumes;
+                    if(configureSoundVolumes) configureSoundVolumes(volumes.data(),int(volumes.size()));
+                    save=[volumes](mscharged::Settings& s) { s.sound_volumes=volumes; };
+                }
+                break;
+            case GameSetting::ReopenLauncher:
+                mscharged::platform::SetLauncherReopen(on);
+                launch.settings.reopen_after_game=on;
+                save=[on](mscharged::Settings& s) { s.reopen_after_game=on; };
+                break;
+            // The launcher's Advanced settings: saved for the launcher or the
+            // next start; the console's detail and the log window at once too.
+            case GameSetting::LauncherSize:
+                if(change.value>=0 && std::size_t(change.value)<mscharged::kLauncherSizes.size()) {
+                    const std::string size=mscharged::kLauncherSizes[std::size_t(change.value)].value;
+                    save=[size](mscharged::Settings& s) { s.ui_scale=size; };
+                }
+                break;
+            case GameSetting::GraphicsApi:
+                if(change.value>=0 && std::size_t(change.value)<graphicsApis.size()) {
+                    const std::string api=graphicsApis[std::size_t(change.value)];
+                    save=[api](mscharged::Settings& s) { s.backend=api; };
+                }
+                break;
+            case GameSetting::GraphicsCard:
+                if(change.value>=0 && std::size_t(change.value)<graphicsCards.size()) {
+                    const std::string card=graphicsCards[std::size_t(change.value)];
+                    save=[card](mscharged::Settings& s) { s.gpu=card; };
+                }
+                break;
+            case GameSetting::FrameLogging:
+                save=[on](mscharged::Settings& s) { s.frame_logging=on; };
+                break;
+            case GameSetting::GraphicsValidation:
+                save=[on](mscharged::Settings& s) { s.graphics_validation=on; };
+                break;
+            case GameSetting::LogDetail:
+                if(change.value>=0 && std::size_t(change.value)<mscharged::kLogLevels.size()) {
+                    const std::string level=mscharged::kLogLevels[std::size_t(change.value)].value;
+                    save=[level](mscharged::Settings& s) { s.log_level=level; };
+                }
+                break;
+            case GameSetting::VerboseConsole:
+                mscharged::platform::SetVerboseConsole(on);
+                save=[on](mscharged::Settings& s) { s.verbose_console=on; };
+                break;
+            case GameSetting::LogWindow:
+                mscharged::platform::SetLogWindow(on);
+                save=[on](mscharged::Settings& s) { s.log_window=on; };
+                break;
+            case GameSetting::ResetSoundLevels: {
+                launch.settings.sound_volumes=mscharged::DefaultSoundVolumes();
+                const auto volumes=launch.settings.sound_volumes;
+                if(configureSoundVolumes) configureSoundVolumes(volumes.data(),int(volumes.size()));
+                save=[volumes](mscharged::Settings& s) { s.sound_volumes=volumes; };
+                break;
+            }
+            case GameSetting::PerformanceCorner:
+                if(change.value>=0 && std::size_t(change.value)<std::size(ov::kPerformanceCorners)) {
+                    const std::string corner=ov::kPerformanceCorners[std::size_t(change.value)];
+                    launch.settings.fps_overlay_corner=corner;
+                    if(launch.settings.fps_overlay)
+                        hostOverlay->SetPerformance(mscharged::runtime::ParseOverlayCorner(corner)
+                            .value_or(mscharged::runtime::OverlayCorner::TopRight));
+                    save=[corner](mscharged::Settings& s) { s.fps_overlay_corner=corner; };
+                }
+                break;
+            case GameSetting::PerformanceMode:
+                launch.settings.performance_mode=on;
+                if(configurePerformanceMode) configurePerformanceMode(on);
+                mscharged::platform::SessionLogLine(std::string("Performance mode: ")+(on ? "on" : "off")
+                    +" from the next match (Settings)");
+                save=[on](mscharged::Settings& s) { s.performance_mode=on; };
+                break;
+            case GameSetting::PictureStyle:
+            case GameSetting::Upscaling:
+            case GameSetting::TvBorder: {
+                auto& picture=launch.settings.picture;
+                if(change.setting==GameSetting::PictureStyle) {
+                    if(on && picture!="soft") modernPicture=picture;
+                    picture=on ? std::string("soft") : modernPicture;
+                } else if(change.setting==GameSetting::Upscaling) {
+                    picture=modernPicture=on ? "sharp" : "clean";
+                } else launch.settings.tv_border=on;
+                showPicture();
+                save=[picture,border=launch.settings.tv_border](mscharged::Settings& s) {
+                    s.picture=picture;
+                    s.tv_border=border;
+                };
+                break;
+            }
+            case GameSetting::VSync:
+                launch.settings.vsync=on;
+                aurora_enable_vsync(on);
+                pacePlay();
+                mscharged::platform::SessionLogLine(std::string("Display: vsync ")+(on ? "on" : "off")+" (Settings)");
+                save=[on](mscharged::Settings& s) { s.vsync=on; };
+                break;
+            case GameSetting::FrameRate:
+                if(change.value>=0 && std::size_t(change.value)<std::size(ov::kFrameRates)) {
+                    const std::string rate=ov::kFrameRates[std::size_t(change.value)];
+                    launch.settings.frame_rate=rate;
+                    pacePlay();
+                    save=[rate](mscharged::Settings& s) { s.frame_rate=rate; };
+                }
+                break;
+            case GameSetting::BackgroundRate:
+                if(change.value>=0 && std::size_t(change.value)<=std::size(mscharged::kBackgroundFrameRates)) {
+                    const bool throttle=change.value>0;
+                    if(throttle)
+                        launch.settings.background_frame_rate=mscharged::kBackgroundFrameRates[std::size_t(change.value)-1];
+                    launch.settings.background_throttle=throttle;
+                    pacePlay();
+                    save=[throttle,rate=launch.settings.background_frame_rate](mscharged::Settings& s) {
+                        s.background_throttle=throttle;
+                        s.background_frame_rate=rate;
+                    };
+                }
+                break;
+            case GameSetting::Rumble:
+                // As the HOME Menu's Wii Remote settings switch it.
+                launch.settings.rumble=on;
+                mscharged::platform::SetNativeWpadMotorEnabled(on);
+                mscharged::platform::SetWiimoteHidBindRumble(on);
+                save=[on](mscharged::Settings& s) { s.rumble=on; };
+                break;
+            case GameSetting::RumbleStrength:
+                launch.settings.rumble_strength=std::clamp(change.value,0,100);
+                mscharged::platform::SetDesktopRumbleStrength(launch.settings.rumble_strength);
+                save=[strength=launch.settings.rumble_strength](mscharged::Settings& s) {
+                    s.rumble_strength=strength;
+                };
+                break;
+            case GameSetting::MousePointer:
+                // From the next start: the players are fixed at start.
+                launch.settings.mouse_pointer=on;
+                save=[on](mscharged::Settings& s) { s.mouse_pointer=on; };
+                break;
+            case GameSetting::ShowHud: {
+                launch.settings.show_hud=on;
+                auto settings=launch.settings;
+                settings.tweaks=optionTweaks;
+                pendingTweaks=settings.ModuleTweakMask();
+                save=[on](mscharged::Settings& s) { s.show_hud=on; };
+                break;
+            }
+            case GameSetting::SensorBar: {
+                // From the next start, like the Wii's own setting.
+                const std::string bar=on ? "top" : "bottom";
+                launch.settings.sensor_bar=bar;
+                save=[bar](mscharged::Settings& s) { s.sensor_bar=bar; };
+                break;
+            }
+            case GameSetting::IrSensitivity:
+                if(change.value>=1 && change.value<=5) {
+                    launch.settings.ir_sensitivity=change.value;
+                    save=[level=change.value](mscharged::Settings& s) { s.ir_sensitivity=level; };
+                }
+                break;
+            case GameSetting::SpeakerVolume: {
+                // Speakers the game started with play at the new volume; off or
+                // on counts from the next start.
+                const int volume=std::clamp(change.value,0,100);
+                if(speakerAtStart)
+                    mscharged::platform::SetNativeWpadSpeakerVolume(static_cast<std::uint8_t>((volume*127+50)/100));
+                launch.settings.speaker_volume=volume;
+                save=[volume](mscharged::Settings& s) { s.speaker_volume=volume; };
+                break;
+            }
+            case GameSetting::DiscordStatus:
+                launch.settings.discord_status=on;
+                if(on && !discordPresence) startDiscord();
+                else if(!on && discordPresence) {
+                    discordPresence.reset();
+                    gamePresence.reset();
+                    mscharged::platform::SessionLogLine("Discord status: off (Settings)");
+                }
+                save=[on](mscharged::Settings& s) { s.discord_status=on; };
+                break;
+            // A training match's options (the TRAINING page): the module has
+            // them for its next frame, and the next start.
+            case GameSetting::TrainingItem:
+                if(change.value>=0 && std::size_t(change.value)<mscharged::kTrainingItems.size()) {
+                    const std::string item=mscharged::kTrainingItems[std::size_t(change.value)];
+                    launch.settings.training_item=item;
+                    save=[item](mscharged::Settings& s) { s.training_item=item; };
+                }
+                break;
+            case GameSetting::TrainingFielders: {
+                const int fielders=std::clamp(change.value,0,4);
+                launch.settings.training_away_fielders=fielders;
+                save=[fielders](mscharged::Settings& s) { s.training_away_fielders=fielders; };
+                break;
+            }
+            case GameSetting::TrainingGoalie:
+                launch.settings.training_away_goalie=on;
+                save=[on](mscharged::Settings& s) { s.training_away_goalie=on; };
+                break;
+            case GameSetting::TrainingSkipGoals:
+                launch.settings.training_skip_goals=on;
+                save=[on](mscharged::Settings& s) { s.training_skip_goals=on; };
+                break;
+            case GameSetting::TrainingSkill:
+                if(change.value>=0 && std::size_t(change.value)<mscharged::kTrainingSkills.size()) {
+                    const std::string skill=mscharged::kTrainingSkills[std::size_t(change.value)];
+                    launch.settings.training_away_skill=skill;
+                    save=[skill](mscharged::Settings& s) { s.training_away_skill=skill; };
+                }
+                break;
+            }
+            switch(change.setting) {
+            case GameSetting::TrainingItem:
+            case GameSetting::TrainingFielders:
+            case GameSetting::TrainingGoalie:
+            case GameSetting::TrainingSkipGoals:
+            case GameSetting::TrainingSkill:
+                ConfigureTraining(module,launch.settings);
+                // The item and the opponent's skill count at once.
+                if(menuCommand && (change.setting==GameSetting::TrainingItem
+                                   || change.setting==GameSetting::TrainingSkill)) {
+                    const ChargedMenuCommand command{CHARGED_MENU_TRAINING,
+                        change.setting==GameSetting::TrainingItem ? 1 : 0,0};
+                    menuCommand(&command,sizeof command);
+                }
+                mscharged::platform::SessionLogLine("Training: "+launch.settings.training_item+", "
+                    +std::to_string(launch.settings.training_away_fielders)+" opponent fielders, goalie "
+                    +(launch.settings.training_away_goalie ? "on" : "off")+", skill "
+                    +launch.settings.training_away_skill+", skip goals "
+                    +(launch.settings.training_skip_goals ? "on" : "off")+" (TRAINING page)");
+                break;
+            default: break;
+            }
+            // The menus' Advanced page shows what is saved (most of it counts
+            // from the next start).
+            if(save) save(advanced);
+            // A slider being dragged saves once it is let go.
+            if(save && !change.live) {
+                try {
+                    mscharged::SaveSettings(launch.config.path,save);
+                } catch(const std::exception& error) {
+                    overlayNotice=texts::T("menus.notices.setting_not_saved",{{"error",error.what()}});
+                }
+            }
+        };
+        // Recharged's menus' players' pictures (the player's own Mii, the
+        // others' Miis), and their Online, Ranked and prompt: the model as it
+        // is now and what the player did.
+        auto overlayImage=[&](const std::string& key)->ImTextureID {
+            if(key=="mii:own") return ownMiiTexture;
+            if(key.rfind("miidata:",0)==0) return ImTextureID(miiHeads.Head(key));
+            return overlayPictures.Images()(key);
+        };
+        // `online` and `settings`: those parts are built (they cost; the rest
+        // of the model stays as made); `leaderboard`: it shows, its data is fetched.
+        auto buildOverlayModel=[&](mscharged::overlay::GameOverlayModel& model,bool leaderboard,bool online=true,
+                                   bool settings=true,bool stats=false) {
+            namespace ov=mscharged::overlay;
+            // Competitive play that started after the overlay: its data from now on.
+            if(!panelFeed && competitive && !panelFeedLate) {
+                panelFeedLate=true;
+                std::string off;
+                panelFeed=mscharged::platform::OnlinePanelFeed::Start(launch.settings.profile_server,
+                    mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
+                    challengeRules,launch.discord_friends,
+                    [](const std::string& text) { mscharged::platform::SessionLogLine(text); },&off);
+                if(!panelFeed) mscharged::platform::SessionLogLine("Overlay: the Online tab is off ("+off+")");
+                else panelFeed->SetOwnMiis(ownMiisForServer());
+            }
+            if(panelFeed) if(auto notice=panelFeed->TakeNotice()) overlayNotice=*notice;
+            const bool inMatchNow=inMatch();
+            if(online) {
+                const auto snapshot=panelFeed ? panelFeed->Latest() : mscharged::platform::OnlinePanelFeed::Snapshot{};
+                ov::OnlinePanelContext context;
+                context.me=snapshot.me;
+                context.discord_friends=snapshot.discord_friends;
+                if(context.me.name.empty() && competitive) context.me.name=competitive->PlayerName();
+                context.in_match=inMatchNow;
+                {
+                    using Gate=mscharged::launcher::OnlineGateState;
+                    using Lock=ov::UpdateLock;
+                    const auto gate=static_cast<Gate>(onlineGateState.load());
+                    context.update_lock=gate==Gate::Checking ? Lock::Checking
+                        : gate==Gate::Outdated               ? Lock::Outdated
+                        : gate==Gate::Unchecked              ? Lock::Unchecked
+                                                             : Lock::None;
+                }
+                context.game=std::string(release->game_id,4);
+                if(competitive)
+                    if(const auto set=competitive->CurrentSet())
+                        context.score=ov::OnlinePanelContext::Score{set->won,set->lost};
+                // What a challenge starts from: the server's rule sets and the
+                // player's presets, the one used last ([online] challenge_rules) first.
+                context.rule_sets=snapshot.rule_sets;
+                context.my_presets=myPresets;
+                context.built_in_presets=builtInPresets;
+                context.chosen_rules=challengeRules;
+                context.can_challenge=!snapshot.rule_sets.empty();
+                context.random_games=versionAtLeast(snapshot.server_version,1,2,1);
+                // A search for a random opponent (servers 1.2.4 on), and how long it runs.
+                context.searches=versionAtLeast(snapshot.server_version,1,2,4);
+                context.search=snapshot.search;
+                if(snapshot.search)
+                    context.search_seconds=int(snapshot.server_time-snapshot.search->since
+                        +std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now()
+                            -snapshot.fetched).count());
+                context.loading=panelFeed && !snapshot.loaded;
+                // Without a player profile the tab invites to make one.
+                context.signed_out=!panelFeed;
+                if(panelFeed && !snapshot.error.empty()) {
+                    context.message=snapshot.error;
+                    context.error=true;
+                } else context.message=overlayNotice;
+                model.online=ov::MakeOnlinePanelModel(snapshot.lists,snapshot.match,context);
+                // What the player sent from this game and waits for: on top
+                // of QUICK PLAY, with its cancel.
+                const auto now=std::chrono::steady_clock::now();
+                std::optional<mscharged::platform::CompetitiveHost::PendingAsk> asked;
+                if(competitive && panelFeed) asked=competitive->PendingRequest();
+                if(asked) {
+                    using Kind=mscharged::platform::CompetitiveHost::RequestKind;
+                    auto& request=model.online.request;
+                    const auto words=describeRequest(*asked,now);
+                    request.waiting=true;
+                    request.search=asked->kind==Kind::Search;
+                    request.kicker=words.title;
+                    request.status=words.text;
+                    if(asked->match && model.online.set.match==asked->match)
+                        request.opponent=model.online.set.opponent;
+                    else {
+                        request.opponent.name=asked->opponent;
+                        request.opponent.initials=ov::Initials(asked->opponent);
+                    }
+                }
+                // The last set played here: REMATCH <name> under QUICK PLAY's
+                // three, unless another set goes on or a request waits.
+                if(sessionSet && competitive && panelFeed) {
+                    using How=mscharged::platform::CompetitiveHost::SetEnd::How;
+                    using Stage=ov::OnlinePanelSet::Stage;
+                    const auto& last=*sessionSet;
+                    const auto& set=model.online.set;
+                    auto& rematch=model.online.rematch;
+                    const std::string name=last.opponent.empty()
+                        ? std::string(texts::T("menus.messages.unnamed_opponent")) : last.opponent;
+                    const bool thisSet=set.match==last.match;
+                    rematch.shown=!asked && (set.stage==Stage::None || set.stage==Stage::Ended);
+                    rematch.match=last.match;
+                    if(thisSet) rematch.opponent=set.opponent;
+                    else {
+                        rematch.opponent.name=name;
+                        rematch.opponent.image=ov::PictureKey(last.opponent_avatar,last.opponent_mii);
+                        rematch.opponent.initials=ov::Initials(name);
+                        rematch.opponent.tint_seed=last.match;
+                    }
+                    const bool won=last.how==How::OpponentForfeited || (last.how==How::Over && last.won>last.lost);
+                    const bool lost=last.how==How::Forfeited || (last.how==How::Over && last.lost>last.won);
+                    rematch.title=won ? texts::T("menus.sets.won") : lost ? texts::T("menus.sets.lost")
+                        : texts::T("menus.sets.draw");
+                    rematch.tone=won ? ov::Tone::Good : lost ? ov::Tone::Bad : ov::Tone::Neutral;
+                    rematch.status=texts::T("menus.sets.against",{{"name",name}});
+                    rematch.rules=last.rules;
+                    rematch.won=last.won;
+                    rematch.lost=last.lost;
+                    rematch.games=last.games;
+                    rematch.you_pick=last.rematch_turn==1;
+                    rematch.stadium=last.stadium;
+                    if(context.in_match) rematch.blocked=texts::T("menus.blocked.you_in_match");
+                    else if(context.update_lock!=ov::UpdateLock::None)
+                        rematch.blocked=ov::UpdateLockReason(context.update_lock);
+                    else if(thisSet && set.opponent.presence==ov::Presence::Offline)
+                        rematch.blocked=texts::T("menus.rematch.offline",{{"name",name}});
+                    rematch.can=rematch.blocked.empty();
+                }
+                // Ranked: Play RANKED (the player's own Mii, else one they
+                // choose in the game), and the leaderboards while it is shown.
+                {
+                    auto& ranked=model.ranked;
+                    ranked.going=rankedStage!=CHARGED_SET_NONE;
+                    ranked.waiting=rankedStage==CHARGED_SET_BOOT
+                        && std::chrono::steady_clock::now()-rankedSince>=std::chrono::seconds(2);
+                    if(!startRanked) ranked.blocked=texts::T("menus.ranked.blocked_game");
+                    else if(context.in_match) ranked.blocked=texts::T("menus.ranked.blocked_match");
+                    else if(context.update_lock!=ov::UpdateLock::None)
+                        ranked.blocked=ov::UpdateLockReason(context.update_lock);
+                    else if(competitive && competitive->CurrentSet())
+                        ranked.blocked=texts::T("menus.ranked.blocked_set");
+                    else if(snapshot.search) ranked.blocked=texts::T("menus.ranked.blocked_search");
+                    ranked.can_play=ranked.blocked.empty() && !ranked.going;
+                    ranked.signed_out=!panelFeed;
+                    ranked.boards=snapshot.leaderboard;
+                    ranked.missing=snapshot.leaderboard_missing;
+                }
+                // The player's records, for their profile.
+                model.online.stats=snapshot.stats;
+                model.online.stats_missing=snapshot.stats_missing;
+            }
+            if(panelFeed) panelFeed->WantLeaderboard(leaderboard);
+            if(panelFeed) panelFeed->WantStats(stats);
+            if(ownMiiFace.valid() && ownMiiFace.wait_for(std::chrono::seconds(0))==std::future_status::ready)
+                if(const auto face=ownMiiFace.get())
+                    ownMiiTexture=aurora_imgui_add_texture(std::uint32_t(face->width),std::uint32_t(face->height),
+                        face->rgba.data());
+            // Without a Discord picture the player is their Mii: the one drawn here.
+            if(online && ownMiiTexture && model.online.me.image.rfind("http",0)!=0) model.online.me.image="mii:own";
+            model.options.tweaks=optionTweaks;
+            model.options.in_match=inMatchNow;
+            // Settings: the display and sound as they are now.
+            if(settings) buildSettings(model.settings);
+            else pollGraphicsCards();
+        };
+        auto applyOnline=[&](const mscharged::overlay::OnlinePanelActions& online,
+                             const mscharged::overlay::RankedActions& ranked,
+                             const mscharged::overlay::GameOverlayModel& model)->bool {
+            bool started=false;
+            if(ranked.play && startRanked && model.ranked.can_play) {
+                if(startRanked(ownMii ? launch.competitive_mii.data() : nullptr,
+                               ownMii ? unsigned(launch.competitive_mii.size()) : 0u)) {
+                    mscharged::platform::SessionLogLine(std::string("Ranked: Play RANKED")
+                        +(ownMii ? " with the player's own Mii" : ", the player chooses the Mii"));
+                    rankedStage=CHARGED_SET_BOOT;
+                    rankedSince=std::chrono::steady_clock::now();
+                    started=true;
+                    // Off to another match: what the player waits for is called off.
+                    if(competitive) competitive->CallOffRequest();
+                    hostOverlay->ShowMessage(texts::T("menus.messages.off_to_ranked"),std::chrono::steady_clock::now());
+                } else overlayNotice=texts::T("menus.notices.ranked_cannot_start");
+            }
+            if(ranked.stop && stopRanked) {
+                stopRanked();
+                mscharged::platform::SessionLogLine("Ranked: the way to RANKED stopped");
+                rankedStage=CHARGED_SET_NONE;
+            }
+            const std::int64_t set=model.online.set.match;
+            // Online play waits for an update: the pages offer nothing that
+            // goes online (the model), and nothing that would gets through.
+            const bool locked=onlineLocked();
+            // A challenge, a search or a rematch sent: the menus close and the
+            // box in the corner waits for it (CompetitiveHost::PendingRequest),
+            // the game back from its online menus to the main menu.
+            bool sent=false;
+            using Kind=mscharged::platform::CompetitiveHost::RequestKind;
+            const auto asked=competitive ? competitive->PendingRequest() : std::nullopt;
+            if(online.cancel_request && competitive) competitive->CancelRequest();
+            if(panelFeed) {
+                if(online.challenge && !locked) {
+                    const auto& challenge=*online.challenge;
+                    if(competitive) {
+                        competitive->Challenge({challenge.player,challenge.rule_set,challenge.rules,challenge.name,
+                                                challenge.discord_friend,challenge.opponent});
+                        sent=true;
+                    } else {
+                        panelFeed->Challenge(challenge.player,challenge.rule_set,challenge.rules,challenge.name,
+                                             challenge.discord_friend);
+                        overlayNotice=texts::T("menus.notices.challenge_sent");
+                    }
+                }
+                // Do not disturb stops a search first; a search makes the
+                // player available first (give and take).
+                if(online.stop_search) {
+                    if(asked && asked->kind==Kind::Search) competitive->CancelRequest();
+                    else {
+                        panelFeed->StopSearch();
+                        overlayNotice=texts::T("menus.notices.search_stopped");
+                    }
+                }
+                const bool search=online.search && !locked;
+                if(online.set_available && !(search && competitive)) panelFeed->SetAvailable(*online.set_available);
+                if(search) {
+                    const auto& rules=*online.search;
+                    if(competitive) {
+                        competitive->Search({rules.rule_set,rules.rules,rules.name,std::string(release->game_id,4),
+                                             online.set_available.value_or(false)});
+                        sent=true;
+                    } else {
+                        panelFeed->StartSearch(rules.rule_set,rules.rules,rules.name,std::string(release->game_id,4));
+                        overlayNotice=texts::T("menus.notices.searching");
+                    }
+                }
+                if(online.add_friend) panelFeed->AddFriend(*online.add_friend);
+                if(online.remove_friend) panelFeed->RemoveFriend(*online.remove_friend);
+                if(online.add_mii_friend) panelFeed->AddMiiFriend(*online.add_mii_friend);
+                if(online.remove_mii_friend) panelFeed->RemoveMiiFriend(*online.remove_mii_friend);
+                if(online.ready && !locked) panelFeed->ReadyToPlay(set,true);
+                // The set's Withdraw of what the player waits for: its cancel.
+                if(online.cancel) {
+                    if(asked && asked->kind!=Kind::Search && asked->match==set) competitive->CancelRequest();
+                    else panelFeed->Cancel(set);
+                }
+            }
+            if(competitive) {
+                // An accept starts the set in this game; a rematch (QUICK
+                // PLAY's, of the last set played here) asks the opponent.
+                if((online.accept && !locked) || online.decline)
+                    competitive->Answer(set,online.accept && !locked,online.accept ? online.stadium : std::string());
+                const auto& rematch=model.online.rematch;
+                if(online.rematch && !locked && rematch.shown && rematch.can) {
+                    competitive->PlayAgain(rematch.match,true,online.stadium,rematch.opponent.name);
+                    sent=true;
+                }
+            }
+            if(sent) {
+                // (Only from the game's online menu: elsewhere its wish to
+                // leave would wait for the next visit.)
+                ChargedMenuSnapshot menu{};
+                if(leaveOnline && menuSnapshot && menuSnapshot(&menu,sizeof menu) && menu.online_menu) leaveOnline();
+                started=true;
+            }
+            if(online.set_challenge_rules) {
+                challengeRules=*online.set_challenge_rules;
+                if(panelFeed) panelFeed->SetChallengeRules(challengeRules);
+                try {
+                    mscharged::SaveChallengeRules(launch.config.path,challengeRules);
+                } catch(const std::exception& error) {
+                    overlayNotice=texts::T("menus.notices.rules_not_saved",{{"error",error.what()}});
+                }
+            }
+            return started;
+        };
+        auto buildPrompt=[&](mscharged::overlay::OverlayPrompt& prompt) {
+            namespace ov=mscharged::overlay;
+            using Kind=CardPrompt::Kind;
+            const std::string& who=cardPrompt.opponent;
+            prompt.opponent.name=who;
+            prompt.opponent.image=mscharged::overlay::PictureKey(cardPrompt.avatar,cardPrompt.mii);
+            prompt.opponent.initials=ov::Initials(who);
+            prompt.opponent.tint_seed=std::int64_t(std::hash<std::string>{}(who)&0x7FFFFFFF);
+            switch(cardPrompt.kind) {
+            case Kind::Challenge:
+            case Kind::Rematch: {
+                const bool rematch=cardPrompt.kind==Kind::Rematch;
+                prompt.kind=rematch ? ov::OverlayPrompt::Kind::Rematch : ov::OverlayPrompt::Kind::Challenge;
+                prompt.kicker=rematch ? texts::T("menus.prompt.rematch")
+                    : cardPrompt.random ? texts::T("menus.prompt.random_challenge")
+                    : texts::T("menus.prompt.challenge");
+                prompt.title=rematch ? texts::T("menus.prompt.wants_rematch",{{"name",who}})
+                    : texts::T("menus.prompt.challenges_you",{{"name",who}});
+                prompt.detail=cardPrompt.rules;
+                // Who picked the stadium and drafts first, or that the player picks it now.
+                prompt.turn=cardPrompt.pick ? std::string(texts::T("menus.prompt.your_pick"))
+                    : cardPrompt.turn==0 ? texts::T("menus.prompt.their_pick",{{"name",who}}) : std::string();
+                prompt.primary=texts::T("menus.prompt.accept");
+                prompt.secondary=texts::T("menus.prompt.decline");
+                prompt.note=cardPrompt.random ? texts::T("menus.prompt.random_note") : texts::T("menus.prompt.note");
+                break;
+            }
+            case Kind::SetOver:
+                prompt.kind=ov::OverlayPrompt::Kind::SetOver;
+                prompt.kicker=texts::T("menus.set_end.over_kicker");
+                prompt.title=cardPrompt.won>cardPrompt.lost ? texts::T("menus.set_end.won")
+                    : cardPrompt.lost>cardPrompt.won ? texts::T("menus.set_end.lost") : texts::T("menus.set_end.draw");
+                prompt.primary=texts::T("menus.set_end.rematch");
+                prompt.secondary=texts::T("menus.set_end.not_now");
+                prompt.note=texts::T("menus.set_end.rematch_asks_note",{{"name",who}});
+                break;
+            case Kind::SetStopped:
+                prompt.kind=ov::OverlayPrompt::Kind::SetStopped;
+                prompt.kicker=cardPrompt.kicker.empty() ? std::string(texts::T("menus.set_end.stopped_kicker"))
+                    : cardPrompt.kicker;
+                prompt.title=cardPrompt.title.empty() ? std::string(texts::T("menus.set_end.stopped"))
+                    : cardPrompt.title;
+                prompt.detail=cardPrompt.reason;
+                prompt.primary=cardPrompt.primary.empty() ? std::string(texts::T("menus.set_end.play_again"))
+                    : cardPrompt.primary;
+                prompt.secondary=texts::T("menus.set_end.not_now");
+                prompt.note=cardPrompt.note.empty() ? texts::T("menus.set_end.play_again_note",{{"name",who}})
+                    : cardPrompt.note;
+                break;
+            }
+            // After a set: whose turn its rematch is.
+            if(cardPrompt.kind==Kind::SetOver || cardPrompt.kind==Kind::SetStopped)
+                prompt.turn=cardPrompt.turn==1 ? std::string(texts::T("menus.set_end.rematch_your_pick"))
+                    : cardPrompt.turn==0 ? texts::T("menus.set_end.rematch_their_pick",{{"name",who}}) : std::string();
+            if(cardPrompt.pick) prompt.stadium=cardPrompt.stadium.empty() ? std::string("random") : cardPrompt.stadium;
+            prompt.has_score=cardPrompt.hasScore;
+            prompt.won=cardPrompt.won;
+            prompt.lost=cardPrompt.lost;
+            prompt.games=cardPrompt.games;
+            // Online play waits for an update: every first answer here would
+            // start a set, so only the second one is offered, and why.
+            if(onlineLocked()) {
+                using Gate=mscharged::launcher::OnlineGateState;
+                using Lock=ov::UpdateLock;
+                const auto gate=static_cast<Gate>(onlineGateState.load());
+                prompt.primary=prompt.secondary;
+                prompt.secondary.clear();
+                prompt.stadium.clear();
+                prompt.note=ov::UpdateLockNote(gate==Gate::Checking ? Lock::Checking
+                    : gate==Gate::Outdated ? Lock::Outdated : Lock::Unchecked);
+            }
+        };
+        if(menuInput && !watcher) {
+            std::string off;
+            // The Discord friends come from the launcher (the game has no
+            // Discord SDK); the feed asks which of them play.
+            panelFeed=mscharged::platform::OnlinePanelFeed::Start(launch.settings.profile_server,
+                mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
+                launch.settings.challenge_rules,launch.discord_friends,
+                [](const std::string& text) { mscharged::platform::SessionLogLine(text); },&off);
+            if(!panelFeed) mscharged::platform::SessionLogLine("Menus: the online pages are off ("+off+")");
+            else panelFeed->SetOwnMiis(ownMiisForServer());
+            if(panelFeed && !launch.discord_friends.empty())
+                mscharged::platform::SessionLogLine("Menus: "+std::to_string(launch.discord_friends.size())
+                    +" Discord friends from the launcher");
+            {
+                const std::string key=mscharged::platform::HotkeyName(hotkeys[mscharged::HotkeyPanel]);
+                const bool none=key.empty() || key==mscharged::kNoHotkey;
+                panelHint=mscharged::runtime::HostOverlay::Hint{
+                    none ? std::vector<std::string>{"HOME"} : std::vector<std::string>{key,"HOME"},
+                    texts::T("menus.hint.game_menu")};
+            }
+        }
+        // Recharged's menus in the game's look (the UI kit): the Recharged menu
+        // on F1/HOME, the prompts, an online match's menu, and with the
+        // development switch "Override retail menus" the game's pause menu,
+        // Options and the main menu's ONLINE too (declared after what their
+        // callbacks use, which outlives them).
+        // (The feeds' versions start at 0: never shown, the first one is built.)
+        constexpr std::uint64_t kNotShown=~std::uint64_t{0};
+        // The TOURNAMENT page shows the profile server's tournament (asked on a thread of its own while the page is
+        // open), whose sets are the server's.
+        std::unique_ptr<mscharged::platform::TournamentFeed> tournamentFeed;
+        std::uint64_t tournamentShown=kNotShown, tournamentListShown=kNotShown;
+        std::int64_t tournamentShownId=0;
+        // The last moment of the player's set told (TournamentCallOf), at
+        // which feed answer.
+        std::string tournamentCallKey;
+        std::uint64_t tournamentCalled=0;
+        // The opponent's READY that came while the player was busy (its key):
+        // asked again once they are free.
+        std::string tournamentCallHeld;
+        // The trophy room showed at the last look (READY holds only there).
+        bool tournamentInRoom=false;
+        if(!spectating) {
+            std::string off;
+            tournamentFeed=mscharged::platform::TournamentFeed::Start(launch.settings.profile_server,
+                mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
+                [](const std::string& text) { mscharged::platform::SessionLogLine(text); },&off);
+            if(!tournamentFeed) mscharged::platform::SessionLogLine("Menus: TOURNAMENT has no tournaments ("+off+")");
+        }
+        std::optional<mscharged::runtime::HostMenus> hostMenus;
+        // A set's forfeit sent: the game leaves its match once the server
+        // answered, or after a moment without an answer.
+        bool forfeitWaits=false;
+        int shownPromptKey=0; // the prompt the menus have (cardPromptVersion; -1 the sample)
+        std::chrono::steady_clock::time_point forfeitAsked{};
+        // Recharged's menus with sample data (development, screenshots without
+        // a server or a match): RECHARGED_CAPTURE_ONLINE players, a set and
+        // leaderboards; RECHARGED_CAPTURE_PROMPT a challenge until answered;
+        // RECHARGED_CAPTURE_MATCH_MENU the menus as over an online match (the 1
+        // button opens the match menu anywhere; the game knows of none, so
+        // nothing is forfeited).
+        struct {
+            bool online=std::getenv("RECHARGED_CAPTURE_ONLINE")!=nullptr;
+            std::string variant=online ? std::getenv("RECHARGED_CAPTURE_ONLINE") : "";
+            bool prompt=std::getenv("RECHARGED_CAPTURE_PROMPT")!=nullptr;
+            bool match=std::getenv("RECHARGED_CAPTURE_MATCH_MENU")!=nullptr;
+        } menuSamples;
+        if(hostOverlay && menuInput && menuSnapshot && menuCommand) {
+            mscharged::runtime::HostMenus::Host menusHost;
+            menusHost.model=[&](mscharged::ui::PageModel& model,const mscharged::runtime::HostMenus::ModelNeeds& needs) {
+                buildOverlayModel(model.overlay,needs.leaderboard,needs.online,needs.settings,needs.stats);
+                if(menuSamples.online) SampleOnline(model.overlay,menuSamples.variant);
+                model.set_match=competitive && competitive->CurrentSet().has_value();
+                model.tournament_match=model.set_match && tournamentSetOn;
+            };
+            menusHost.image=overlayImage;
+            if(tournamentFeed) {
+                menusHost.tournament=[&](mscharged::ui::TournamentModel& model,bool open,const std::string& shown) {
+                    // The player's set is ready, or the opponent READY: said
+                    // once, with the challenge's chime (not during a set's
+                    // game or its way there: a set ready then goes unsaid,
+                    // the opponent's READY waits until the player is free).
+                    const bool busy=competitive && (competitive->InMatch() || competitive->CurrentSet());
+                    if(const auto version=tournamentFeed->Version(); version!=tournamentCalled
+                       || (!tournamentCallHeld.empty() && !busy)) {
+                        tournamentCalled=version;
+                        const auto call=mscharged::runtime::TournamentCallOf(tournamentFeed->Latest(),std::int64_t(std::time(nullptr)));
+                        using Kind=mscharged::runtime::TournamentCall::Kind;
+                        const bool held=busy && call.kind==Kind::OpponentReady;
+                        tournamentCallHeld=held ? call.key : std::string();
+                        // (Of the player's own tournament, whatever the pages
+                        // show.)
+                        if(!call.key.empty() && call.key!=tournamentCallKey && !held) {
+                            tournamentCallKey=call.key;
+                            if(call.kind!=Kind::None && !busy) {
+                                mscharged::platform::SessionLogLine(std::string("Tournament: ")
+                                    +(call.kind==Kind::SetReady ? "the set against " : "READY from ")+call.opponent
+                                    +(call.kind==Kind::SetReady ? " is ready" : ""));
+                                alert();
+                                if(hostOverlay)
+                                    hostOverlay->ShowMessage(texts::T(call.kind==Kind::SetReady
+                                            ? "menus.messages.tournament_set_ready"
+                                            : "menus.messages.tournament_opponent_ready",
+                                        {{"tournament",call.tournament},{"name",call.opponent}}),
+                                        std::chrono::steady_clock::now());
+                            }
+                        }
+                    }
+                    // READY holds in the trophy room only: out of it (its
+                    // BACK, the online menu left) before the set goes, it is
+                    // taken back, so that a set always goes on from the room.
+                    const bool inRoom=hostMenus && hostMenus->InTrophyRoom();
+                    if(tournamentInRoom && !inRoom && !(competitive && competitive->CurrentSet())) {
+                        const auto latest=tournamentFeed->Latest();
+                        if(latest.match && latest.match->you_ready && latest.match->stage=="open") {
+                            mscharged::platform::SessionLogLine("Tournament: READY taken back (the player left the trophy room)");
+                            tournamentFeed->Ready(false);
+                        }
+                    }
+                    tournamentInRoom=inRoom;
+                    tournamentFeed->SetOpen(open);
+                    std::int64_t id=0;
+                    if(!shown.empty()) std::from_chars(shown.data(),shown.data()+shown.size(),id);
+                    tournamentFeed->Show(id);
+                    if(const auto version=tournamentFeed->Version();
+                       version!=tournamentShown || id!=tournamentShownId) {
+                        model=mscharged::runtime::ServerTournament(tournamentFeed->Latest(),id,std::int64_t(std::time(nullptr)));
+                        tournamentShown=version;
+                        tournamentShownId=id;
+                    }
+                };
+                menusHost.tournaments=[&](mscharged::ui::TournamentListModel& model) {
+                    if(const auto version=tournamentFeed->Version(); version!=tournamentListShown) {
+                        model=mscharged::runtime::ServerTournaments(tournamentFeed->Latest(),std::int64_t(std::time(nullptr)));
+                        tournamentListShown=version;
+                    }
+                };
+                // READY (or taken back) goes to the server: the set starts
+                // once both are ready (observeCompetitive, tournamentSetStarts).
+                menusHost.tournament_ready=[&] {
+                    if(!competitive) {
+                        mscharged::platform::SessionLogLine("Tournament: READY, but competitive play is off"
+                            " (not signed in to the profile server)");
+                        return false;
+                    }
+                    const auto latest=tournamentFeed->Latest();
+                    const bool ready=!(latest.match && latest.match->you_ready);
+                    tournamentFeed->Ready(ready);
+                    return false;
+                };
+                menusHost.tournament_entry=[&](bool join) {
+                    if(join) tournamentFeed->Join();
+                    else tournamentFeed->Leave();
+                };
+            }
+            menusHost.online=applyOnline;
+            menusHost.setting=applySetting;
+            menusHost.option=applyOption;
+            // A set's forfeit goes to the server first (the match plays on
+            // meanwhile); the game then leaves the match.
+            menusHost.forfeit=[&] {
+                forfeitAsked=std::chrono::steady_clock::now();
+                forfeitWaits=competitive && competitive->Forfeit();
+                if(!forfeitWaits) hostMenus->LeaveMatch();
+            };
+            // As closing the window: Aurora's exit, then the game's own shutdown.
+            menusHost.quit=[] {
+                SDL_Event quit{};
+                quit.type=SDL_EVENT_QUIT;
+                SDL_PushEvent(&quit);
+            };
+            hostMenus.emplace(mscharged::runtime::HostMenus::Game{menuTexture,menuCommand,menuTextureObjects},*menuInput,
+                std::move(menusHost));
+            hostOverlay->SetMenus(&*hostMenus);
+            closeMenus=[&] { hostMenus->CloseAll(); };
+            if(tournamentFeed) {
+                tournamentSetStarts=[&](std::int64_t match) {
+                    if(match!=tournamentFeed->ReadyMatch())return false;
+                    mscharged::platform::SessionLogLine("Tournament: set's match "+std::to_string(match)
+                        +" goes on from the trophy room");
+                    const auto latest=tournamentFeed->Latest();
+                    if(configureSetSide) {
+                        const int side=latest.own ? mscharged::runtime::TournamentSideOf(*latest.own,match) : -1;
+                        configureSetSide(side);
+                        if(side>=0)
+                            mscharged::platform::SessionLogLine(std::string("Tournament: this player is ")
+                                +(side==0 ? "home" : "away")+" in this game (the set's turn)");
+                    }
+                    if(configureSetResume) {
+                        const auto resume=latest.match && latest.match->id==match
+                            ? mscharged::runtime::TournamentResumeOf(*latest.match) : std::nullopt;
+                        configureSetResume(resume ? &*resume : nullptr,sizeof(ChargedSetResume));
+                        if(resume)
+                            mscharged::platform::SessionLogLine("Tournament: this game goes on from "
+                                +std::to_string(resume->own_score)+"-"+std::to_string(resume->opponent_score)
+                                +" at "+std::to_string(int(resume->seconds))+" seconds, the same teams");
+                    }
+                    if(configureTrophy) {
+                        const auto ending=latest.own
+                            ? mscharged::runtime::TournamentEndingOf(*latest.own,match)
+                            : mscharged::runtime::TournamentEnding{};
+                        const auto ceremony=latest.own
+                            ? mscharged::runtime::TournamentCeremonyOf(*latest.own,match)
+                            : mscharged::runtime::TournamentCeremony{};
+                        const auto units=[](const std::u16string& text) {
+                            return reinterpret_cast<const unsigned short*>(text.c_str());
+                        };
+                        configureTrophy(ending.own || ending.opponent ? mscharged::runtime::kTournamentTrophy : -1,
+                            ending.own,ending.opponent,units(ceremony.title),units(ceremony.own),
+                            units(ceremony.opponent));
+                        if(ending.own || ending.opponent)
+                            mscharged::platform::SessionLogLine(std::string("Tournament: this game can end the"
+                                " tournament (with the trophy's ceremony) if ")+(ending.own && ending.opponent ? "either"
+                                : ending.own ? "this player" : "the opponent")+" wins it");
+                    }
+                    hostMenus->TournamentSetStarts();
+                    tournamentSetOn=true;
+                    return true;
+                };
+                tournamentSetEnds=[&](std::int64_t match,bool over) {
+                    if(match!=tournamentFeed->ReadyMatch())return false;
+                    mscharged::platform::SessionLogLine("Tournament: set's match "+std::to_string(match)
+                        +(over ? " is over" : " ended without its series"));
+                    if(configureTrophy) configureTrophy(-1,false,false,nullptr,nullptr,nullptr);
+                    if(configureSetSide) configureSetSide(-1);
+                    if(configureSetResume) configureSetResume(nullptr,sizeof(ChargedSetResume));
+                    tournamentSetOn=false;
+                    hostMenus->TournamentSetDone(over);
+                    return true;
+                };
+            }
+            const bool replaced=launch.settings.GameTweakMask()
+                & mscharged::GameTweakBit(mscharged::GameTweak::OverrideRetailMenus);
+            mscharged::platform::SessionLogLine(replaced ? "Menus: Recharged's, also for the game's (Override retail menus)"
+                                                         : "Menus: Recharged's");
+        }
+#endif
         // The persisted launcher toggle is authoritative; recordings live with
         // the session log (logs/ beside this executable), independently of the
         // working directory.
@@ -1358,13 +3707,328 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             sessionLog.empty() ? executableDirectory/"logs" : sessionLog.parent_path());
         auto* takeStadium=reinterpret_cast<int(*)()>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_take_stadium"));
+        // The frame log also times the GX pipeline's phases (off otherwise).
+        aurora_set_gx_phase_timing(frameTiming!=nullptr);
         if(frameTiming)
             frameTiming->SetContext(std::string("Session: version ")+mscharged::build::version+" ("
                 +mscharged::build::channel+")\nSettings: "+(shown.fullscreen?"fullscreen":"windowed")+" "
                 +std::to_string(windowWidth)+"x"+std::to_string(windowHeight)+", graphics "+graphics->label
                 +", 3D resolution "+shown.resolution+", antialiasing "+shown.antialiasing
                 +", frame rate "+shown.frame_rate+", vsync "+(shown.vsync?"on":"off")
-                +", performance mode "+(shown.performance_mode?"on":"off")+"\n");
+                +", performance mode "+(shown.performance_mode?"on":"off")
+                +", graphics validation "+(shown.graphics_validation?"on":"off")+"\n");
+        // After a game frame: finished recordings to their files; a replay's
+        // speed in the corner (for a few seconds as its match begins and
+        // after each change), a note when it no longer matches its recording,
+        // and its end, which closes the game a moment later.
+        std::optional<mscharged::runtime::HostOverlay::Hint> replayHint;
+        std::optional<std::chrono::steady_clock::time_point> replayEnded,replayHintUntil;
+        int replaySpeedShown=-1;
+        bool replayStepsSeen=false,replayDiffersShown=false,replayQuit=false;
+        // A live match: catching up shown as it changes; at a game's end the
+        // next one, or the match's end.
+        bool liveCatchingUp=false,liveWaitingShown=false,liveBrokeShown=false;
+        // Turbo (a live match far behind, as fast as this computer can): the
+        // steps at its last look, how fast it gains on the stream, its hint.
+        struct {
+            std::chrono::steady_clock::time_point at{};
+            unsigned steps=0;
+            double gain=0.0;
+            std::string text;
+        } liveCatchUp;
+        std::string liveBehindShown;
+        std::chrono::steady_clock::time_point liveLoggedAt{};
+        // The catch-up screen: shown, held for one frame after the match
+        // stopped hiding (that frame drew nothing yet), last updated.
+        bool catchUpShown=false,catchUpHeld=false;
+        std::chrono::steady_clock::time_point catchUpAt{};
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+        // A match watched from the online server: its players (name and
+        // flag) and its set so far at the bottom, unless O hid them ([replays]
+        // show_players, kept for the match's next games). The server is
+        // asked as the replay starts, then every half minute while it does
+        // not know every game before this one yet; a server that tells none
+        // (before 1.3.7) is not asked again.
+        struct PlayersAnswer {
+            std::optional<mscharged::platform::WatchedMatch> match;
+            bool absent=false;
+            std::string error;
+        };
+        struct {
+            std::future<PlayersAnswer> asking;
+            std::optional<mscharged::platform::WatchedMatch> known;
+            std::chrono::steady_clock::time_point askedAt{};
+            bool asked=false,absent=false,failureLogged=false,atlasMade=false;
+            int toggles=0;
+        } players;
+        auto observePlayers=[&](std::chrono::steady_clock::time_point now) {
+            if(!playersTicket || !hostOverlay) return;
+            if(const int toggles=sPlayersToggles.load(); toggles!=players.toggles) {
+                const bool flip=((toggles-players.toggles)&1)!=0;
+                players.toggles=toggles;
+                if(flip) {
+                    const bool on=!launch.settings.replays_show_players;
+                    launch.settings.replays_show_players=on;
+                    try {
+                        mscharged::SaveSettings(launch.config.path,[on](mscharged::Settings& s) {
+                            s.replays_show_players=on;
+                        });
+                    } catch(const std::exception& error) {
+                        mscharged::platform::SessionLogLine(
+                            std::string("Watching: whether the players show is not saved: ")+error.what());
+                    }
+                    mscharged::platform::SessionLogLine(std::string("Watching: the players ")
+                                                        +(on ? "show" : "are hidden")+" (O)");
+                }
+            }
+            if(players.asking.valid()
+               && players.asking.wait_for(std::chrono::seconds(0))==std::future_status::ready) {
+                auto answer=players.asking.get();
+                if(answer.match) {
+                    const auto& match=*answer.match;
+                    mscharged::platform::NoteNameGlyphs(match.home.name);
+                    mscharged::platform::NoteNameGlyphs(match.away.name);
+                    if(!players.known)
+                        mscharged::platform::SessionLogLine("Watching: "+match.home.name+" ("
+                            +(match.home.country.empty() ? "no flag" : match.home.country)+") against "
+                            +match.away.name+" ("+(match.away.country.empty() ? "no flag" : match.away.country)
+                            +"), game "+std::to_string(playersGame)+" of a best of "+std::to_string(match.best_of));
+                    players.known=std::move(answer.match);
+                } else {
+                    players.absent=answer.absent;
+                    if(!players.failureLogged)
+                        mscharged::platform::SessionLogLine("Watching: no players shown: "+answer.error);
+                    players.failureLogged=true;
+                }
+            }
+            const auto complete=[&] {
+                if(!players.known) return false;
+                for(int number=1;number<playersGame;++number)
+                    if(std::none_of(players.known->games.begin(),players.known->games.end(),
+                                    [&](const auto& game) { return game.number==number; }))
+                        return false;
+                return true;
+            };
+            if(!players.asking.valid() && !players.absent && !complete()
+               && (!players.asked || now-players.askedAt>=std::chrono::seconds(30))) {
+                players.asked=true;
+                players.askedAt=now;
+                players.asking=std::async(std::launch::async,
+                    [server=launch.settings.online_server,ticket=*playersTicket] {
+                        PlayersAnswer answer;
+                        mscharged::platform::WatchedMatch match;
+                        if(mscharged::platform::FetchWatchedMatch(server,ticket,match,answer.absent,answer.error))
+                            answer.match=std::move(match);
+                        return answer;
+                    });
+            }
+            if(!players.known || !launch.settings.replays_show_players) {
+                hostOverlay->SetScorebug(std::nullopt);
+                return;
+            }
+            // The flags' atlas, once (the overlay cannot free a texture).
+            if(!players.atlasMade) {
+                players.atlasMade=true;
+                const auto path=mscharged::PathUtf8(executableDirectory/"assets"/"flags"/"flags.png");
+                SDL_Surface* png=SDL_LoadPNG(path.c_str());
+                SDL_Surface* rgba=png ? SDL_ConvertSurface(png,SDL_PIXELFORMAT_RGBA32) : nullptr;
+                if(png) SDL_DestroySurface(png);
+                if(rgba && rgba->w>0 && rgba->h>0) {
+                    std::vector<unsigned char> pixels(std::size_t(rgba->w)*std::size_t(rgba->h)*4);
+                    for(int row=0;row<rgba->h;++row)
+                        std::memcpy(pixels.data()+std::size_t(row)*std::size_t(rgba->w)*4,
+                                    static_cast<const unsigned char*>(rgba->pixels)+std::size_t(row)*std::size_t(rgba->pitch),
+                                    std::size_t(rgba->w)*4);
+                    hostOverlay->SetFlagAtlas(reinterpret_cast<void*>(
+                        aurora_imgui_add_texture(std::uint32_t(rgba->w),std::uint32_t(rgba->h),pixels.data())));
+                } else
+                    mscharged::platform::SessionLogLine("Watching: no flags ("+path+" cannot be read): "+SDL_GetError());
+                if(rgba) SDL_DestroySurface(rgba);
+            }
+            const auto& match=*players.known;
+            const auto [homeWins,awayWins]=match.WinsBefore(playersGame);
+            mscharged::runtime::HostOverlay::Scorebug scorebug;
+            scorebug.home={match.home.name,match.home.country,homeWins};
+            scorebug.away={match.away.name,match.away.country,awayWins};
+            scorebug.set=match.best_of>1;
+            if(scorebug.set)
+                scorebug.caption=texts::T("menus.messages.watch_set_game",
+                    {{"game",std::to_string(playersGame)},{"best_of",std::to_string(match.best_of)}});
+            hostOverlay->SetScorebug(std::move(scorebug));
+        };
+#endif
+        auto observeReplays=[&] {
+            takeReplays();
+            if(replayStream.empty() || !replayStatus)return;
+            // The test's live stream grows as the match goes on (RECHARGED_TEST_LIVE_BEHIND).
+            if(liveTest.feed && liveTest.fed+1<liveTest.ends.size()) {
+                const double played=std::chrono::duration<double>(std::chrono::steady_clock::now()-liveTest.start).count();
+                const std::size_t to=std::min(liveTest.ends.size()-1,liveTest.first+std::size_t(played*10.0));
+                if(to>liveTest.fed) {
+                    liveTest.feed(replayStream.data()+liveTest.ends[liveTest.fed],
+                                  unsigned(liveTest.ends[to]-liveTest.ends[liveTest.fed]),to+1==liveTest.ends.size());
+                    liveTest.fed=to;
+                }
+            }
+            ChargedReplayStatus status{};
+            if(!replayStatus(&status,sizeof status))return;
+            const auto now=std::chrono::steady_clock::now();
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+            observePlayers(now);
+#endif
+            // Live, more than a second behind the stream: catching up (twice
+            // as fast, or turbo), until back within its usual half second.
+            const bool catchingUp=status.live && (status.behind>50 || (liveCatchingUp && status.behind>30));
+            // The sound is off while the replay plays faster than real time:
+            // catching up (from before its first step when the spectator came
+            // late), or at the viewer's 2x or 4x. In turbo the hint counts
+            // down how far behind the match it still is.
+            const bool turbo=status.live && status.turbo;
+            const bool fast=!status.finished && (status.speed>0 || turbo || catchingUp);
+            if(fast!=replaySoundHeld) {
+                replaySoundHeld=fast;
+                applyVolume();
+            }
+            if(!turbo) liveCatchUp={};
+            else if(liveCatchUp.at==std::chrono::steady_clock::time_point{} || now-liveCatchUp.at>=std::chrono::milliseconds(500)) {
+                // Twice a second: how far behind, and how soon live at the
+                // pace of the last looks (the stream grows by 50 steps a second).
+                if(liveCatchUp.at!=std::chrono::steady_clock::time_point{}) {
+                    const double seconds=std::chrono::duration<double>(now-liveCatchUp.at).count();
+                    const double gain=double(status.steps-liveCatchUp.steps)/seconds-50.0;
+                    liveCatchUp.gain=liveCatchUp.gain>0.0 ? 0.6*liveCatchUp.gain+0.4*gain : gain;
+                }
+                liveCatchUp.at=now;
+                liveCatchUp.steps=status.steps;
+                const std::string behind=mscharged::replay::MatchLength(status.behind);
+                liveCatchUp.text=liveCatchUp.gain>1.0
+                    ? texts::T("menus.messages.watch_turbo_eta",{{"behind",behind},
+                          {"seconds",std::to_string(int(double(status.behind)/liveCatchUp.gain+0.5))}})
+                    : texts::T("menus.messages.watch_turbo",{{"behind",behind}});
+            }
+            // Behind the catch-up screen the match draws nothing: the screen
+            // says how far it got (ten times a second).
+            if(hostOverlay && status.catch_up && (!catchUpShown || now-catchUpAt>=std::chrono::milliseconds(100))) {
+                catchUpAt=now;
+                mscharged::runtime::HostOverlay::CatchUp screen;
+                screen.title=texts::T("menus.messages.watch_catch_up_title");
+                ChargedPresenceSnapshot game{};
+                if(presenceSnapshot && presenceSnapshot(&game,sizeof game) && game.in_match && game.teams[0]>=0
+                   && game.teams[1]>=0)
+                    screen.score=texts::T("menus.messages.watch_catch_up_score",
+                        {{"home",mscharged::platform::CaptainName(game.teams[0])},
+                         {"home_goals",std::to_string(game.scores[0])},{"away_goals",std::to_string(game.scores[1])},
+                         {"away",mscharged::platform::CaptainName(game.teams[1])}});
+                const std::string played=mscharged::replay::MatchLength(status.steps);
+                const std::string live=mscharged::replay::MatchLength(status.steps+status.behind);
+                screen.progress=liveCatchUp.gain>1.0
+                    ? texts::T("menus.messages.watch_catch_up_eta",{{"played",played},{"live",live},
+                          {"seconds",std::to_string(int(double(status.behind)/liveCatchUp.gain+0.5))}})
+                    : texts::T("menus.messages.watch_catch_up_progress",{{"played",played},{"live",live}});
+                const double all=double(status.steps)+double(status.behind);
+                screen.percent=all>0.0 ? int(100.0*double(status.steps)/all) : 0;
+                hostOverlay->SetCatchUp(std::move(screen));
+                catchUpShown=true;
+                catchUpHeld=false;
+            } else if(hostOverlay && catchUpShown && !status.catch_up) {
+                if(!catchUpHeld) catchUpHeld=true;
+                else {
+                    hostOverlay->SetCatchUp(std::nullopt);
+                    catchUpShown=catchUpHeld=false;
+                }
+            }
+            if(status.speed!=replaySpeedShown || (status.steps && !replayStepsSeen) || catchingUp!=liveCatchingUp
+               || liveCatchUp.text!=liveBehindShown) {
+                replayStepsSeen=status.steps!=0;
+                replaySpeedShown=status.speed;
+                liveCatchingUp=catchingUp;
+                liveBehindShown=liveCatchUp.text;
+                replayHint=mscharged::runtime::HostOverlay::Hint{{"Left","Right"},status.speed<0
+                    ? std::string(texts::T("menus.messages.replay_paused"))
+                    : turbo ? liveCatchUp.text
+                    : catchingUp ? std::string(texts::T("menus.messages.watch_catching_up"))
+                    : status.live && status.speed==0 ? std::string(texts::T("menus.messages.watch_live"))
+                    : status.speed==0 ? std::string(texts::T("menus.messages.replay_normal"))
+                    : texts::T("menus.messages.replay_fast",{{"factor",status.speed==1?"2":"4"}})};
+                replayHintUntil=now+std::chrono::seconds(5);
+                if(hostOverlay)hostOverlay->SetHint(replayHint);
+            } else if(replayHint && replayHintUntil && now>=*replayHintUntil && status.speed>=0 && !turbo) {
+                // Paused, the hint stays: it says how to go on; catching up
+                // too, as it counts down.
+                replayHint.reset();
+                if(hostOverlay)hostOverlay->SetHint(std::nullopt);
+            }
+            if(status.differences && !replayDiffersShown) {
+                replayDiffersShown=true;
+                if(hostOverlay)hostOverlay->ShowMessage(texts::T("menus.messages.replay_differs"),now);
+            }
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+            if(liveWatch) {
+                // How far the picture is behind the stream that arrived, now and then.
+                if(status.started && !status.finished && now-liveLoggedAt>=std::chrono::seconds(30)) {
+                    liveLoggedAt=now;
+                    char line[120];
+                    std::snprintf(line,sizeof line,"Watching: step %u, the picture %.2f s behind the stream",
+                                  status.steps,status.behind/50.0);
+                    mscharged::platform::SessionLogLine(line);
+                    std::fprintf(stderr,"%s\n",line);
+                }
+                // The stream broke off: what came plays, then the game closes.
+                if(liveWatch->Failed() && !liveBrokeShown) {
+                    liveBrokeShown=true;
+                    if(hostOverlay)hostOverlay->ShowMessage(texts::T("menus.messages.watch_broke_off"),now);
+                }
+                if(status.finished && !liveWatch->NextGame() && !liveWatch->Over() && !liveWatch->Failed()) {
+                    // The game ended: the match's next one, or its end, comes.
+                    if(!liveWaitingShown) {
+                        liveWaitingShown=true;
+                        if(hostOverlay)hostOverlay->ShowMessage(texts::T("menus.messages.watch_waiting"),now);
+                    }
+                    return;
+                }
+                if(liveBrokeShown && !status.finished && status.behind==0 && !replayEnded) replayEnded=now;
+            }
+#endif
+            if(status.finished && !replayEnded) {
+                replayEnded=now;
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+                // The match's next game: this program starts again with the
+                // ticket and watches it from its start.
+                if(liveWatch && liveWatch->NextGame()) {
+                    mscharged::platform::ReopenWithReplay(launch.replay_path);
+                    if(hostOverlay)hostOverlay->ShowMessage(texts::T("menus.messages.watch_next_game"),now);
+                } else if(liveWatch && hostOverlay)
+                    hostOverlay->ShowMessage(texts::T("menus.messages.watch_over"),now);
+                // A kept game of a finished match (the dashboard's Replay):
+                // the match's next kept one, with its ticket, the same way.
+                if(!liveWatch && !launch.replay_next_link.empty()) {
+                    std::string error;
+                    const auto next=mscharged::WriteWatchLinkTicket(launch.replay_next_link,
+                                                                     std::filesystem::temp_directory_path(),error);
+                    if(!next.empty()) {
+                        mscharged::platform::ReopenWithReplay(next);
+                        if(hostOverlay)hostOverlay->ShowMessage(texts::T("menus.messages.watch_next_game"),now);
+                    } else
+                        mscharged::platform::SessionLogLine("Replay: the match's next game cannot be opened: "+error);
+                }
+#endif
+                // A live one has no count of its steps until it ends.
+                std::string line="Replay: ended after "+std::to_string(status.steps)
+                    +(status.live ? std::string() : " of "+std::to_string(status.total))
+                    +" steps; "+std::to_string(status.checked-status.differences)+" of "+std::to_string(status.checked)
+                    +" checks matched the recording";
+                if(status.differences)line+=" (the first difference at step "+std::to_string(status.first_difference)+")";
+                if(status.error[0])line+=std::string("; ")+status.error;
+                std::fprintf(stderr,"%s\n",line.c_str());
+                if(hostOverlay)hostOverlay->ShowMessage(texts::T("menus.messages.replay_finished"),now);
+            }
+            if(replayEnded && !replayQuit && now-*replayEnded>=std::chrono::seconds(3)) {
+                replayQuit=true;
+                SDL_Event quit{};
+                quit.type=SDL_EVENT_QUIT;
+                SDL_PushEvent(&quit);
+            }
+        };
         wgpu::Texture retainedEFB;
         Check(!resizeCheck || nativeSend, "Resize qualification requires source-native send");
         while(!exit && (interactive || !snapshot)) {
@@ -1411,7 +4075,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     const std::string text=widerOn?"Wider view: more of the stadium in matches"
                         :stretch?"Picture stretched to fill the window":"Picture keeps its "+shape+" shape";
                     mscharged::platform::SessionLogLine("Display: "+text+" (stretch hotkey)");
-                    if(hostOverlay) hostOverlay->ShowMessage(text,clock);
+                    // The same in the player's language.
+                    if(hostOverlay)
+                        hostOverlay->ShowMessage(widerOn ? std::string(texts::T("menus.messages.wider_view"))
+                            : stretch ? std::string(texts::T("menus.messages.stretched"))
+                            : texts::T("menus.messages.keeps_shape",{{"shape",shape}}),clock);
                 }
                 // The picture fills the window stretched, or with the wider view
                 // while the match's stadium is drawn (and a few frames after, so
@@ -1429,19 +4097,27 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         int(aspectWidth),int(aspectHeight),fill);
                     const std::string next(mscharged::StepRenderResolution(renderResolution,presses.resolution_steps,
                         picture.height));
-                    std::string text;
-                    if(next==renderResolution)
-                        text="3D resolution: "+std::string(mscharged::RenderResolutionLabel(renderResolution))
-                            +(presses.resolution_steps>0?" (the highest)":" (the lowest)");
-                    else {
+                    // For the log, and in the player's language.
+                    std::string text, message;
+                    const std::string label(mscharged::RenderResolutionLabel(next));
+                    if(next==renderResolution) {
+                        text="3D resolution: "+label+(presses.resolution_steps>0?" (the highest)":" (the lowest)");
+                        message=presses.resolution_steps>0
+                            ? texts::T("menus.messages.resolution_highest",{{"resolution",label}})
+                            : texts::T("menus.messages.resolution_lowest",{{"resolution",label}});
+                    } else {
                         renderResolution=next;
                         VISetFrameBufferScale(mscharged::RenderScale(renderResolution));
-                        text="3D resolution: "+std::string(mscharged::RenderResolutionLabel(renderResolution))+" ("
-                            +std::to_string(mscharged::RenderWidth(renderResolution,picture.width))+" \xC3\x97 "
-                            +std::to_string(mscharged::RenderHeight(renderResolution,picture.height))+")";
+                        const std::string width=std::to_string(mscharged::RenderWidth(renderResolution,
+                            picture.width));
+                        const std::string height=std::to_string(mscharged::RenderHeight(renderResolution,
+                            picture.height));
+                        text="3D resolution: "+label+" ("+width+" \xC3\x97 "+height+")";
+                        message=texts::T("menus.messages.resolution_size",
+                            {{"resolution",label},{"width",width},{"height",height}});
                     }
                     mscharged::platform::SessionLogLine("Display: "+text+" (3D resolution hotkeys)");
-                    if(hostOverlay) hostOverlay->ShowMessage(text,clock);
+                    if(hostOverlay) hostOverlay->ShowMessage(message,clock);
                 }
                 // Wider view: the window's picture shape against 16:9, while it fills the window.
                 if(setViewShape) {
@@ -1467,12 +4143,180 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             }
             const auto now=std::chrono::steady_clock::now();
             if(framePacing) framePacing->Update(now);
+            serviceChallengeCard(now);
+            if(menuInput) menuInput->Service(now);
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+            if(hostMenus) {
+                ChargedMenuSnapshot menu{};
+                const bool known=menuSnapshot(&menu,sizeof menu);
+                if(known && menuSamples.match) menu.network_match=CHARGED_NETWORK_ONLINE;
+                hostMenus->Service(known ? &menu : nullptr,now);
+                if(forfeitWaits && (competitive->ForfeitAnswered() || now-forfeitAsked>std::chrono::seconds(2))) {
+                    forfeitWaits=false;
+                    hostMenus->LeaveMatch();
+                }
+            }
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+            // An online match the opponent forfeited (no set's: its prompt says so).
+            if(onlineReports && hostOverlay)
+                if(const auto by=onlineReports->TakeOpponentForfeit())
+                    hostOverlay->ShowMessage(mscharged::texts::T("menus.messages.opponent_forfeited",
+                        {{"name",by->empty() ? std::string(mscharged::texts::T("menus.messages.your_opponent")) : *by}}),now);
+#endif
+            // A challenge or the last set again: the menus' prompt page, over
+            // whatever shows; B or BACK is its second answer.
+            if(hostMenus) {
+                const bool want=cardPrompt.shown;
+                // The prompt as it is now: built again only when it changes
+                // (or the update lock does).
+                const int promptKey=want ? cardPromptVersion*2+int(onlineLocked()) : menuSamples.prompt ? -1 : 0;
+                if(promptKey!=shownPromptKey) {
+                    if(want) {
+                        mscharged::overlay::OverlayPrompt prompt;
+                        buildPrompt(prompt);
+                        hostMenus->SetPrompt(std::move(prompt));
+                    } else if(menuSamples.prompt) {
+                        mscharged::overlay::OverlayPrompt prompt;
+                        prompt.kind=mscharged::overlay::OverlayPrompt::Kind::Challenge;
+                        prompt.kicker=texts::T("menus.prompt.challenge");
+                        prompt.title=texts::T("menus.prompt.challenges_you",{{"name","Mario"}});
+                        prompt.detail="Competitive: 3 minutes, best of 3, random stadium";
+                        prompt.primary=texts::T("menus.prompt.accept");
+                        prompt.secondary=texts::T("menus.prompt.decline");
+                        prompt.note=texts::T("menus.prompt.note");
+                        prompt.opponent.name="Mario";
+                        prompt.opponent.initials="M";
+                        prompt.opponent.tint_seed=3;
+                        hostMenus->SetPrompt(std::move(prompt));
+                    } else hostMenus->SetPrompt(std::nullopt);
+                    shownPromptKey=promptKey;
+                }
+                if(const auto stadium=hostMenus->TakePromptStadium(); stadium && want && cardPrompt.pick)
+                    cardPrompt.stadium=*stadium;
+                if(const auto answer=hostMenus->TakePromptAnswer()) {
+                    if(want && !cardPrompt.answer) cardPrompt.answer=*answer;
+                    else if(!want) menuSamples.prompt=false;
+                }
+            }
+            // The online pages' data comes while the menus show.
+            const bool menusShown=hostMenus && hostMenus->IsShown();
+            if(menusShown!=overlayOpen) {
+                overlayOpen=menusShown;
+                if(overlayOpen) {
+                    overlayNotice.clear();
+                    // The player's presets as they are now (the launcher may have changed them).
+                    myPresets.clear();
+                    for(const auto& preset:mscharged::launcher::LoadMatchPresets(
+                            launch.config.path.parent_path()/"match-presets").presets)
+                        if(!preset.built_in)
+                            myPresets.push_back({preset.name,mscharged::launcher::ChallengeRules(preset),0});
+                }
+                if(panelFeed) panelFeed->SetOpen(overlayOpen);
+            }
+            if(const auto error=overlayPictures.Statistics().last_error; error!=overlayPicturesError) {
+                overlayPicturesError=error;
+                if(!error.empty()) mscharged::platform::SessionLogLine("Menus: a picture failed ("+error+")");
+            }
+            if(overlayOpen && panelFeed) {
+                ChargedPresenceSnapshot game{};
+                const char* kind=presenceSnapshot && presenceSnapshot(&game,sizeof game)
+                    ? mscharged::platform::MatchKindOf(game) : nullptr;
+                panelFeed->SetActivity(inMatch() ? "match" : "game",kind ? kind : "");
+            }
+            // The panel's keys in the corner while the game is in its menus
+            // (the title's demo matches count as menus), a few times a second.
+            if(hostOverlay && panelHint && now-panelHintChecked>=std::chrono::milliseconds(250)) {
+                panelHintChecked=now;
+                ChargedPresenceSnapshot game{};
+                const bool menus=presenceSnapshot && presenceSnapshot(&game,sizeof game) && game.scene_count>0
+                    && !(game.in_match && game.mode!=2);
+                hostOverlay->SetHint(menus ? panelHint : replayHint);
+            }
+            // Changed game options reach the game between matches.
+            if(pendingTweaks && setTweaks && !inMatch()) {
+                setTweaks(*pendingTweaks);
+                pendingTweaks.reset();
+                mscharged::platform::SessionLogLine("Game options: changed in the overlay");
+            }
+#endif
+            // What the player asked for and waits for (a rematch, a challenge,
+            // a search): for whom, and the seconds until the game calls it off
+            // (a search: how long it runs); CANCEL under it, and where else.
+            if(hostOverlay && competitive && now-rematchShown>=std::chrono::milliseconds(250)) {
+                rematchShown=now;
+                std::optional<mscharged::runtime::HostOverlay::Status> status;
+                if(const auto asked=competitive->PendingRequest()) {
+                    const auto words=describeRequest(*asked,now);
+                    std::string hint;
+                    if(menuInput) {
+                        const std::string key=mscharged::platform::HotkeyName(hotkeys[mscharged::HotkeyPanel]);
+                        const bool none=key.empty() || key==mscharged::kNoHotkey;
+                        hint=mscharged::texts::T("menus.status.cancel_hint",
+                            {{"keys",none ? std::string("HOME") : key+" / HOME"}});
+                    }
+                    status=mscharged::runtime::HostOverlay::Status{words.title,words.text,
+                        mscharged::texts::T("menus.status.cancel"),hint};
+                }
+                hostOverlay->SetStatus(std::move(status));
+            }
+            // RECHARGED_CAPTURE_ONLINE=request without competitive play: the
+            // box of a challenge waiting a minute, until its CANCEL.
+            if(hostOverlay && !competitive && menuSamples.variant=="request" && now-rematchShown>=std::chrono::milliseconds(250)) {
+                rematchShown=now;
+                if(sampleRequestSince==std::chrono::steady_clock::time_point{}) sampleRequestSince=now;
+                const auto left=std::max<long long>(0,60-std::chrono::floor<std::chrono::seconds>(now-sampleRequestSince).count());
+                hostOverlay->SetStatus(sampleRequestCancelled || !left ? std::nullopt
+                    : std::optional(mscharged::runtime::HostOverlay::Status{mscharged::texts::T("menus.status.challenge_title"),
+                        mscharged::texts::T("menus.status.challenge_waiting",{{"name","Luigi"},{"seconds",std::to_string(left)}}),
+                        mscharged::texts::T("menus.status.cancel"),
+                        mscharged::texts::T("menus.status.cancel_hint",{{"keys","F1 / HOME"}})}));
+            }
+            // A click on its CANCEL (taken from the game).
+            if(sStatusCancels.exchange(0)>0) {
+                if(competitive) competitive->CancelRequest();
+                else if(menuSamples.variant=="request") {
+                    sampleRequestCancelled=true;
+                    hostOverlay->ShowMessage(mscharged::texts::T("menus.messages.your_challenge_cancelled",{{"name","Luigi"}}),now);
+                    mscharged::platform::SessionLogLine("Menus: the sample challenge's CANCEL was clicked");
+                }
+            }
             if(hostOverlay) {
                 if(const auto rate=frameRate.Sample(frames,now)) hostOverlay->SetRate(*rate);
                 const auto size=aurora_get_window_size();
+                // The status's button, in the window's coordinates (the mouse's):
+                // lit under the mouse, and its click the host's.
+                int windowWidth=0,windowHeight=0;
+                SDL_GetWindowSize(host.window,&windowWidth,&windowHeight);
+                const float toWindowX=size.native_fb_width ? float(windowWidth)/float(size.native_fb_width) : 1.0f;
+                const float toWindowY=size.native_fb_height ? float(windowHeight)/float(size.native_fb_height) : 1.0f;
+                const auto statusButton=[&]()->std::optional<std::array<float,4>> {
+                    const auto area=hostOverlay->StatusActionArea();
+                    if(!area) return std::nullopt;
+                    return std::array<float,4>{(*area)[0]*toWindowX,(*area)[1]*toWindowY,(*area)[2]*toWindowX,
+                                               (*area)[3]*toWindowY};
+                };
+                bool hover=false;
+                if(const auto button=statusButton(); button && SDL_GetMouseFocus()==host.window) {
+                    float mouseX=0,mouseY=0;
+                    SDL_GetMouseState(&mouseX,&mouseY);
+                    hover=mouseX>=(*button)[0] && mouseX<(*button)[2] && mouseY>=(*button)[1] && mouseY<(*button)[3];
+                }
+                hostOverlay->SetStatusHover(hover);
                 hostOverlay->Update(size.native_fb_width,size.native_fb_height,now);
+                if(const auto button=statusButton())
+                    mscharged::platform::SetHotkeyClickArea((*button)[0],(*button)[1],(*button)[2],(*button)[3],
+                                                            [] { sStatusCancels.fetch_add(1); });
+                else mscharged::platform::SetHotkeyClickArea(0,0,0,0,nullptr);
             }
             if(windowMemory) windowMemory->Service(now);
+#if defined(__SWITCH__)
+            // The CPU's boost clock while the game only loads (nx_init.cpp).
+            if(presenceSnapshot && now-loadingChecked>=std::chrono::milliseconds(250)) {
+                loadingChecked=now;
+                ChargedPresenceSnapshot game{};
+                if(presenceSnapshot(&game,sizeof game)) charged_switch_follow_loading(game.task_state);
+            }
+#endif
             Check(interactive || now-start<std::chrono::seconds(sourceBoot?90:40),"Original source scene diagnostic timed out");
             if(nativeSend) {
                 {
@@ -1490,7 +4334,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // caught up, instead of growing it to the full-drain limit below.
                 aurora::gx::fifo::rebase_if_caught_up();
                 if(frameTiming)frameTiming->BeginFrame();
-                frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt(); ++frames;
+                frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeNetplay(); observeOnlineMatch(); observeReplays(); AuroraGXEndDrawReceipt(); ++frames;
                 mscharged::platform::FrameFinished(); // the freeze watch (#121)
                 if(frameTiming){ if(takeStadium)frameTiming->SetArena(takeStadium()); frameTiming->EndFrame(ReadFrameTimingCounters()); }
                 // Nothing else drains once no host observation is due: without
@@ -1580,7 +4424,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!aurora_begin_frame()){std::this_thread::yield();continue;}
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-            frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt();
+            frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeNetplay(); observeOnlineMatch(); observeReplays(); AuroraGXEndDrawReceipt();
             mscharged::platform::FrameFinished(); // the freeze watch (#121)
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;
@@ -1707,6 +4551,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         if(priorBoot)
             mscharged::platform::Trace("Prior Boot diagnostic retains original effects/NPC resources and game arenas at terminal exit; full source cleanup remains pending.\n");
         mscharged::runtime::FrameTimingLog::FinishForProcessExit();
+        replayExit();
         mscharged::platform::SessionLogLine("=== Session ended ===");
         std::fflush(nullptr);mscharged::platform::TerminateProcessNow(0);
         } catch(const std::exception& e) {

@@ -358,6 +358,33 @@ void Run(int argc,char** argv) {
     std::array<u8,512> copy{};
     DSPBackendReadMemory(endpoint,0x4000,copy.data(),copy.size());
     Check(copy==expected,"actual device read changed raw byte order/content");
+    {
+        // A memory scope holds the lock for its transfers (the AX device's
+        // command frame); another thread's transfer waits for its end.
+        std::array<u8,512> inside{};
+        std::atomic<bool> other_done{false};
+        std::thread other;
+        {
+            const NativeDSPMemoryScope scope;
+            const NativeDSPMemoryScope nested;
+            DSPBackendReadMemory(endpoint,0x4000,inside.data(),inside.size());
+            Check(inside==expected,"transfer inside a memory scope changed its bytes");
+            Throws([&]{DSPBackendReadMemory(endpoint,0x4000,inside.data(),513);},"scoped transfer crossed its pin");
+            other=std::thread([&]{
+                std::array<u8,16> bytes{};
+                DSPBackendReadMemory(endpoint,0x4000,bytes.data(),bytes.size());
+                other_done=true;
+            });
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            Check(!other_done,"another thread's transfer ran inside this thread's memory scope");
+        }
+        other.join();
+        Check(other_done,"another thread's transfer never ran after the memory scope");
+        try {const NativeDSPMemoryScope scope;throw std::runtime_error("failure inside a scope");}
+        catch (const std::runtime_error&) {}
+        DSPBackendReadMemory(endpoint,0x4000,inside.data(),inside.size());
+        Check(inside==expected,"memory scope kept its lock after an exception");
+    }
     std::array<u8,128> output{};
     for(unsigned i=0;i<output.size();++i)output[i]=static_cast<u8>((i*11+7)&255);
     DSPBackendWriteMemory(endpoint,0x4200,output.data(),output.size());

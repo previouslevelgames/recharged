@@ -10,10 +10,10 @@ Recharged plays **Mario Strikers Charged** natively on your PC, from your own co
 
 ## Make it yours
 
-- **Display** and **Audio**: the window, the picture and the sound levels.
-- **Miis**: online play needs a Mii; create one here or import yours from Dolphin.
-- **Teams** and **Matches**: the sidekicks each captain starts with, and presets of the match settings and cheats.
-- **Gameplay**: optional tweaks to the original game, and HD texture packs.
+- **In the game**: **OPTIONS** (in its main menu, or **F1** / HOME anywhere) holds the picture, the sound, the rumble and the optional gameplay tweaks; they change while you play.
+- **Online**: your player profile and Mii, the match rules you challenge with and the sidekicks each captain starts with.
+- **Graphics**: how the game window opens and which graphics card draws it.
+- **Extras**: HD texture packs, Training and the replays of your matches.
 
 ## Good to know
 

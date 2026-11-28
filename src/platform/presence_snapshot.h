@@ -27,6 +27,12 @@ struct ChargedPresenceSnapshot
     // Bit 0: a player on this machine plays the home team, bit 1: the away
     // team (none: the computer plays both).
     int human_sides;
+    // A match's own menu is open: its pause menu, or a network error over it
+    // (FrontEnd::m_bInPauseMenuState). The scenes above do not show it.
+    int match_menu;
+    // The task manager's state (Game/Task/GameTaskState.h): the loading ones
+    // (TASK_BOOT_TO_FE, TASK_FE_TO_GAME...) run only a loading screen.
+    unsigned task_state;
 };
 
 #ifdef __cplusplus

@@ -34,6 +34,7 @@ enum class GameTweak : unsigned
     SuperTeam = 12,
     SecureStadiums = 13,
     MatchPoint = 14,
+    OverrideRetailMenus = 15,
 };
 
 struct GameTweakInfo
@@ -45,63 +46,43 @@ struct GameTweakInfo
     bool on_by_default = false; // recommended to every player: on without its [gameplay] key
 };
 
-inline constexpr std::array<GameTweakInfo, 14> kGameTweaks{{
-    {GameTweak::SkipIntro, "skip_intro", "Skip intro",
-     "Starts at the main menu: no notice screens, studio logo, intro movie or title screen. Loading still takes as long."},
-    {GameTweak::FastMenus, "fast_menus", "Fast menus",
-     "Skips menu transitions, also in the pause menu and on the screens after a match. Matches, movies and the "
-     "credits are unchanged."},
-    {GameTweak::NoMegaStrikes, "no_mega_strikes", "No Mega Strikes",
-     "Mega Strikes are off for both teams, the usual competitive rule. Skillshots stay, and Strikers 101 lessons "
-     "keep their own rules."},
+inline constexpr std::array<GameTweakInfo, 15> kGameTweaks{{
+    {GameTweak::SkipIntro, "skip_intro", "Skip intro", "Starts at the main menu, without the intro screens and movie."},
+    {GameTweak::FastMenus, "fast_menus", "Fast menus", "Skips the transitions between menu screens."},
+    {GameTweak::NoMegaStrikes, "no_mega_strikes", "No Mega Strikes", "Mega Strikes are off for both teams."},
     {GameTweak::UnlockAll, "unlock_all", "Unlock everything",
-     "All characters, stadiums and cheats, through the game's own unlock switch. Your save is not changed; "
-     "cup finals then no longer feature the locked captains."},
+     "Unlocks all characters, stadiums and cheats without changing your save."},
     {GameTweak::CpuVsCpu, "cpu_vs_cpu", "CPU vs CPU",
-     "The CPU plays both teams in Domination if you press Done on Choose Sides without picking a side. Any "
-     "controller can still pause, and Choose Sides in the pause menu can hand a match over to the CPU too."},
+     "The CPU plays both teams when nobody picks a side in Domination."},
     {GameTweak::FastTerrain, "fast_terrain", "Fast terrain",
-     "Every stadium plays like the fast, dry field of Bowser Stadium: same running speed, ball roll and bounce, "
-     "no sliding on ice or mud, no slow sand in the Sand Tomb. Looks and hazards stay; online matches are unchanged."},
+     "Every stadium plays like the fast, dry field of Bowser Stadium."},
     {GameTweak::MirrorMatch, "mirror_match", "Mirror match",
-     "Both teams can pick the same captain in Domination. The away team wears an away kit, in the menus too: the "
-     "game's own, or for Mario, Luigi, Wario and Waluigi one made from their kit (blue, sky blue, blue, orange). "
-     "Online matches are unchanged."},
+     "Both teams can pick the same captain, the away team in an away kit."},
     {GameTweak::ThunderIslandWalls, "thunder_island_walls", "Thunder Island walls",
-     "Thunder Island's open sides get the electric fence of every other stadium: the ball and items bounce off, and "
-     "players knocked into it are electrocuted instead of falling off the island. The fence stays invisible; online "
-     "matches are unchanged."},
-    {GameTweak::BluePeach, "blue_peach", "Blue Peach",
-     "Peach's team wears her unused blue and yellow kit on the field: Peach, her sidekicks and her goalie. The game "
-     "has no blue menu pictures, Mega Strike hand, banners or crowd for it, so those stay pink."},
-    {GameTweak::FairBallContests, "fair_ball_contests", "Feder's fair ball contests",
-     "When players of both teams reach a loose ball at once, the defending team (the one whose goal is on the "
-     "ball's side of the field) takes it. On the Wii the home was favoured instead: the Wii game updates the "
-     "players in an order it shuffles at kickoff, slightly in the home team's favour, and settles one-timers, "
-     "first-time shots off rebounds and pass receptions with the home team always first. Named after Feder, who "
-     "made a Gecko code for this on the Wii. On by default; online matches always play with it.",
+     "Thunder Island's open sides get the electric fence of every other stadium."},
+    {GameTweak::BluePeach, "blue_peach", "Blue Peach", "Peach's team wears her unused blue kit on the field."},
+    {GameTweak::FairBallContests, "fair_ball_contests", "Defence priority",
+     "When both teams reach a loose ball at once, the defending team gets it. Based on Feder's Gecko code for the "
+     "Wii.",
      true},
     {GameTweak::RobotGoalies, "robot_goalies", "Robot goalies",
-     "Both goalies wear the robot Kritter skin of the Super Team from Super Mario Strikers, which the game's disc "
-     "still holds unused: red lens eyes, metal plating and the robot jersey. Only the look changes."},
+     "Both goalies wear the unused robot Kritter skin from the game's disc."},
     {GameTweak::SuperTeam, "super_team", "Super Team (Work in Progress)",
-     "A team's captain and sidekicks become the robots of the Super Team from Super Mario Strikers, fitted to each "
-     "character's size. Needs a Super Mario Strikers (GameCube) disc image. Bowser, Petey Piranha and Boo keep "
-     "their own look; only the look changes."},
+     "A team's players become Super Team robots from a Super Mario Strikers (GameCube) disc image."},
     {GameTweak::SecureStadiums, "secure_stadiums", "Secure stadiums",
-     "The game's Secure Stadium cheat in every offline match: no lightning, wind, flying debris, solar flares, "
-     "bubbling lava, Storm Ship tilt, Thwomps or sand patches. The electric fences stay. Striker Challenges keep "
-     "their rules; online matches are unchanged."},
+     "No stadium hazards such as lightning, wind or Thwomps in offline matches."},
     {GameTweak::MatchPoint, "match_point", "Match point",
-     "In a match to a number of goals, the kickoff that finds both teams one goal from winning plays overtime's siren "
-     "and sudden death music in place of the stadium's, until the match ends, and the HUD shows SUDDEN DEATH instead "
-     "of First to. Only sound and HUD change. On by default.",
+     "Sudden death music plays when both teams are one goal from winning.",
+     true},
+    {GameTweak::OverrideRetailMenus, "override_retail_menus", "Override retail menus (Dev)",
+     "Recharged's own menus replace the game's.",
      true},
 }};
 
-// Start training ([gameplay] training_item, training_captain, training_stadium): the
-// config's names; kTrainingItemKinds gives each item's ePowerUpType, and the
-// captains and stadiums are in the order of eTeamID and eStadiumID.
+// Training ([gameplay] training_item) and the captains and stadiums the
+// launcher names (its replays): the config's names; kTrainingItemKinds gives
+// each item's ePowerUpType, and the captains and stadiums are in the order
+// of eTeamID and eStadiumID.
 inline constexpr std::array<const char*, 28> kTrainingItems{
     "none",
     "green_shell", "green_shell_3", "green_shell_5", "giant_green_shell",

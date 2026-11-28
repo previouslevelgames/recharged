@@ -29,13 +29,15 @@
 
 #include <cstring>
 
+extern "C" bool mscharged_competitive_set_game(void); // competitive_match.cpp
+
 namespace
 {
 ChargedOnlineMatchSnapshot sSeries{}; // the series under way, or the last one
 unsigned sSeriesCount = 0;
-// A series ended and the game that ended it may still be on screen: the next
-// series waits for another game.
-bool sAwaitingGame = false;
+// The last series is closed: it ended, and the game that ended it may still
+// be on screen. No series begins until that game is gone (the menus).
+bool sSeriesClosed = false;
 ChargedOnlineError sError{}; // the last error code shown
 
 bool UnderWay() { return sSeries.series && !sSeries.ended; }
@@ -120,10 +122,12 @@ void Begin()
 {
     sSeries = ChargedOnlineMatchSnapshot{};
     sSeries.series = ++sSeriesCount;
-    sAwaitingGame = false;
+    sSeriesClosed = false;
     GameInfoManager* info = nlSingleton<GameInfoManager>::Instance();
     sSeries.profile_id = ProfileId();
-    sSeries.ranked = IsOnlineRankedMatch() ? 1 : 0;
+    // A Recharged set's games meet in RANKED but are unranked: they put no
+    // points on its boards (tweak patch 0082).
+    sSeries.ranked = IsOnlineRankedMatch() && !mscharged_competitive_set_game() ? 1 : 0;
     sSeries.best_of = info && info->GetCurrentSettings() ? info->GetCurrentSettings()->NumGames : 0;
     sSeries.side = GetLocalNetworkPlayingSide() == 1 ? 1 : 0;
     for (int side = 0; side < 2; ++side)
@@ -175,7 +179,7 @@ void mscharged_tweak_online_game_result(int result, int homeScore, int awayScore
     }
     const bool underWay = UnderWay();
     ChargedOnlineSeriesResult(sSeries, result, reported != 0, played ? &game : nullptr);
-    if (underWay && !UnderWay()) sAwaitingGame = true;
+    if (underWay && !UnderWay()) sSeriesClosed = true;
 }
 
 void mscharged_tweak_online_error(int code)
@@ -186,18 +190,55 @@ void mscharged_tweak_online_error(int code)
     sError.profile_id = ProfileId();
 }
 
-bool ChargedOnlineDossierGame(DesyncDossierHeader& header)
+bool ChargedOnlineRecordingGame(unsigned& series, int& game, unsigned& profile_id)
 {
     // As a result does: a game the host has not looked at since its kickoff
     // begins its series.
     if (!Online()) return false;
-    if (!UnderWay() && !sAwaitingGame && Begun()) Begin();
+    if (!UnderWay() && !sSeriesClosed && Begun()) Begin();
     if (!UnderWay() || !sSeries.profile_id) return false;
-    header.series = sSeries.series;
-    header.game = unsigned(sSeries.games) + 1;
-    header.profile_id = sSeries.profile_id;
+    series = sSeries.series;
+    game = sSeries.games + 1;
+    profile_id = sSeries.profile_id;
+    return true;
+}
+
+bool ChargedOnlineDossierGame(DesyncDossierHeader& header)
+{
+    unsigned series = 0, profile = 0;
+    int game = 0;
+    if (!ChargedOnlineRecordingGame(series, game, profile)) return false;
+    header.series = series;
+    header.game = unsigned(game);
+    header.profile_id = profile;
     header.side = unsigned(sSeries.side);
     return true;
+}
+
+bool ChargedOnlineSideMiiNames(char (&names)[2][48])
+{
+    if (!Online()) return false;
+    bool any = false;
+    for (int side = 0; side < 2; ++side)
+    {
+        names[side][0] = 0;
+        if (const NetworkDraftTeam* team = DraftTeam(side))
+        {
+            Utf8(team->mPlayers[0].mName, names[side], sizeof names[side]);
+            any |= names[side][0] != 0;
+        }
+    }
+    return any;
+}
+
+void ChargedOnlineSeriesForfeit()
+{
+    if (!UnderWay()) return;
+    sSeries.ended = 2;
+    sSeries.stopped_by = kChargedOnlineForfeit;
+    // The forfeited game stays on screen until the connection closes: it
+    // begins no new series.
+    sSeriesClosed = true;
 }
 
 extern "C" __attribute__((visibility("default"))) bool charged_online_match_snapshot(
@@ -210,17 +251,32 @@ extern "C" __attribute__((visibility("default"))) bool charged_online_match_snap
     const bool online = Online();
     if (!g_pGame || g_pGame->m_eGameState == GS_NONE || g_pGame->m_eGameState == GS_PRE_GAME
         || g_pGame->m_eGameState == GS_UNLOADING)
-        sAwaitingGame = false;
-    if (!UnderWay() && !sAwaitingGame && online && g_pGame
+        sSeriesClosed = false;
+    if (!UnderWay() && !sSeriesClosed && online && g_pGame
         && (g_pGame->m_eGameState == GS_KICKOFF || g_pGame->m_eGameState == GS_GAMEPLAY))
         Begin();
     else if (UnderWay() && !online)
     {
         sSeries.ended = 2;
         sSeries.stopped_by = 0; // with no result
-        sAwaitingGame = true;
+        sSeriesClosed = true;
     }
     *snapshot = sSeries;
     snapshot->error = sError;
+    snapshot->playing = 0;
+    snapshot->playing_scores[0] = snapshot->playing_scores[1] = 0;
+    if (UnderWay() && online && g_pGame && g_pTeams[0] && g_pTeams[1])
+        switch (g_pGame->m_eGameState)
+        {
+        case GS_KICKOFF:
+        case GS_POST_GOAL:
+        case GS_GAMEPLAY:
+        case GS_OVERTIME:
+            snapshot->playing = sSeries.games + 1;
+            snapshot->playing_scores[0] = g_pTeams[0]->GetScore();
+            snapshot->playing_scores[1] = g_pTeams[1]->GetScore();
+            break;
+        default: break;
+        }
     return true;
 }

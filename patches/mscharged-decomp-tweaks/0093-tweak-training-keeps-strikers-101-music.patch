@@ -1,0 +1,121 @@
+From: mscharged-port
+Subject: Tweak: training keeps Strikers 101's music up to the match
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+Strikers 101's FREE PLAY (tweak patch 0092) went into Domination's captains
+with the main menu's music (stream 1), and the captains, sidekicks and
+Choose Sides would start Domination's (stream 2, the same music). In
+training's flow none of them changes it now: Strikers 101's music goes on
+up to the match. The stadiums stop the music for their previews' sound, and
+their Back, which goes to Choose Sides, starts Strikers 101's again instead
+of Domination's.
+
+diff --git a/src/Game/SH/SHChallengeSelect.cpp b/src/Game/SH/SHChallengeSelect.cpp
+index 1756144..8da17a9 100644
+--- a/src/Game/SH/SHChallengeSelect.cpp
++++ b/src/Game/SH/SHChallengeSelect.cpp
+@@ -544,7 +544,7 @@ void ChallengeSelectScene::StartFreePlay()
+ {
+     // As the main menu's Domination (SHMainMenu::ApplyItem), then marked as
+     // training's match (SetMode clears the mark): the list stays where it was
+-    // for the way back.
++    // for the way back. Strikers 101's music goes on up to the match.
+     GameInfoManager* gameInfo = GameInfoManager::Instance();
+     gameInfo->SetMode(GameInfoManager::GM_FRIENDLY, 0);
+     g_bTrainingMatch = true;
+@@ -553,7 +553,6 @@ void ChallengeSelectScene::StartFreePlay()
+     gameInfo->SetTeam(1, 0);
+     gameInfo->ResetPlayingSides();
+     g_pStrikerChallenge->mChallengeOffset = mChallengeOffset;
+-    FEMusic::StartStreamIfDifferent(1);
+     GameSceneManager::Instance()->Push(SCENE_CHOOSE_CAPTAINS_DOMINATION, SCREEN_FORWARD, true);
+ }
+ #endif
+diff --git a/src/Game/SH/SHChooseCaptains.cpp b/src/Game/SH/SHChooseCaptains.cpp
+index e6d0bca..7571aa8 100644
+--- a/src/Game/SH/SHChooseCaptains.cpp
++++ b/src/Game/SH/SHChooseCaptains.cpp
+@@ -257,6 +257,11 @@ void ChooseCaptainsSceneV2::SceneCreated()
+         mCaptainComponents[1].ShowSlideIn();
+         mSelectButtonInstances[1]->SetVisible(false);
+         UpdateSelectText(1);
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Training": Strikers 101's FREE PLAY keeps its music
++        // here, as Choose Sides and the stadiums do.
++        if (!g_bTrainingMatch)
++#endif
+         FEMusic::StartStreamIfDifferent(2);
+     }
+ 
+diff --git a/src/Game/SH/SHChooseSidekicks.cpp b/src/Game/SH/SHChooseSidekicks.cpp
+index 9860b11..e134d01 100644
+--- a/src/Game/SH/SHChooseSidekicks.cpp
++++ b/src/Game/SH/SHChooseSidekicks.cpp
+@@ -32,6 +32,9 @@
+ #include "NL/nlBind.h"
+ #include "NL/nlFunction.inl"
+ #include "Game/FE/feMusic.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "Game/Team.h"
++#endif
+ #include "Game/Render/FrontEndPresentation.h"
+ #include "NL/nlString.h"
+ #include "mscharged_tweaks.h"
+@@ -346,6 +349,11 @@ void ChooseSidekicksSceneV2::SceneCreated()
+         mSidekickComponents[1].SetCaptain(GameInfoManager::Instance()->GetTeam(1));
+         mCaptainComponents[1].ShowSlideIn();
+         LoadSidekickImages(captain, GameInfoManager::Instance()->GetTeam(1));
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Training": Strikers 101's FREE PLAY keeps its music
++        // here, as Choose Sides and the stadiums do.
++        if (!g_bTrainingMatch)
++#endif
+         FEMusic::StartStreamIfDifferent(2);
+     }
+     LoadSidekickTextures();
+diff --git a/src/Game/SH/SHChooseSides.cpp b/src/Game/SH/SHChooseSides.cpp
+index 54a05da..0a39bf1 100644
+--- a/src/Game/SH/SHChooseSides.cpp
++++ b/src/Game/SH/SHChooseSides.cpp
+@@ -280,7 +280,12 @@ void SHChooseSides2::SceneCreated()
+         awayCPU->m_bVisible = false;
+         homeCPUOver->m_bVisible = false;
+         awayCPUOver->m_bVisible = false;
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Training": Strikers 101's music goes on into its match.
++        if (mContext != PAUSE && !g_bTrainingMatch)
++#else
+         if (mContext != PAUSE)
++#endif
+         {
+             FEMusic::StartStreamIfDifferent(2);
+         }
+diff --git a/src/Game/SH/SHStadiumSelect.cpp b/src/Game/SH/SHStadiumSelect.cpp
+index 3ae592d..bfecf57 100644
+--- a/src/Game/SH/SHStadiumSelect.cpp
++++ b/src/Game/SH/SHStadiumSelect.cpp
+@@ -19,6 +19,9 @@
+ #include "NL/nlFunctionMemory.h"
+ #include "NL/nlBind.h"
+ #include "Game/GameInfo.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "Game/Team.h"
++#endif
+ #include "Game/FE/feHelpFuncs_decl.h"
+ #include "Game/FE/feDPD.h"
+ #include "Game/DB/StadiumInfo.h"
+@@ -336,7 +339,14 @@ void StadiumSelectScene::Update(float deltaTime)
+                 else
+                 {
+                     FEAudio::PlayAnimAudioEvent(0xBF2ED62D, 0, 0, true);
++#if defined(MSCHARGED_TWEAKS)
++                    // Port tweak "Training": back to Choose Sides, Strikers
++                    // 101's music starts again (the stadiums stop the music
++                    // for their previews' sound).
++                    FEMusic::StartStreamIfDifferent(g_bTrainingMatch ? 11 : 2);
++#else
+                     FEMusic::StartStreamIfDifferent(2);
++#endif
+                     FrontEndPresentation::GetInstance()->Call("FromStadiumSelectToGrudgeMatch");
+                 }
+                 mMoviePlayer.Stop();

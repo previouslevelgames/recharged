@@ -5,11 +5,13 @@
 #endif
 #include "platform/presence_snapshot.h"
 
+#include "Game/FE/feManager.h"
 #include "Game/Game.h"
 #include "Game/GameInfo.h"
 #include "Game/GameSceneManager.h"
 #include "Game/Sys/clock.h"
 #include "Game/Team.h"
+#include "NL/nlTask.h"
 
 extern "C" __attribute__((visibility("default"))) bool charged_presence_snapshot(ChargedPresenceSnapshot* snapshot,
                                                                                  unsigned size)
@@ -49,9 +51,12 @@ extern "C" __attribute__((visibility("default"))) bool charged_presence_snapshot
         s.strikers101 = info->mIsInStrikers101Mode != 0;
     }
 
+    if (const nlTaskManager* tasks = nlTaskManager::m_pInstance) s.task_state = tasks->mCurrentState;
+
     if (cGame* game = g_pGame)
     {
         s.in_match = 1;
+        s.match_menu = FrontEnd::m_bInPauseMenuState;
         s.game_state = game->m_eGameState;
         s.game_duration = game->m_fGameDuration;
         if (game->m_pGameClock) s.game_time = game->m_pGameClock->m_fTimer;

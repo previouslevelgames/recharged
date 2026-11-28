@@ -1,0 +1,178 @@
+From: mscharged-port
+Subject: Tweak: a training match's pause has TRAINING OPTIONS
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A training match (g_bTrainingMatch, offline: the launcher's, or Strikers
+101's FREE PLAY, tweak patch 0092) has no use for the pause menu's
+Statistics. Its button is now TRAINING OPTIONS, as a challenge's is its
+objectives: the host's text (mscharged_tweak_training_options_text, the
+module's English without one) on the button's three slides, set when the
+scene is created. Its press goes to the host
+(mscharged_tweak_menu_press_taken, as Audio and Visual Options do with
+Recharged's menus on), whose training page opens over the menu, which stays
+as it is; with nothing to take it, the Statistics come as before.
+
+The team that trains gets its item at every kickoff when it holds none
+(cGame's kickoff reset), and keeps it when using it (DesireUsePowerup), so
+another item from the page would never come. The kickoff's code is now
+GiveTrainingItem, which the host's page also calls (through its menu
+command, in the game's next frame) with `replace`: what the team holds goes
+(ClearAllPowerUps, ClearCurrentPowerUp; one already thrown plays on), and
+the new item comes in its place, none for none.
+
+diff --git a/include/Game/Team.h b/include/Game/Team.h
+index 7879e0a..d81b479 100644
+--- a/include/Game/Team.h
++++ b/include/Game/Team.h
+@@ -158,6 +158,10 @@ int GetTrainingSide();
+ // Whether that match came from FREE PLAY (tweak patch 0092), whose list it
+ // goes back to (SetMode clears it too).
+ extern bool g_bFreePlayMatch;
++// The team that trains gets its item (every kickoff, when it holds none);
++// `replace`: in place of what it holds (the host's TRAINING page changed it,
++// tweak patch 0095).
++void GiveTrainingItem(bool replace);
+ #endif
+ FuzzyRuntimeBase* GetTeamFuzzyRuntime(cTeam*);
+ ScriptMachine* GetTeamScriptMachine(cTeam*);
+diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
+index d23f116..011aef1 100644
+--- a/include/mscharged_tweaks.h
++++ b/include/mscharged_tweaks.h
+@@ -286,6 +286,10 @@ bool mscharged_tweak_training_item_giant(void);
+ // Strikers 101's FREE PLAY (tweak patch 0092): its button's text, the
+ // host's (null: the game module's English).
+ const unsigned short* mscharged_tweak_training_free_play_text(void);
++// And the pause menu's TRAINING OPTIONS (tweak patch 0095), in place of its
++// Statistics in a training match: its text, the host's (null: the game
++// module's English).
++const unsigned short* mscharged_tweak_training_options_text(void);
+ // Enforced updates (tweak patch 0054, the host's src/launcher/online_gate.h):
+ // whether the main menu keeps Online closed, because this release is not the
+ // newest one or could not check (a check still running gets up to 3 s); then,
+diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
+index 24fec85..566306d 100644
+--- a/src/Game/Game.cpp
++++ b/src/Game/Game.cpp
+@@ -1124,22 +1124,41 @@ void cGame::ResetPowerups(bool clearPowerUps)
+ #if defined(MSCHARGED_TWEAKS)
+     // Port tweak "Training": the team that trains starts every kickoff with
+     // its item, which it then keeps when using it (DesireUsePowerup).
++    GiveTrainingItem(false);
++#endif
++}
++
++#if defined(MSCHARGED_TWEAKS)
++void GiveTrainingItem(bool replace)
++{
+     const int side = GetTrainingSide();
++    if (side < 0)
++    {
++        return;
++    }
++    cTeam* pTeam = g_pTeams[side];
+     int item = mscharged_tweak_training_item();
+     // Port tweak "Training items": item 9 is the captain's own power-up, which
+     // AwardPowerup gives no shattered captain either; the item comes in the
+     // launcher's number (AwardPowerup's 3 and 5).
+-    if (side >= 0 && item == NUM_POWER_UPS)
++    if (item == NUM_POWER_UPS)
+     {
+-        cFielder* pCaptain = g_pTeams[side]->GetCaptain();
++        cFielder* pCaptain = pTeam->GetCaptain();
+         item = pCaptain->IsShattered() ? POWER_UP_NONE : pCaptain->m_pCharacterInfo->mCaptainPowerup;
+     }
+-    if (side >= 0 && item >= 0 && g_pTeams[side]->GetCurrentPowerUp().eType == POWER_UP_NONE)
++    // The TRAINING page's new item: what the team holds goes (one already
++    // thrown plays on).
++    if (replace)
+     {
+-        g_pTeams[side]->SetCurrentPowerUp((ePowerUpType)item, mscharged_tweak_training_item_count());
++        pTeam->ClearAllPowerUps();
++        pTeam->ClearCurrentPowerUp();
++    }
++    if (item >= 0 && pTeam->GetCurrentPowerUp().eType == POWER_UP_NONE)
++    {
++        pTeam->SetCurrentPowerUp((ePowerUpType)item, mscharged_tweak_training_item_count());
+     }
+-#endif
+ }
++#endif
+ void cGame::ResetCachedPlayerDistances()
+ {
+     for (int i = 0; i < 2; i++)
+diff --git a/src/Game/SH/SHPause.cpp b/src/Game/SH/SHPause.cpp
+index a637dde..09d3d4c 100644
+--- a/src/Game/SH/SHPause.cpp
++++ b/src/Game/SH/SHPause.cpp
+@@ -22,6 +22,9 @@
+ #include "Game/GameInfo.h"
+ #include "Game/Render/ShootToScoreArrow.h"
+ #include "Game/SH/SHPausePostGame.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "Game/Team.h"
++#endif
+ #include "Game/Task/GameRenderTask.h"
+ #include "Game/main.h"
+ #include "NL/glx/glxSwap.h"
+@@ -180,6 +183,17 @@ void PauseMenuScene::OnSelectPopupYESFORFEIT()
+     mQuitDelay = 1.0f;
+ }
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Port tweak "Training": the pause menu of a training match (g_bTrainingMatch:
++// the launcher's or Strikers 101's FREE PLAY, offline) has TRAINING OPTIONS
++// in place of its Statistics.
++static bool TrainingOptionsShown()
++{
++    GameInfoManager* info = GameInfoManager::Instance();
++    return g_bTrainingMatch && info->IsInFriendlyMode() && !info->IsOnline();
++}
++#endif
++
+ /**
+  * Offset/Address/Size: 0xAC0 | 0x80239F14 | size: 0x394
+  */
+@@ -218,6 +232,26 @@ void PauseMenuScene::SceneCreated()
+         }
+ #endif
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": a training match's Statistics are its TRAINING
++    // OPTIONS, Recharged's page over the menu (PAUSE_MATCH_INFO below), as
++    // a challenge's are its objectives.
++    else if (TrainingOptionsShown())
++    {
++        static const unsigned short sTrainingOptionsDefault[] = { 'T', 'R', 'A', 'I', 'N', 'I', 'N', 'G', ' ',
++            'O', 'P', 'T', 'I', 'O', 'N', 'S', 0 };
++        const unsigned short* text = mscharged_tweak_training_options_text();
++        if (text == NULL || text[0] == 0)
++        {
++            text = sTrainingOptionsDefault;
++        }
++        static const char* const slides[3] = { "off", "over", "down" };
++        for (int i = 0; i < 3; ++i)
++        {
++            FEFinder<TLTextInstance, 3>::FindOrDefault(mOptionInstances[4], slides[i], "option")->SetString(text);
++        }
++    }
++#endif
+ }
+ 
+ /**
+@@ -480,6 +514,15 @@ void PauseMenuScene::OnOptionPointerPress(unsigned int index, void* context)
+         TransitionOut(TT_VISUAL_OPTIONS);
+         break;
+     case PAUSE_MATCH_INFO:
++#if defined(MSCHARGED_TWEAKS)
++        // A training match's TRAINING OPTIONS: Recharged's page opens over
++        // the menu, which stays as it is.
++        if (TrainingOptionsShown() && mscharged_tweak_menu_press_taken(1, PAUSE_MATCH_INFO, (int)index))
++        {
++            mSelectionMade = false;
++            break;
++        }
++#endif
+         if (GameInfoManager::Instance()->IsInChallengeMode())
+             TransitionOut(TT_CHALLENGE_PREVIEW);
+         else

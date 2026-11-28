@@ -7,6 +7,7 @@
 #include "bootstrap/sound_groups.h"
 #include "mscharged_tweaks.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -14,6 +15,7 @@
 #include <thread>
 
 extern "C" void charged_configure_tweaks(unsigned mask);
+extern "C" void charged_set_tweaks(unsigned mask);
 extern "C" void charged_configure_performance_mode(bool enabled);
 extern "C" void charged_set_view_shape(float shape);
 extern "C" bool charged_take_match_view(void);
@@ -29,6 +31,8 @@ extern "C" void charged_configure_online_gate(int state);
 // original frame.
 unsigned gTvFormat;
 extern "C" unsigned int VIGetTvFormat(void) { return gTvFormat; }
+// Competitive play (competitive_match.cpp): no set here.
+extern "C" bool mscharged_competitive_mirror_match(void) { return false; }
 // The original match (Game.cpp), present while a match runs.
 class cGame;
 cGame* g_pGame;
@@ -242,7 +246,8 @@ int main()
             && unsigned(mscharged::GameTweak::RobotGoalies) == MSCHARGED_TWEAK_ROBOT_GOALIES
             && unsigned(mscharged::GameTweak::SuperTeam) == MSCHARGED_TWEAK_SUPER_TEAM
             && unsigned(mscharged::GameTweak::SecureStadiums) == MSCHARGED_TWEAK_SECURE_STADIUMS
-            && unsigned(mscharged::GameTweak::MatchPoint) == MSCHARGED_TWEAK_MATCH_POINT,
+            && unsigned(mscharged::GameTweak::MatchPoint) == MSCHARGED_TWEAK_MATCH_POINT
+            && unsigned(mscharged::GameTweak::OverrideRetailMenus) == MSCHARGED_TWEAK_OVERRIDE_RETAIL_MENUS,
             "Host tweak bits and the game hooks' IDs must agree");
 
         // Before configuration and with an empty set: the original game.
@@ -297,6 +302,14 @@ int main()
         Check(!mscharged_tweak_title_pending() && !mscharged_tweak_take_title_press(), "Skip intro: second title press");
         mscharged_tweak_frontend_frame(true, true);
         Check(!mscharged_tweak_fast_menus(), "Skip intro enabled fast menus");
+        // The overlay's Game options change the tweaks while the game runs:
+        // the title stays passed.
+        charged_set_tweaks(mscharged::GameTweakBit(mscharged::GameTweak::SkipIntro)
+                           | mscharged::GameTweakBit(mscharged::GameTweak::FastTerrain));
+        Check(mscharged_tweak_enabled(int(mscharged::GameTweak::FastTerrain)) && !mscharged_tweak_title_pending()
+                && !mscharged_tweak_take_title_press(), "Changed tweaks: title pending again");
+        charged_set_tweaks(mscharged::GameTweakBit(mscharged::GameTweak::SkipIntro));
+        Check(!mscharged_tweak_enabled(int(mscharged::GameTweak::FastTerrain)), "Changed tweaks: still on");
 
         // Training: Start training passes the title once, as Skip intro does,
         // and its match is taken once.
@@ -526,6 +539,15 @@ int main()
         Check(!mscharged_tweak_online_locked(), "A check that ended open kept Online closed");
         verdict.join();
         Check(!mscharged_tweak_take_online_lock_message(), "An open Online left a message");
+
+        // The main menu's Online button (NINTENDO Wi-Fi CONNECTION) says PLAY
+        // ONLINE; every other localized text stays the game's.
+        const unsigned short* button = mscharged_tweak_loc_text(0x1455335CUL);
+        const char16_t expected[] = u"PLAY ONLINE";
+        Check(button && std::equal(expected, expected + sizeof(expected) / sizeof(expected[0]), button),
+            "The Online button does not say PLAY ONLINE");
+        Check(!mscharged_tweak_loc_text(0x4256773AUL) && !mscharged_tweak_loc_text(0),
+            "Another localized text was replaced");
 
         // Back to the original rate and to no tweaks: the original game again.
         charged_configure_frame_pacing(nullptr);

@@ -26,6 +26,19 @@
     <string>public.app-category.games</string>@MSCHARGED_APP_MINIMUM_SYSTEM@
     <key>NSHighResolutionCapable</key>
     <true/>
+    <!-- recharged:// links: the WFC server dashboard's Watch button. The
+         system hands one to the running launcher as a drop. -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>io.github.previouslevelgames.recharged.watch</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>recharged</string>
+            </array>
+        </dict>
+    </array>
     <!-- SDL_GetBasePath is the folder holding Recharged.app: the modules,
          assets, settings, saves and logs stay beside the app. -->
     <key>SDL_FILESYSTEM_BASE_DIR_TYPE</key>

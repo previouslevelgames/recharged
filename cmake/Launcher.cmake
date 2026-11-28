@@ -72,24 +72,73 @@ target_include_directories(charged_image_library PUBLIC src)
 target_compile_features(charged_image_library PUBLIC cxx_std_17)
 target_link_libraries(charged_image_library PUBLIC charged_host charged_json)
 # Match presets: named match settings in files, written into the game save (the Matches page).
-# How many players are online on the WFC server, for the Play page.
-add_library(charged_players_online STATIC src/launcher/players_online.cpp)
+# How many players are online on the WFC server, and the server's message,
+# for the Play page.
+add_library(charged_players_online STATIC src/launcher/players_online.cpp src/launcher/server_message.cpp)
 target_include_directories(charged_players_online PUBLIC src)
 target_compile_features(charged_players_online PUBLIC cxx_std_17)
 target_link_libraries(charged_players_online PUBLIC charged_http PRIVATE charged_json)
+# The Extras page's texture packs: the folder read and dropped packs added in the background.
+add_library(charged_launcher_texture_packs STATIC src/launcher/texture_pack_library.cpp)
+target_include_directories(charged_launcher_texture_packs PUBLIC src)
+target_compile_features(charged_launcher_texture_packs PUBLIC cxx_std_17)
+target_link_libraries(charged_launcher_texture_packs PUBLIC charged_texture_packs PRIVATE charged_texts)
+# The Replays page's match stats: what a replay's stats show and the game's
+# pictures of the captains and sidekicks from the player's disc.
+add_library(charged_match_report STATIC src/launcher/match_report.cpp src/launcher/game_pictures.cpp)
+target_include_directories(charged_match_report PUBLIC src)
+target_compile_features(charged_match_report PUBLIC cxx_std_17)
+target_link_libraries(charged_match_report PUBLIC charged_match_replays)
+if(BUILD_TESTING)
+    add_executable(match_report_tests tests/match_report.cpp)
+    target_link_libraries(match_report_tests PRIVATE charged_match_report)
+    add_test(NAME match_report COMMAND match_report_tests)
+endif()
 add_library(charged_match_presets STATIC src/launcher/match_presets.cpp)
 target_include_directories(charged_match_presets PUBLIC src)
 target_compile_features(charged_match_presets PUBLIC cxx_std_17)
-target_link_libraries(charged_match_presets PUBLIC charged_host)
+target_link_libraries(charged_match_presets PUBLIC charged_host charged_competitive)
 # New Miis for players without any (the Miis page).
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MiiMaker.cmake")
-add_executable(mscharged src/launcher/main.cpp src/launcher/ui_kit.cpp src/launcher/release_notes_view.cpp)
+# The Discord friends (docs/COMPETITIVE.md), with the Discord Social SDK when
+# MSCHARGED_DISCORD_SOCIAL_SDK names it.
+add_library(charged_discord_friends STATIC src/launcher/discord_friends.cpp)
+target_include_directories(charged_discord_friends PUBLIC src)
+target_compile_features(charged_discord_friends PUBLIC cxx_std_17)
+target_link_libraries(charged_discord_friends PUBLIC charged_competitive charged_session_log)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/DiscordSocialSdk.cmake")
+mscharged_discord_social_sdk(charged_discord_friends)
+if(BUILD_TESTING)
+    add_executable(discord_friends_tests tests/discord_friends.cpp)
+    target_link_libraries(discord_friends_tests PRIVATE charged_discord_friends)
+    mscharged_discord_social_sdk_beside(discord_friends_tests)
+    add_test(NAME discord_friends COMMAND discord_friends_tests)
+    set_tests_properties(discord_friends PROPERTIES TIMEOUT 60)
+endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Texts.cmake")
+# The replay of a game the WFC server kept comes from it (platform/live_watch.h).
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/OnlineReports.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/GameOverlay.cmake")
+if(BUILD_TESTING)
+    add_executable(watch_links_tests tests/watch_links.cpp src/platform/watch_link_handler.cpp)
+    target_include_directories(watch_links_tests PRIVATE src)
+    target_compile_features(watch_links_tests PRIVATE cxx_std_17)
+    add_test(NAME watch_links COMMAND watch_links_tests)
+endif()
+add_executable(mscharged src/launcher/main.cpp src/launcher/release_notes_view.cpp
+    src/launcher/competitive_service.cpp src/platform/watch_link_handler.cpp)
 # The program players start: recharged (recharged.exe). The target keeps its old name.
 # On Windows it is a Windows (GUI) program, so no console opens with it (#61).
 set_target_properties(mscharged PROPERTIES OUTPUT_NAME recharged WIN32_EXECUTABLE TRUE)
 target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui charged_app_icon mscharged_build_info
     charged_wiimote_scan charged_session_log charged_updates charged_image_library charged_graphics_cards
-    charged_texture_packs charged_mii_maker charged_match_presets charged_players_online)
+    charged_texture_packs charged_launcher_texture_packs charged_mii_maker charged_match_presets charged_match_report
+    charged_competitive
+    charged_discord_friends
+    charged_alert_sound charged_discord charged_ui_kit charged_overlay charged_mii_faces charged_players_online charged_texts
+    charged_online_reports)
+mscharged_discord_social_sdk_beside(mscharged)
+mscharged_stage_texts(mscharged)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PipelineCatalog.cmake")
 mscharged_stage_pipeline_catalog(mscharged)
 if(APPLE)
@@ -153,6 +202,13 @@ add_custom_command(TARGET mscharged POST_BUILD
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/robot_goalie.map"
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/README.md"
             "$<TARGET_FILE_DIR:mscharged>/assets/gameplay"
+    # The flags beside players' names, in the game menu and the launcher.
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:mscharged>/assets/flags"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/flags.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/README.md"
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/LICENSE-flag-icons"
+            "$<TARGET_FILE_DIR:mscharged>/assets/flags"
     VERBATIM)
 # Resource edits must refresh the copied files even without a C++ source edit.
 set_property(TARGET mscharged APPEND PROPERTY LINK_DEPENDS
@@ -167,6 +223,9 @@ set_property(TARGET mscharged APPEND PROPERTY LINK_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/LICENSES/Apache-2.0.txt"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/robot_goalie.map"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/README.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/flags.png"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/README.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/LICENSE-flag-icons"
     "${MSCHARGED_IMGUI_PREPARED}/misc/fonts/Roboto-Medium.ttf"
     "${MSCHARGED_AURORA_PREPARED}/assets/aurora.png")
 
@@ -175,9 +234,29 @@ if(BUILD_TESTING)
         COMMAND mscharged --smoke-test --config "${CMAKE_CURRENT_BINARY_DIR}/launcher-test-missing.ini")
     set_tests_properties(launcher_smoke PROPERTIES
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software" TIMEOUT 30)
+    # The Online player profile page with made-up states: signed out (with
+    # Welcome back), Create, Import, Finish, a profile (renaming it, Switch
+    # profile asked, Discord's own profile found), the Mii editor (a Mii's
+    # face, its hair, Create's new Mii's), a Discord player's.
+    foreach(preview IN ITEMS preview-welcome preview-profile-create preview-profile-import preview-profile-finish
+            preview-mii-profile-rename preview-mii-profile-signout preview-discord-choice preview-mii-editor
+            preview-mii-editor-hair preview-mii-new-editor preview)
+        add_test(NAME launcher_smoke_${preview}
+            COMMAND mscharged --smoke-test --config "${CMAKE_CURRENT_BINARY_DIR}/launcher-test-missing.ini")
+        set_tests_properties(launcher_smoke_${preview} PROPERTIES
+            ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;RECHARGED_CAPTURE_DISCORD=${preview}"
+            TIMEOUT 30)
+        if(preview MATCHES "editor")
+            set_tests_properties(launcher_smoke_${preview} PROPERTIES PASS_REGULAR_EXPRESSION "Mii editor was drawn")
+        endif()
+    endforeach()
     add_executable(launcher_ui_metrics_tests tests/launcher_ui_metrics.cpp)
     target_include_directories(launcher_ui_metrics_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     add_test(NAME launcher_ui_metrics COMMAND launcher_ui_metrics_tests)
+    add_executable(launcher_texture_packs_tests tests/launcher_texture_packs.cpp)
+    target_link_libraries(launcher_texture_packs_tests PRIVATE charged_launcher_texture_packs)
+    add_test(NAME launcher_texture_packs COMMAND launcher_texture_packs_tests
+        "${CMAKE_CURRENT_BINARY_DIR}/launcher-texture-packs-data")
     add_executable(launcher_match_presets_tests tests/launcher_match_presets.cpp)
     target_link_libraries(launcher_match_presets_tests PRIVATE charged_match_presets)
     add_test(NAME launcher_match_presets COMMAND launcher_match_presets_tests
@@ -189,6 +268,10 @@ if(BUILD_TESTING)
     target_link_libraries(launcher_players_online_tests PRIVATE charged_players_online)
     add_test(NAME launcher_players_online COMMAND launcher_players_online_tests)
     set_tests_properties(launcher_players_online PROPERTIES TIMEOUT 60)
+    add_executable(launcher_server_message_tests tests/launcher_server_message.cpp)
+    target_link_libraries(launcher_server_message_tests PRIVATE charged_players_online)
+    add_test(NAME launcher_server_message COMMAND launcher_server_message_tests)
+    set_tests_properties(launcher_server_message PROPERTIES TIMEOUT 60)
     add_executable(launcher_disc_search_tests tests/launcher_disc_search.cpp)
     target_link_libraries(launcher_disc_search_tests PRIVATE charged_image_library)
     add_test(NAME launcher_disc_search COMMAND launcher_disc_search_tests)

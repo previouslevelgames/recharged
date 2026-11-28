@@ -79,27 +79,64 @@ bool SDLCALL Watch(void*, SDL_Event* event) {
     return true;
 }
 
+bool IsWiiDevice(Uint16 vendor, Uint16 product) {
+    return vendor == 0x057e && (product == 0x0306 || product == 0x0330);
+}
+
+// The controllers SDL lists, for logs of players whose controller does not
+// play (issue #168): a joystick without a gamepad mapping is never used.
+void LogControllers(int gamepads, int wanted, long long milliseconds) {
+    SDL_Log("Controllers at start: %d of %d gamepads for the players after %lld ms", gamepads, wanted, milliseconds);
+    int total = 0;
+    if (SDL_JoystickID* ids = SDL_GetGamepads(&total)) {
+        for (int n = 0; n < total; ++n) {
+            const char* name = SDL_GetGamepadNameForID(ids[n]);
+            const Uint16 vendor = SDL_GetGamepadVendorForID(ids[n]), product = SDL_GetGamepadProductForID(ids[n]);
+#if defined(__SWITCH__)
+            const char* type = nullptr; // sdl3on2 has no gamepad types
+#else
+            const char* type = SDL_GetGamepadStringForType(SDL_GetGamepadTypeForID(ids[n]));
+#endif
+            SDL_Log("  %s (%04x:%04x): %s", name ? name : "unnamed", vendor, product,
+                IsWiiDevice(vendor, product) ? "Wii device (own driver)" : type ? type : "gamepad");
+        }
+        SDL_free(ids);
+    }
+#if !defined(__SWITCH__) // sdl3on2 lists only gamepads
+    if (SDL_JoystickID* ids = SDL_GetJoysticks(&total)) {
+        for (int n = 0; n < total; ++n) {
+            if (SDL_IsGamepad(ids[n])) continue;
+            const char* name = SDL_GetJoystickNameForID(ids[n]);
+            SDL_Log("  %s (%04x:%04x): joystick without a gamepad mapping (not used)", name ? name : "unnamed",
+                SDL_GetJoystickVendorForID(ids[n]), SDL_GetJoystickProductForID(ids[n]));
+        }
+        SDL_free(ids);
+    }
+#endif
+}
+
 // Standard gamepads (not Wii devices) connected now; waits up to 1.5 s for
 // `wanted` of them, since some systems announce controllers asynchronously.
 int ConnectedGamepads(int wanted) {
     SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_HIDAPI_WII, "0", SDL_HINT_DEFAULT);
     if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) return 0;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
+    const auto start = std::chrono::steady_clock::now();
+    const auto deadline = start + std::chrono::milliseconds(1500);
     int count = 0;
     while (true) {
         count = 0;
         int total = 0;
         if (SDL_JoystickID* ids = SDL_GetGamepads(&total)) {
-            for (int n = 0; n < total; ++n) {
-                const auto vendor = SDL_GetGamepadVendorForID(ids[n]), product = SDL_GetGamepadProductForID(ids[n]);
-                if (!(vendor == 0x057e && (product == 0x0306 || product == 0x0330))) ++count;
-            }
+            for (int n = 0; n < total; ++n)
+                if (!IsWiiDevice(SDL_GetGamepadVendorForID(ids[n]), SDL_GetGamepadProductForID(ids[n]))) ++count;
             SDL_free(ids);
         }
         if (count >= wanted || std::chrono::steady_clock::now() >= deadline) break;
         SDL_PumpEvents();
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
+    LogControllers(count, wanted,
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count());
     SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
     return count;
 }
@@ -266,13 +303,17 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
         if (players.remotes.empty()) ShutdownWiimoteHid();
         const int wanted = int(std::count_if(players.gamepads.begin(), players.gamepads.end(),
             [](int channel) { return channel >= 0; }));
+        // A gamepad that SDL announces late still plays once it connects (#168).
+        std::vector<int*> waiting;
         if (wanted) {
             int present = ConnectedGamepads(wanted);
             for (auto& channel : players.gamepads) {
                 if (channel < 0) continue;
                 if (present > 0) { --present; continue; }
-                SDL_Log("Gamepad for player %d is not connected: that player is left out", channel + 1);
+                SDL_Log("Gamepad for player %d is not connected: the others close up, it joins when it connects",
+                    channel + 1);
                 channel = -1;
+                waiting.push_back(&channel);
                 dropped = true;
             }
         }
@@ -285,8 +326,16 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
             for (auto* channel : by_channel) if (channel) *channel = next++;
             if (!next) {
                 players.keyboard = 0;
-                SDL_Log("No configured controller is connected: keyboard & mouse is player 1");
+                if (waiting.empty())
+                    SDL_Log("No configured controller is connected: keyboard & mouse is player 1");
+                else {
+                    // Keyboard & mouse hand player 1 to the first gamepad that connects.
+                    desktop.keyboard_until_gamepad = true;
+                    SDL_Log("No configured controller is connected: keyboard & mouse is player 1 until a gamepad "
+                            "connects");
+                }
             }
+            for (int* channel : waiting) *channel = next++;
         }
         SetWiimoteHidChannels(players.remotes);
         std::uint32_t reserved = 0;

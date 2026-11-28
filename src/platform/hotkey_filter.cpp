@@ -23,6 +23,30 @@ std::atomic<bool> sFullscreenPressed{false};
 std::mutex sLock;
 Hotkeys sHotkeys;
 std::bitset<SDL_SCANCODE_COUNT> sHeld;
+// While the host panel's text field has the keyboard only the panel and the
+// fullscreen hotkey act.
+std::atomic<bool> sTyping{false};
+// While the Recharged Game Menu is open, also the screenshot hotkey acts.
+std::atomic<bool> sInMenu{false};
+// A button of the host's over the game (SetHotkeyClickArea), with sLock
+// held: its area in window coordinates, what its click does, and whether a
+// left press began on it (its release is taken out too).
+struct ClickArea
+{
+    float left = 0, top = 0, right = 0, bottom = 0;
+    void (*action)() = nullptr;
+};
+ClickArea sClickArea;
+bool sClickDown = false;
+// The hotkey a press is now, with sLock held.
+HotkeyIndex MatchLocked(SDL_Scancode key, SDL_Keymod mod)
+{
+    const HotkeyIndex hotkey = sHotkeys.Match(key, mod);
+    const bool own = hotkey == HotkeyPanel || hotkey == HotkeyOptions || hotkey == HotkeyFullscreen;
+    if (sTyping.load() && !own) return HotkeyCount;
+    if (sInMenu.load() && !own && hotkey != HotkeyScreenshot) return HotkeyCount;
+    return hotkey;
+}
 // The filter set before ours, which still sees every event ours passes.
 // Written only while ours is not set: SDL calls filters under its own lock.
 SDL_EventFilter sPreviousFilter = nullptr;
@@ -133,7 +157,7 @@ ChordPass PassChordKey(const SDL_KeyboardEvent& key, int index)
             for (const ChordKey& other : sChord) down += other.down;
             if (down == 1)
             {
-                if ((mine.deferred = sHotkeys.Match(key.scancode, key.mod)) == HotkeyCount)
+                if ((mine.deferred = MatchLocked(key.scancode, key.mod)) == HotkeyCount)
                 {
                     mine.press.key = key;
                     mine.released = false;
@@ -212,7 +236,7 @@ bool Pass(const SDL_KeyboardEvent& key)
             return !held;
         }
         if (key.repeat) return !held;
-        hotkey = sHotkeys.Match(key.scancode, key.mod);
+        hotkey = MatchLocked(key.scancode, key.mod);
         // Otherwise a new press: the hotkey's release was never seen (focus moved away).
         sHeld[key.scancode] = hotkey != HotkeyCount;
     }
@@ -222,11 +246,45 @@ bool Pass(const SDL_KeyboardEvent& key)
     return false;
 }
 
+// A left click on the host's button: taken out, press and release, so the
+// game never sees it; its release on the button acts.
+bool PassClick(const SDL_MouseButtonEvent& button)
+{
+    if (button.button != SDL_BUTTON_LEFT || button.windowID == 0 || button.windowID != sWindow.load()) return true;
+    void (*action)() = nullptr;
+    {
+        std::lock_guard lock(sLock);
+        const ClickArea& area = sClickArea;
+        const bool inside = area.action && button.x >= area.left && button.x < area.right && button.y >= area.top
+                         && button.y < area.bottom;
+        if (button.down)
+        {
+            if (!inside) return true;
+            sClickDown = true;
+            return false;
+        }
+        if (!sClickDown) return true;
+        sClickDown = false;
+        if (inside) action = area.action;
+    }
+    if (action) action();
+    return false;
+}
+
 bool SDLCALL Filter(void*, SDL_Event* event)
 {
     if ((event->type == SDL_EVENT_KEY_DOWN || event->type == SDL_EVENT_KEY_UP) && !Pass(event->key)) return false;
+    if ((event->type == SDL_EVENT_MOUSE_BUTTON_DOWN || event->type == SDL_EVENT_MOUSE_BUTTON_UP)
+        && !PassClick(event->button))
+        return false;
     return !sPreviousFilter || sPreviousFilter(sPreviousUserdata, event);
 }
+}
+
+void SetHotkeyClickArea(float left, float top, float right, float bottom, void (*action)())
+{
+    std::lock_guard lock(sLock);
+    sClickArea = right > left && bottom > top ? ClickArea{left, top, right, bottom, action} : ClickArea{};
 }
 
 void InitializeHotkeys(SDL_Window* window)
@@ -260,6 +318,8 @@ void ShutdownHotkeys()
     {
         std::lock_guard lock(sLock);
         sHeld.reset();
+        sClickArea = {};
+        sClickDown = false;
 #if defined(MSCHARGED_AUTOPILOT)
         // A held-back press is forgotten with the window.
         for (int index = 0; index < 3; ++index)
@@ -286,6 +346,16 @@ void SetHotkeys(const Hotkeys& hotkeys)
 void SetHotkeyAction(HotkeyIndex hotkey, void (*action)())
 {
     if (hotkey < HotkeyCount) sActions[hotkey] = action;
+}
+
+void SetHotkeysTyping(bool typing)
+{
+    sTyping = typing;
+}
+
+void SetHotkeysInMenu(bool in_menu)
+{
+    sInMenu = in_menu;
 }
 
 #if defined(MSCHARGED_AUTOPILOT)

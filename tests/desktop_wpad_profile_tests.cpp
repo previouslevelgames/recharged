@@ -220,15 +220,18 @@ void CustomKeysCycle() {
         const std::array<Hotkey, mscharged::HotkeyCount> defaults = Hotkeys{}.keys;
         Check(defaults[mscharged::HotkeyFullscreen] == Hotkey{SDL_SCANCODE_RETURN, SDL_KMOD_ALT},
               "Fullscreen is not Alt+Return by default");
-        Check(keys(ParseHotkeys(Names{"F12", "G", "T", "F6", "F7", "F11"}),
+        Check(defaults[mscharged::HotkeyPanel] == Hotkey{SDL_SCANCODE_F1}, "The panel is not F1 by default");
+        Check(defaults[mscharged::HotkeyOptions] == Hotkey{SDL_SCANCODE_F2}, "Game options are not F2 by default");
+        Check(keys(ParseHotkeys(Names{"F12", "G", "T", "F6", "F7", "F11", "F2", "F3"}),
                    {{{SDL_SCANCODE_F12}, {SDL_SCANCODE_G}, {SDL_SCANCODE_T}, {SDL_SCANCODE_F6}, {SDL_SCANCODE_F7},
-                     {SDL_SCANCODE_F11}}}),
+                     {SDL_SCANCODE_F11}, {SDL_SCANCODE_F2}, {SDL_SCANCODE_F3}}}),
               "Hotkeys did not parse");
         Check(keys(ParseHotkeys(Names{"Ctrl+Shift+F12", "alt + h", "Control+Keypad +", "Option+Return", "Shift+PageDown",
-                                      "Ctrl+Alt+Enter"}),
+                                      "Ctrl+Alt+Enter", "Shift+F1", "Shift+F2"}),
                    {{{SDL_SCANCODE_F12, SDL_KMOD_CTRL | SDL_KMOD_SHIFT}, {SDL_SCANCODE_H, SDL_KMOD_ALT},
                      {SDL_SCANCODE_KP_PLUS, SDL_KMOD_CTRL}, {SDL_SCANCODE_RETURN, SDL_KMOD_ALT},
-                     {SDL_SCANCODE_PAGEDOWN, SDL_KMOD_SHIFT}, {SDL_SCANCODE_RETURN, SDL_KMOD_CTRL | SDL_KMOD_ALT}}}),
+                     {SDL_SCANCODE_PAGEDOWN, SDL_KMOD_SHIFT}, {SDL_SCANCODE_RETURN, SDL_KMOD_CTRL | SDL_KMOD_ALT},
+                     {SDL_SCANCODE_F1, SDL_KMOD_SHIFT}, {SDL_SCANCODE_F2, SDL_KMOD_SHIFT}}}),
               "Hotkeys with Ctrl, Shift and Alt did not parse");
         Check(keys(ParseHotkeys(Names{"Left Alt", "Mouse 4", "", "Nonsense", "Ctrl+", "Cmd+Q"}), defaults),
               "A modifier, mouse button, unknown name or system key became a hotkey");
@@ -238,8 +241,8 @@ void CustomKeysCycle() {
               "Two hotkeys took the same keys");
         Check(keys(ParseHotkeys(Names{"P", "F", "F", "PageUp", "PageDown", "Alt+Return"}), defaults),
               "A hotkey took another one's default key");
-        Check(keys(ParseHotkeys(Names{"P", "H", "None", "none", "PageDown", "none"}),
-                   {{{SDL_SCANCODE_P}, {SDL_SCANCODE_H}, {}, {}, {SDL_SCANCODE_PAGEDOWN}, {}}}),
+        Check(keys(ParseHotkeys(Names{"P", "H", "None", "none", "PageDown", "none", "none", "none"}),
+                   {{{SDL_SCANCODE_P}, {SDL_SCANCODE_H}, {}, {}, {SDL_SCANCODE_PAGEDOWN}, {}, {}, {}}}),
               "none did not leave a hotkey unused");
         using mscharged::platform::HotkeyName;
         Check(HotkeyName({}) == "none" && HotkeyName({SDL_SCANCODE_PAGEUP}) == "PageUp"
@@ -253,7 +256,9 @@ void CustomKeysCycle() {
         const Hotkeys standard;
         Check(standard.Match(SDL_SCANCODE_RETURN, SDL_KMOD_LALT) == mscharged::HotkeyFullscreen
                   && standard.Match(SDL_SCANCODE_KP_ENTER, SDL_KMOD_RALT) == mscharged::HotkeyFullscreen
-                  && standard.Match(SDL_SCANCODE_P, SDL_KMOD_NUM | SDL_KMOD_CAPS) == mscharged::HotkeyScreenshot,
+                  && standard.Match(SDL_SCANCODE_P, SDL_KMOD_NUM | SDL_KMOD_CAPS) == mscharged::HotkeyScreenshot
+                  && standard.Match(SDL_SCANCODE_F1, SDL_KMOD_NONE) == mscharged::HotkeyPanel
+                  && standard.Match(SDL_SCANCODE_F2, SDL_KMOD_NONE) == mscharged::HotkeyOptions,
               "A hotkey press was not its hotkey");
         Check(standard.Match(SDL_SCANCODE_RETURN, SDL_KMOD_NONE) == mscharged::HotkeyCount
                   && standard.Match(SDL_SCANCODE_RETURN, SDL_KMOD_LALT | SDL_KMOD_LSHIFT) == mscharged::HotkeyCount
@@ -379,11 +384,11 @@ void GamepadPlayerCycle() {
           "Left stick did not move the Nunchuk stick right");
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 0);
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 32767);
-    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, true);
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_WEST, true);
     Until([&] { auto r = report(); return r.fsStickX == 0 && r.button == (WPAD_BUTTON_FS_Z | WPAD_BUTTON_FS_C); },
-          "Left trigger and bumper did not press Z and C");
+          "Left trigger and west did not press Z and C");
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 0);
-    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, false);
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_WEST, false);
     Until([&] { return report().button == 0; }, "Gamepad release kept a button");
     mscharged::platform::ShutdownDesktopWpad();
     WPADShutdown();
@@ -460,8 +465,26 @@ void StickDeadzoneChecks() {
 void CustomGamepadCycle() {
     using namespace mscharged::platform;
     Check(ParseGamepadBinding("b | righttrigger") ==
-              GamepadBinding{SDL_GAMEPAD_BUTTON_EAST, kGamepadTriggerBase + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER},
+              GamepadBinding{SDL_GAMEPAD_BUTTON_EAST, kGamepadTriggerBase + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, kGamepadNone},
           "Gamepad input names did not parse");
+    // Up to three inputs, each once; a fourth is left out.
+    Check(ParseGamepadBinding("dpright | rightstick_right | rightshoulder | a")
+                  == GamepadBinding{SDL_GAMEPAD_BUTTON_DPAD_RIGHT, kGamepadStickBase + RightStickRight,
+                                    SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER}
+              && ParseGamepadBinding("a | b | a | x") == GamepadBinding{SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST,
+                                                                        SDL_GAMEPAD_BUTTON_WEST}
+              && FormatGamepadBinding(ParseGamepadBinding("a|b|x")) == "a | b | x",
+          "Three inputs per action did not parse or format");
+    {
+        GamepadBinding binding = ParseGamepadBinding("a | b | x");
+        RemoveGamepadInput(binding, SDL_GAMEPAD_BUTTON_SOUTH);
+        const bool moved_up = binding == GamepadBinding{SDL_GAMEPAD_BUTTON_EAST, SDL_GAMEPAD_BUTTON_WEST, kGamepadNone};
+        const bool added = AddGamepadInput(binding, SDL_GAMEPAD_BUTTON_NORTH);
+        GamepadBinding single = ParseGamepadBinding("a");
+        Check(moved_up && added && GamepadBindingSize(binding) == 3 && !AddGamepadInput(binding, SDL_GAMEPAD_BUTTON_SOUTH)
+                  && !AddGamepadInput(single, SDL_GAMEPAD_BUTTON_SOUTH) && GamepadBindingSize(single) == 1,
+              "Inputs were not taken away or added");
+    }
     Check(ParseGamepadBinding("leftx | nonsense")[0] == kGamepadNone, "A stick axis was accepted as a button");
     Check(FormatGamepadBinding(ParseGamepadBinding(" a |lefttrigger ")) == "a | lefttrigger",
           "Gamepad binding did not format back");
@@ -470,6 +493,11 @@ void CustomGamepadCycle() {
     texts[mscharged::GamepadActionB] = "a";
     texts[mscharged::GamepadActionC] = "lefttrigger";
     texts[mscharged::GamepadActionZ] = "leftshoulder";
+    // The D-pad without Default's right stick, which moves the Nunchuk stick here.
+    texts[mscharged::GamepadActionUp] = "dpup";
+    texts[mscharged::GamepadActionDown] = "dpdown";
+    texts[mscharged::GamepadActionLeft] = "dpleft";
+    texts[mscharged::GamepadActionRight] = "dpright";
     const auto bindings = ParseGamepadBindings(texts);
     Check(bindings[mscharged::GamepadActionPlus] == DefaultGamepadBindings()[mscharged::GamepadActionPlus],
           "An unset gamepad action lost its default");
@@ -478,7 +506,7 @@ void CustomGamepadCycle() {
     DesktopWpadSettings settings{};
     settings.gamepads = settings.gamepad_players = true;
     settings.gamepad_channels = {1, -1, -1, -1};
-    settings.gamepad_profiles[0] = {bindings, true, false, 20, 80, 30};
+    settings.gamepad_profiles[0] = {bindings, mscharged::GamepadSticks::Swapped, false, 20, 80, 30};
     GenericPad pad;
     InitializeDesktopWpad(window, settings);
     WPADInit();
@@ -538,8 +566,43 @@ void ControllerFamilyCycle() {
               && DefaultGamepadBindings(GamepadFamily::Nintendo)[GamepadActionB][0] == SDL_GAMEPAD_BUTTON_SOUTH,
           "Nintendo default does not follow its labels");
     Check(DefaultGamepadBindings(GamepadFamily::GameCube)[GamepadActionB][0] == SDL_GAMEPAD_BUTTON_WEST
-              && DefaultGamepadBindings(GamepadFamily::GameCube)[GamepadActionOne][0] == kGamepadNone,
+              && DefaultGamepadBindings(GamepadFamily::GameCube)[GamepadActionOne][0] == SDL_GAMEPAD_BUTTON_START
+              && DefaultGamepadBindings(GamepadFamily::GameCube)[mscharged::GamepadActionMinus][0] == kGamepadNone,
           "GameCube default layout");
+    // Default: the Classic Controller mod's layout, by the labels.
+    {
+        const auto mod = DefaultGamepadBindings(GamepadFamily::Xbox);
+        const auto nintendo = DefaultGamepadBindings(GamepadFamily::Nintendo);
+        Check(mod[GamepadActionOne] == ParseGamepadBinding("start | back")
+                  && mod[mscharged::GamepadActionPlus] == ParseGamepadBinding("start")
+                  && mod[mscharged::GamepadActionMinus] == ParseGamepadBinding("back")
+                  && mod[mscharged::GamepadActionTwo] == kNoGamepadBinding
+                  && mod[GamepadActionB] == ParseGamepadBinding("b | righttrigger")
+                  && mod[mscharged::GamepadActionRight] == ParseGamepadBinding("dpright | rightstick_right | rightshoulder")
+                  && mod[mscharged::GamepadActionC][0] == SDL_GAMEPAD_BUTTON_WEST
+                  && mod[mscharged::GamepadActionShakeRemote][0] == SDL_GAMEPAD_BUTTON_NORTH
+                  && mod[mscharged::GamepadActionZ][0] == kGamepadTriggerBase + SDL_GAMEPAD_AXIS_LEFT_TRIGGER
+                  && mod[mscharged::GamepadActionShakeNunchuk][0] == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER
+                  && nintendo[mscharged::GamepadActionC][0] == SDL_GAMEPAD_BUTTON_NORTH
+                  && nintendo[mscharged::GamepadActionShakeRemote][0] == SDL_GAMEPAD_BUTTON_WEST
+                  && GamepadLayoutProfile(GamepadFamily::Xbox, mscharged::GamepadLayout::Default).sticks
+                         == mscharged::GamepadSticks::Shared,
+              "Default does not follow the Classic Controller mod");
+    }
+    // Classic 1.1: the Default of versions up to 1.1.5.
+    {
+        const auto classic = GamepadLayoutProfile(GamepadFamily::Xbox, mscharged::GamepadLayout::Classic);
+        Check(classic.bindings[GamepadActionOne][0] == SDL_GAMEPAD_BUTTON_WEST
+                  && classic.bindings[mscharged::GamepadActionShakeRemote][0]
+                         == kGamepadTriggerBase + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER
+                  && classic.sticks == mscharged::GamepadSticks::Split && classic.follow_controller
+                  && classic.layout == mscharged::GamepadLayout::Classic
+                  && DefaultGamepadBindings(GamepadFamily::GameCube, mscharged::GamepadLayout::Classic)
+                             [GamepadActionOne][0] == kGamepadNone
+                  && DefaultGamepadBindings(GamepadFamily::Nintendo, mscharged::GamepadLayout::Classic)
+                             [GamepadActionOne][0] == SDL_GAMEPAD_BUTTON_WEST,
+              "Classic 1.1 lost the old Default layout");
+    }
     Check(DefaultGamepadBindings(GamepadFamily::PlayStation) == DefaultGamepadBindings(),
           "PlayStation default differs from the positional default");
     Check(GamepadFamilyOf(SDL_GAMEPAD_TYPE_PS5) == GamepadFamily::PlayStation
@@ -550,7 +613,7 @@ void ControllerFamilyCycle() {
     texts[GamepadActionOne] = "none";
     Check(ParseGamepadBindings(texts)[GamepadActionOne][0] == kGamepadNone
               && ParseGamepadBindings(texts)[GamepadActionB][0] == SDL_GAMEPAD_BUTTON_EAST
-              && FormatGamepadBinding({kGamepadNone, kGamepadNone}) == "none",
+              && FormatGamepadBinding(kNoGamepadBinding) == "none",
           "\"none\" did not leave an action without a button");
 
     connects = samples = extension_count = 0;
@@ -590,6 +653,9 @@ void ControllerFamilyCycle() {
     SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
     Until([&] { return report().button == WPAD_BUTTON_B; }, "Switch Pro B (bottom) did not press Wii B");
     SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_NORTH, true);
+    Until([&] { return report().button == WPAD_BUTTON_FS_C; }, "Switch Pro X (top) did not press C");
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_NORTH, false);
     Until([&] { return report().button == 0; }, "Switch Pro release kept a button");
     ShutdownDesktopWpad();
     WPADShutdown();
@@ -612,6 +678,65 @@ void MouseButton(Uint8 button, bool down) {
     e.button.down = down;
     e.button.x = 320; e.button.y = 224;
     Check(SDL_PushEvent(&e), "Actual SDL event queue rejected mouse input");
+}
+// A mouse button at (x, y) of the window; false when an event filter took it.
+bool MouseButtonAt(Uint8 button, bool down, float x, float y) {
+    SDL_Event e{};
+    e.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+    e.button.windowID = SDL_GetWindowID(window);
+    e.button.which = 1;
+    e.button.button = button;
+    e.button.down = down;
+    e.button.x = x; e.button.y = y;
+    return SDL_PushEvent(&e);
+}
+int sStatusClicks = 0;
+// The host's button over the game (the status box's CANCEL): a left click on
+// it never reaches the game, press or release, and its release there acts;
+// beside it, and with the right button, the mouse is the player's as before.
+void StatusButtonCycle() {
+    using namespace mscharged::platform;
+    ConfigureWpadSDL({0,3,false,false});
+    DesktopWpadSettings settings{};
+    settings.keyboard = settings.mouse = true;
+    settings.pointer_projection = WholeWindow;
+    InitializeDesktopWpad(window, settings);
+    SetHotkeys({});
+    InitializeHotkeys(window);
+    WPADInit();
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK; }, "Keyboard & mouse did not connect");
+    sStatusClicks = 0;
+    SetHotkeyClickArea(300, 200, 340, 240, [] { ++sStatusClicks; });
+    Check(!MouseButtonAt(SDL_BUTTON_LEFT, true, 320, 224), "A press on the host's button reached the game");
+    for (int n = 0; n < 10; ++n) { Service(); SDL_Delay(2); }
+    Check(Report().button == 0 && sStatusClicks == 0, "A press on the host's button pressed A or acted early");
+    Check(!MouseButtonAt(SDL_BUTTON_LEFT, false, 320, 224), "The release on the host's button reached the game");
+    Check(sStatusClicks == 1, "A click on the host's button did nothing");
+    // Pressed on it, released beside it: no click, the release stays out too.
+    Check(!MouseButtonAt(SDL_BUTTON_LEFT, true, 330, 230), "A second press on the button reached the game");
+    Check(!MouseButtonAt(SDL_BUTTON_LEFT, false, 10, 10), "The release of a press on the button reached the game");
+    Check(sStatusClicks == 1, "A press on the button released beside it acted");
+    // Beside it: A, as without the button; its right button: B.
+    Check(MouseButtonAt(SDL_BUTTON_LEFT, true, 10, 10), "A click beside the host's button was taken out");
+    Until([&] { return Report().button == WPAD_BUTTON_A; }, "A click beside the host's button did not press A");
+    Check(MouseButtonAt(SDL_BUTTON_LEFT, false, 10, 10), "A release beside the host's button was taken out");
+    Until([&] { return Report().button == 0; }, "A release beside the host's button kept A");
+    Check(MouseButtonAt(SDL_BUTTON_RIGHT, true, 320, 224), "The right button on the host's button was taken out");
+    Until([&] { return Report().button == WPAD_BUTTON_B; }, "The right button on the host's button did not press B");
+    Check(MouseButtonAt(SDL_BUTTON_RIGHT, false, 320, 224), "The right button's release was taken out");
+    Until([&] { return Report().button == 0; }, "The right button's release kept B");
+    // Without a button every click is the game's again.
+    SetHotkeyClickArea(0, 0, 0, 0, nullptr);
+    Check(MouseButtonAt(SDL_BUTTON_LEFT, true, 320, 224), "A click without the host's button was taken out");
+    Until([&] { return Report().button == WPAD_BUTTON_A; }, "A click without the host's button did not press A");
+    Check(MouseButtonAt(SDL_BUTTON_LEFT, false, 320, 224), "Its release was taken out");
+    Until([&] { return Report().button == 0; }, "Its release kept A");
+    Check(sStatusClicks == 1, "A click acted without the host's button");
+    ShutdownHotkeys();
+    ShutdownDesktopWpad();
+    WPADShutdown();
 }
 void MousePlayerCycle() {
     mscharged::platform::ConfigureWpadSDL({0,3,false,false});
@@ -641,6 +766,56 @@ void MousePlayerCycle() {
     Until([&] { return Report().button == 0; }, "Mouse or gamepad release kept a button");
     mscharged::platform::ShutdownDesktopWpad();
     WPADShutdown();
+}
+// Keyboard & mouse stand in as player 1 while its gamepad is not connected at
+// start; the gamepad takes player 1 when it connects (#168), and a pad without
+// a player is never opened.
+void LateGamepadCycle() {
+    using mscharged::platform::DesktopKeyboardWpadChannel;
+    mscharged::platform::ConfigureWpadSDL({0,3,false,false});
+    mscharged::platform::DesktopWpadSettings settings{};
+    settings.keyboard = true;
+    settings.keyboard_channel = 0;
+    settings.keyboard_until_gamepad = true;
+    settings.gamepads = settings.gamepad_players = true;
+    settings.gamepad_channels = {0, -1, -1, -1};
+    mscharged::platform::SetNativeWpadReservedChannels(0b1);
+    mscharged::platform::InitializeDesktopWpad(window, settings);
+    WPADInit();
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK; }, "Keyboard & mouse did not stand in as player 1");
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+    Until([&] { return Report(0).button == WPAD_BUTTON_A; }, "Keyboard did not play as player 1");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    Until([&] { return Report(0).button == 0; }, "Keyboard kept a press");
+    {
+        GenericPad pad;
+        Until([&] { return DesktopKeyboardWpadChannel() == -1; },
+              "Keyboard & mouse did not hand player 1 to the late gamepad");
+        Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK && type == WPAD_DEV_FREESTYLE; },
+              "The late gamepad did not connect as player 1");
+        Check(WPADSetDataFormat(0, WPAD_FMT_FS_BTN_ACC_DPD) == WPAD_ERR_OK, "Freestyle format was rejected");
+        const auto report = [] {
+            WPADFSStatus status{};
+            WPADRead(0, reinterpret_cast<WPADStatus*>(&status));
+            return status;
+        };
+        SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
+        Until([&] { return report().button == WPAD_BUTTON_A; }, "The late gamepad did not play as player 1");
+        SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
+        Until([&] { return report().button == 0; }, "The late gamepad kept a press");
+        Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+        for (int n = 0; n != 5; ++n) { Service(); SDL_Delay(2); }
+        Check(report().button == 0, "Keyboard still played after the gamepad took player 1");
+        Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+        GenericPad extra;
+        for (int n = 0; n != 5; ++n) { Service(); SDL_Delay(2); }
+        Check(!SDL_GetGamepadFromID(extra.id), "A pad without a player was opened");
+        mscharged::platform::ShutdownDesktopWpad();
+    }
+    WPADShutdown();
+    mscharged::platform::SetNativeWpadReservedChannels(0);
 }
 // Mouse buttons press the keyboard actions bound to them (#62); left and right
 // click are A and B while no action takes them.
@@ -696,6 +871,138 @@ void MouseKeysCycle() {
     Until([&] { return Report().button == WPAD_BUTTON_A; }, "Right click bound to A did not press only A");
     MouseButton(SDL_BUTTON_RIGHT, false);
     Until([&] { return Report().button == 0; }, "A bound click release kept a press");
+    ShutdownDesktopWpad();
+    WPADShutdown();
+}
+void MouseMotion(float x, float y) {
+    SDL_Event e{};
+    e.type = SDL_EVENT_MOUSE_MOTION;
+    e.motion.windowID = SDL_GetWindowID(window);
+    e.motion.which = 1;
+    e.motion.x = x; e.motion.y = y;
+    Check(SDL_PushEvent(&e), "Actual SDL event queue rejected mouse motion");
+}
+// The host panel (F1 or HOME): HOME is the panel's, and while it holds the
+// game sees the player stand still while the panel reads the buttons.
+void PanelHoldCycle() {
+    using namespace mscharged::platform;
+    ConfigureWpadSDL({0,3,false,false});
+    DesktopWpadSettings settings{};
+    settings.keyboard = settings.mouse = true;
+    settings.pointer_projection = WholeWindow;
+    InitializeDesktopWpad(window, settings);
+    WPADInit();
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK; }, "Keyboard & mouse did not connect");
+    Check(DesktopKeyboardWpadChannel() == 0, "The keyboard remote's channel is not player 1's");
+    SetNativeWpadHomeTaken(true);
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_HOME);
+    std::uint32_t homes = 0;
+    Until([&] { homes |= TakeNativeWpadHomePresses(); return homes == 1u; }, "HOME did not go to the panel");
+    Check(!(Report().button & WPAD_BUTTON_HOME), "HOME still reached the game");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_HOME);
+    Check(WPADControlDpd(0, WPAD_DPD_STANDARD, nullptr) == WPAD_ERR_OK, "Pointer camera request was rejected");
+    Until([&] { return bool(WPADIsDpdEnabled(0)); }, "Pointer camera did not turn on");
+    MouseMotion(100, 100);
+    Until([&] { return Report().obj[0].size != 0; }, "The mouse did not point");
+    const DPDObject pointed = Report().obj[0];
+    SetNativeWpadPanelHold(true);
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+    std::uint16_t pressed = 0;
+    Until([&] { pressed |= TakeNativeWpadPanelButtons().pressed[0]; return (pressed & WPAD_BUTTON_A) != 0; },
+          "The panel did not read A");
+    Check(Report().button == 0, "A reached the game while the panel held");
+    MouseMotion(500, 300);
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    Check(Report().obj[0].x == pointed.x && Report().obj[0].y == pointed.y, "The game's pointer moved under the panel");
+    Check(PressNativeWpadButton(0, WPAD_BUTTON_1) == 0, "The panel's pause press found no player");
+    Until([&] { return Report().button == WPAD_BUTTON_1; }, "The game did not see the panel's 1");
+    Until([&] { return Report().button == 0; }, "The panel's 1 stayed down");
+    // Closed with Return still down: the game sees it only once released.
+    SetNativeWpadPanelHold(false);
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    Check(Report().button == 0, "A button held through the panel reached the game");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    // A few reports with every button up end the hold for the game.
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    Until([&] { return Report().obj[0].x != pointed.x; }, "The pointer stayed still after the panel");
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+    Until([&] { return Report().button == WPAD_BUTTON_A; }, "A did not reach the game after the panel");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    Until([&] { return Report().button == 0; }, "A release after the panel kept A");
+    Check(PressNativeWpadButton(0, WPAD_BUTTON_1) == -1, "A button was pressed without the panel");
+    SetNativeWpadHomeTaken(false);
+    ShutdownDesktopWpad();
+    WPADShutdown();
+}
+// A replay plays: held from before the game's first report, the game sees the
+// player stand still and point nowhere (no skip, no pause), whatever the
+// keyboard, the Nunchuk keys or the mouse do; a card still reads its presses,
+// and the panel presses nothing for the game.
+void WatchHoldCycle() {
+    using namespace mscharged::platform;
+    ConfigureWpadSDL({0,3,false,false});
+    DesktopWpadSettings settings{};
+    settings.keyboard = settings.mouse = settings.nunchuk = true;
+    settings.pointer_projection = WholeWindow;
+    SetNativeWpadWatchHold(true);
+    InitializeDesktopWpad(window, settings);
+    WPADInit();
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK && type == WPAD_DEV_FREESTYLE; },
+          "Keyboard & mouse with its Nunchuk did not connect under the replay's hold");
+    Check(WPADSetDataFormat(0, WPAD_FMT_FS_BTN_ACC_DPD) == WPAD_ERR_OK, "Freestyle format was rejected");
+    Check(WPADControlDpd(0, WPAD_DPD_STANDARD, nullptr) == WPAD_ERR_OK, "Pointer camera request was rejected");
+    Until([&] { return bool(WPADIsDpdEnabled(0)); }, "Pointer camera did not turn on");
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    const WPADFSStatus still = FreestyleReport();
+    MouseMotion(100, 100);
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN); // A
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_Z);      // 1: the game's pause
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_W);      // the Nunchuk stick up
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_E);      // a Remote shake
+    std::uint32_t pauses = 0;
+    for (int n = 0; n < 40; ++n) {
+        Service();
+        pauses |= TakeNativeWpadPausePresses();
+        const WPADFSStatus report = FreestyleReport();
+        Check(report.err == WPAD_ERR_OK && report.button == 0, "A button reached the game while a replay plays");
+        Check(report.fsStickX == 0 && report.fsStickY == 0, "The Nunchuk stick moved while a replay plays");
+        Check(report.obj[0].size == 0 && report.obj[1].size == 0, "The mouse pointed while a replay plays");
+        Check(report.accX == still.accX && report.accY == still.accY && report.accZ == still.accZ,
+              "The Remote moved while a replay plays");
+        SDL_Delay(2);
+    }
+    ++checks;
+    Check(pauses == 0, "The game's pause counted while a replay plays");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_E);
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_W);
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_Z);
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    // A card over the replay reads A; closed, the replay still holds.
+    SetNativeWpadHold(true);
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+    int a = 0;
+    Until([&] { a += TakeNativeWpadHeldPresses().a; return a == 1; }, "A card did not read A over a replay");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    SetNativeWpadHold(false);
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    Check(Report().button == 0, "A reached the game after a card closed over a replay");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    SetNativeWpadPanelHold(true);
+    Check(PressNativeWpadButton(0, WPAD_BUTTON_1) == -1, "The panel pressed the game's pause during a replay");
+    SetNativeWpadPanelHold(false);
+    // Released (a test's own end), the player's input reaches the game again.
+    SetNativeWpadWatchHold(false);
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+    Until([&] { return Report().button == WPAD_BUTTON_A; }, "A did not reach the game after the replay's hold");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    Until([&] { return FreestyleReport().obj[0].size != 0; }, "The mouse did not point after the replay's hold");
     ShutdownDesktopWpad();
     WPADShutdown();
 }
@@ -806,7 +1113,7 @@ void NunchukCycle() {
 void StickDirectionCycle() {
     using namespace mscharged::platform;
     Check(ParseGamepadBinding("dpup | rightstick_up") ==
-              GamepadBinding{SDL_GAMEPAD_BUTTON_DPAD_UP, kGamepadStickBase + RightStickUp}
+              GamepadBinding{SDL_GAMEPAD_BUTTON_DPAD_UP, kGamepadStickBase + RightStickUp, kGamepadNone}
               && ParseGamepadInput("leftstick_left") == kGamepadStickBase + LeftStickLeft
               && ParseGamepadInput("rightstick") == SDL_GAMEPAD_BUTTON_RIGHT_STICK
               && FormatGamepadBinding(ParseGamepadBinding("dpright|rightstick_right")) == "dpright | rightstick_right",
@@ -1092,6 +1399,63 @@ void GyroPadCycle(bool has_gyro) {
     ShutdownDesktopWpad();
     WPADShutdown();
 }
+// Shared sticks: the left stick moves the Nunchuk stick and the pointer, the
+// right stick neither.
+void SharedSticksCycle() {
+    using namespace mscharged::platform;
+    ConfigureWpadSDL({0,3,false,false});
+    DesktopWpadSettings settings{};
+    settings.gamepads = settings.gamepad_players = true;
+    settings.gamepad_channels = {1, -1, -1, -1};
+    settings.pointer_projection = WholeWindow;
+    settings.gamepad_profiles[0] = GamepadProfile{DefaultGamepadBindings()};
+    settings.gamepad_profiles[0].sticks = mscharged::GamepadSticks::Shared;
+    GenericPad pad;
+    InitializeDesktopWpad(window, settings);
+    WPADInit();
+    for (int n = 0; n != 4; ++n) WPADSetConnectCallback(n, Connect);
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(1, &type) == WPAD_ERR_OK && type == WPAD_DEV_FREESTYLE; },
+          "Shared-sticks gamepad did not connect as player 2");
+    Check(WPADSetDataFormat(1, WPAD_FMT_FS_BTN_ACC_DPD) == WPAD_ERR_OK, "Freestyle format was rejected");
+    const auto report = [] {
+        WPADFSStatus status{};
+        WPADRead(1, reinterpret_cast<WPADStatus*>(&status));
+        return status;
+    };
+    Check(WPADControlDpd(1, WPAD_DPD_STANDARD, nullptr) == WPAD_ERR_OK, "Pointer camera request was rejected");
+    Until([] { return bool(WPADIsDpdEnabled(1)); }, "Pointer camera did not turn on");
+    const auto centre = MakeDesktopDpdObservation(0.5f, 0.5f, 0, true)[0];
+    const auto right = MakeDesktopDpdObservation(0.6f, 0.5f, 0, true)[0];
+    const int toward = right.x > centre.x ? 1 : -1;
+    Until([&] { auto o = report().obj[0]; return o.x == centre.x && o.y == centre.y; },
+          "The pointer did not start in the middle");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 32767);
+    Until([&] { auto r = report(); return r.fsStickX == 71 && (r.obj[0].x - centre.x) * toward >= (right.x - centre.x) * toward; },
+          "Shared sticks: the left stick did not move both the Nunchuk stick and the pointer");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 0);
+    Until([&] { return report().fsStickX == 0; }, "Shared sticks: the Nunchuk stick did not come back");
+    const auto rested = report().obj[0];
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, -32767);
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    const auto status = report();
+    Check(status.fsStickX == 0 && status.obj[0].x == rested.x && status.obj[0].y == rested.y,
+          "Shared sticks: the right stick still moved the Nunchuk stick or the pointer");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, 0);
+    // A match turns the camera off while the stick runs; turning it on again
+    // (a goalie's Mega Strike defence) starts the pointer in the middle.
+    Check(WPADControlDpd(1, WPAD_DPD_DISABLE, nullptr) == WPAD_ERR_OK, "Pointer camera request was rejected");
+    Until([] { return !WPADIsDpdEnabled(1); }, "Pointer camera did not turn off");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 32767);
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 0);
+    Check(WPADControlDpd(1, WPAD_DPD_STANDARD, nullptr) == WPAD_ERR_OK, "Pointer camera request was rejected");
+    Until([&] { auto o = report().obj[0]; return WPADIsDpdEnabled(1) && o.x == centre.x && o.y == centre.y; },
+          "Turning the pointer camera on did not centre the stick pointer");
+    ShutdownDesktopWpad();
+    WPADShutdown();
+}
 // A key event with modifiers; false when an event filter took it out.
 bool Key(Uint32 type, SDL_Scancode key, SDL_Keymod mod, bool repeat = false, SDL_WindowID target = 0) {
     SDL_Event e{}; e.type = type;
@@ -1179,6 +1543,22 @@ void FullscreenShortcutCycle() {
     Check(!Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_F11, SDL_KMOD_NONE), "F11's release reached the game");
     mscharged::platform::SetHotkeyAction(mscharged::HotkeyScreenshot, nullptr);
     mscharged::platform::SetHotkeys({});
+
+    // In the Recharged Game Menu F is the menu's (its search), not Stretch;
+    // closed, F stretches again.
+    mscharged::platform::SetHotkeyAction(mscharged::HotkeyStretch, [] { ++gHotkeyActions; });
+    const int stretched = gHotkeyActions;
+    mscharged::platform::SetHotkeysInMenu(true);
+    Check(Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_F, SDL_KMOD_NONE), "F was taken out in the menu");
+    Check(Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_F, SDL_KMOD_NONE), "F's release was taken out in the menu");
+    for (int n = 0; n != 5; ++n) { Service(); SDL_Delay(2); }
+    Check(gHotkeyActions == stretched, "F stretched in the menu");
+    mscharged::platform::SetHotkeysInMenu(false);
+    Check(!Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_F, SDL_KMOD_NONE), "F reached the game outside the menu");
+    Check(!Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_F, SDL_KMOD_NONE), "F's release reached the game outside the menu");
+    for (int n = 0; n != 5; ++n) { Service(); SDL_Delay(2); }
+    Check(gHotkeyActions == stretched + 1, "F did not stretch outside the menu");
+    mscharged::platform::SetHotkeyAction(mscharged::HotkeyStretch, nullptr);
 
     // After shutdown Alt+Enter is A again.
     mscharged::platform::ShutdownHotkeys();
@@ -1306,18 +1686,23 @@ int main() {
         CustomGamepadCycle();
         ControllerFamilyCycle();
         MousePlayerCycle();
+        LateGamepadCycle();
         MouseKeysCycle();
+        PanelHoldCycle();
+        WatchHoldCycle();
+        StatusButtonCycle();
         StickDirectionCycle();
         GyroPointerChecks();
         GyroPadCycle(true);
         GyroPadCycle(false);
+        SharedSticksCycle();
         FullscreenShortcutCycle();
 #if defined(MSCHARGED_AUTOPILOT)
         AutopilotChordCycle();
 #endif
         SDL_DestroyWindow(window); window = nullptr;
         SDL_Quit();
-        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, mouse buttons as keys (left and right click too), stick directions as buttons, the gyro pointer, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
+        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, a late gamepad taking player 1, mouse buttons as keys (left and right click too), the host panel's hold, a replay's hold, the host's button over the game, stick directions as buttons, the gyro pointer, shared sticks, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
         return 0;
     } catch (const std::exception& e) {
         mscharged::platform::ShutdownHotkeys();

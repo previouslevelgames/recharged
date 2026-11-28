@@ -1,0 +1,364 @@
+#pragma once
+
+#include "platform/competitive_rules.h"
+#include "platform/online_match_snapshot.h"
+#include "platform/presence_snapshot.h"
+#include "platform/profile_service.h"
+
+#include <chrono>
+#include <condition_variable>
+#include <cstdint>
+#include <filesystem>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <thread>
+#include <vector>
+
+namespace mscharged::platform
+{
+// The game's side of competitive play, in the host: with the session the
+// launcher signed in for this settings file, it proves the game's WFC login
+// to the profile service, says the game is ready for the player's accepted
+// match (the server then keeps it for the opponent in RANKED), gives the game
+// module the match's rules and reports the series it played. Its calls run
+// on a thread of their own; the game loop calls Observe() after a frame.
+class CompetitiveHost
+{
+public:
+    using Log = std::function<void(const std::string&)>;
+
+    // Nothing without online.profile_server or a session for it (the reason
+    // goes to `off`).
+    static std::unique_ptr<CompetitiveHost> Start(const std::string& server_setting,
+                                                  const std::filesystem::path& session_file, Log log,
+                                                  std::string* off);
+    ~CompetitiveHost();
+    CompetitiveHost(const CompetitiveHost&) = delete;
+    // The game powers off: the process ends without unwinding. The last calls
+    // (a set called off, a series reported) get their time, then this waits
+    // at most `wait` for the worker to end; one still busy (a call that
+    // won't give up) is left to the process's end instead of being joined.
+    // True when it ended.
+    bool StopForExit(std::chrono::milliseconds wait);
+    CompetitiveHost& operator=(const CompetitiveHost&) = delete;
+
+    const std::string& PlayerName() const { return player_; }
+
+    // On the game's thread after a frame (once a second is enough): what the
+    // game reports. True when the module's rules changed: `rules` is then
+    // what it should have (nullopt: none, RANKED stays retail).
+    bool Observe(const ChargedWfcSnapshot& wfc, const ChargedPresenceSnapshot* presence,
+                 std::optional<ChargedCompetitiveRules>& rules);
+
+    // This game is set `set`'s (the launcher's Ready to play!, or a
+    // TakeSetStart): it starts itself into the set's RANKED search (the
+    // module's set stages). A set it leaves without a result goes back to
+    // waiting for Ready to play!.
+    void PlaySet(std::int64_t set);
+    // On the game's thread after Observe: a set that went (both are ready:
+    // the card's accept, a rematch) while this game is in its menus and
+    // plays none. The caller hands the module the player's Mii and calls
+    // PlaySet: the game goes on into RANKED without closing. Once per go.
+    struct SetStart
+    {
+        std::int64_t match = 0;
+        std::string opponent;
+    };
+    std::optional<SetStart> TakeSetStart();
+    // On the game's thread after Observe: the set this game played is done
+    // (the series is over and reported, the set failed, or the server called
+    // it off); the game is no set's any more and stays where it is (the
+    // caller ends the module's set). Once.
+    struct SetEnd
+    {
+        enum class How
+        {
+            Over,         // the series was played
+            NoResult,     // back from the match without a game played (one left)
+            Failed,       // a popup ended it (`popup`)
+            CalledOff,    // the set stopped waiting for this game
+            Left,         // this player left its search (Back)
+            OpponentLeft, // the opponent left its search or took their Ready to play! back
+            OpponentGone, // the opponent closed Recharged
+            Replaced,     // another game of this player took the set
+            Forfeited,    // this player gave the set up in its match (Forfeit)
+            OpponentForfeited // the opponent gave it up: this player won the set
+        };
+        std::int64_t match = 0;
+        std::string opponent;
+        std::string opponent_avatar; // their Discord picture (URL), or empty
+        std::string opponent_mii;    // their Mii's record (base64) when they have no Discord picture, or empty
+        int won = 0, lost = 0, games = 0; // the games this game counted
+        How how = How::Over;
+        int popup = -1;
+        bool can_play_again = false; // the server keeps it open for Ready to play!
+        // A rematch's turn (servers from 1.3.3): 1 the player's, who picks
+        // its stadium (from `stadium`, the set's) and drafts first; 0 the
+        // opponent's; -1 without turns.
+        int rematch_turn = -1;
+        std::string stadium;
+        std::string rules; // "Competitive: 3 minutes, best of 3, random stadium"
+    };
+    std::optional<SetEnd> TakeSetEnd();
+    // After a SetEnd: the same set again. `rematch`: a new set by its rules
+    // (the opponent's game asks its player), on `stadium` when the rematch is
+    // the player's turn (empty: the set's), against `opponent` (their name,
+    // for PendingRematch until the server answers); otherwise the player's
+    // Ready to play! again for a set that stopped.
+    void PlayAgain(std::int64_t match, bool rematch, const std::string& stadium = {},
+                   const std::string& opponent = {});
+    // A challenge the player sends from the Recharged Game Menu (a friend or
+    // a recent opponent), with its rules as OnlinePanelFeed's: it waits for
+    // the opponent's answer as a rematch does (PendingRequest). `opponent`:
+    // their name, until the server answers.
+    struct ChallengeRequest
+    {
+        std::int64_t player = 0;
+        std::int64_t rule_set = 0; // the server's rule set, or 0 for `rules` named `name`
+        MatchRules rules;
+        std::string name;
+        bool discord_friend = false;
+        std::string opponent;
+    };
+    void Challenge(ChallengeRequest request);
+    // The player's search for a random opponent (QUICK UNRANKED MATCH): it
+    // runs until it finds one (the set goes: TakeSetStart), is cancelled or
+    // stops on the server.
+    struct SearchRequest
+    {
+        std::int64_t rule_set = 0;
+        MatchRules rules;
+        std::string name;
+        std::string game; // the game's id, first four characters (R4QE)
+        bool make_available = false; // open to challenges first (give and take)
+    };
+    void Search(SearchRequest request);
+    // What the player asked for in this game and waits for (the host shows it
+    // in a lasting box with CANCEL, and on QUICK PLAY): a rematch or a
+    // challenge until the opponent's answer, at most a minute (then the game
+    // calls it off), or a search until it finds an opponent. It ends with the
+    // opponent's accept or the search's find (the set goes: TakeSetStart),
+    // their decline, the wait, the player's cancel (CancelRequest), a match
+    // this game starts (Observe sees it load, CallOffRequest for one on its
+    // way) or the game's close; each end but the accept, the find and the
+    // close leaves a notice (TakeNotice).
+    enum class RequestKind
+    {
+        Rematch,
+        Challenge,
+        Search,
+    };
+    struct PendingAsk
+    {
+        RequestKind kind = RequestKind::Rematch;
+        std::int64_t match = 0; // a rematch's or challenge's set, once the server took it
+        std::string opponent;   // none for a search
+        std::chrono::steady_clock::time_point since{};
+        // When the game calls it off unanswered; a search has none (max).
+        std::chrono::steady_clock::time_point deadline{};
+    };
+    std::optional<PendingAsk> PendingRequest();
+    // The player calls off what they wait for (the box's CANCEL, QUICK
+    // PLAY's): a challenge or rematch is withdrawn, a search stops.
+    void CancelRequest();
+    // The player goes on to another match (the Game Menu's Play RANKED): what
+    // they wait for is called off.
+    void CallOffRequest();
+    // After a SetEnd: the player doesn't play a stopped set again now; the
+    // server calls it off, so neither player keeps it.
+    void CallOff(std::int64_t match);
+    // On the game's thread: the player gives up the set this game plays, in
+    // its match (the match menu's FORFEIT), before the game leaves the match:
+    // the server books the set for the opponent with the games played to the
+    // end so far. False outside a set's series (the caller leaves at once).
+    bool Forfeit();
+    // The server answered the forfeit (or gave no answer in time to wait
+    // for): the game can leave its match now.
+    bool ForfeitAnswered();
+    // On the game's thread, before Observe: the game's online series
+    // (charged_online_match_snapshot), for a game that broke off.
+    void ObserveOnline(const ChargedOnlineMatchSnapshot& online);
+
+    // On the game's thread after Observe: the set this game plays, for the
+    // Discord status: the opponent, the games won and lost so far and how
+    // many the series has; none outside a set's game.
+    struct SetStatus
+    {
+        std::string opponent;
+        int won = 0, lost = 0, games = 0;
+    };
+    std::optional<SetStatus> CurrentSet();
+
+    // A challenge to this player while the game is in its menus (not in a
+    // match, not a set's game): what the host's card asks, or none.
+    struct Invitation
+    {
+        std::int64_t match = 0;
+        std::string from;  // the challenger's name
+        std::string avatar; // the challenger's Discord picture (URL), or empty
+        std::string mii;    // their Mii's record (base64) when they have no Discord picture, or empty
+        std::string rules; // the rule set and what it plays by
+        bool rematch = false; // the set they played last, again
+        bool random = false;  // their search for a random opponent asks this player
+        // The set's turn (servers from 1.3.3): 1 the player's, 0 the
+        // challenger's (who picked the stadium), -1 not said. A rematch that
+        // is the player's turn: their accept picks its stadium, from
+        // `stadium` (the set's).
+        int turn = -1;
+        std::string stadium;
+    };
+    std::optional<Invitation> PendingInvitation();
+    // The card's answer. An accept is also the player's Ready to play!: the
+    // set then goes, and TakeSetStart() starts it in this game. `stadium`:
+    // the one picked for a rematch that is the player's turn (empty: none).
+    void Answer(std::int64_t match, bool accept, const std::string& stadium = {});
+    // On the game's thread: the game plays a match (no cards or reminders).
+    bool InMatch();
+    // What the host shows in a message (an answer the server did not take),
+    // once.
+    std::optional<std::string> TakeNotice();
+
+private:
+    CompetitiveHost(std::string server, std::string token, std::string player, Log log);
+    void Run();
+    void Work(ProfileService& api);
+    void Said(const std::string& line);
+    // Wakes the worker for new work (no wake-up gets lost while it works).
+    void Kick();
+    // With mutex_ held: the game is due to say it is ready for match_.
+    bool ReadyDue() const;
+
+    const std::string server_, token_, player_;
+    const Log log_;
+    std::mutex mutex_;
+    std::condition_variable wake_;
+    bool stop_ = false, kick_ = false;
+    // The game closes while its set waits for it: the worker's last call calls
+    // the set off; during its match, its last call reports the series with
+    // the game in play as broken off (withdrawn_ once they are through).
+    bool withdraw_on_stop_ = false, withdrawn_ = false;
+    bool finished_ = false; // the worker is done
+    // Stops the worker: its last calls go out (or time out); no join.
+    void Stop();
+    std::shared_ptr<class HttpCancel> cancel_;
+    std::thread worker_;
+
+    // Shared with the worker.
+    std::optional<ProfileMatch> match_; // the accepted match, as the server knows it
+    std::optional<ChargedCompetitiveRules> rules_;
+    std::uint64_t rules_version_ = 0;
+    unsigned login_profile_ = 0; // the game's WFC login
+    std::string login_ticket_;
+    unsigned proven_profile_ = 0; // the login the server took as proof
+    std::string proven_ticket_, refused_ticket_;
+    bool paired_ = false;
+    // What the game is doing, for the server's lists: "game", or "match"
+    // from a match's loading until it is unloaded (no challenges then).
+    std::string activity_ = "game";
+    std::string match_kind_; // in a match: its kind (MatchKindOf)
+    std::string screen_;     // outside one: the screens it shows (ScreenOf)
+    // In a set: the game of its series being played, or last played between
+    // two; 0 outside a set's series.
+    int set_game_ = 0;
+    // A challenge to answer in the game's menus, the card's answer still to
+    // send and the last one sent.
+    std::optional<Invitation> invitation_;
+    std::int64_t answer_match_ = 0, answered_match_ = 0;
+    bool answer_accept_ = false;
+    std::string answer_stadium_;
+    // A set that went for this game to start (TakeSetStart), the last go
+    // started (go_at, or the set's id), and a PlayAgain still to send.
+    std::optional<SetStart> set_start_;
+    std::int64_t started_go_ = 0;
+    std::int64_t again_match_ = 0;
+    bool again_rematch_ = false;
+    std::string again_stadium_;
+    std::int64_t call_off_match_ = 0; // CallOff still to send
+    // What the player asked for in this game and waits for (PendingRequest):
+    // its kind, its set (a rematch's or challenge's, 0 until the server took
+    // it), the opponent, since and until when, whether a match this game
+    // started calls it off, and whether the player cancelled it.
+    struct Ask
+    {
+        RequestKind kind = RequestKind::Rematch;
+        std::int64_t match = 0;
+        std::string opponent;
+        std::chrono::steady_clock::time_point since{}, deadline{};
+        bool match_started = false;
+        bool cancelled = false;
+    };
+    std::optional<Ask> ask_;
+    // A challenge and a search still to send.
+    std::optional<ChallengeRequest> challenge_send_;
+    std::optional<SearchRequest> search_send_;
+    // The game closes while it waits: the worker's last call calls it off
+    // (the challenge or rematch; a search stops).
+    std::int64_t withdraw_ask_ = 0;
+    bool stop_search_on_stop_ = false;
+    std::optional<std::string> notice_;
+    struct Report
+    {
+        std::int64_t match = 0;
+        std::vector<MatchGame> games;
+    };
+    std::vector<Report> reports_; // series played, to report
+    std::string last_said_;
+    std::chrono::steady_clock::time_point next_match_{}, next_ready_{};
+
+    // A set's game: the set, the module's stage of it (ChargedSetStage), the
+    // series reports not out yet, whether the set was called off or its
+    // Ready to play! taken back, and since when it is done.
+    std::int64_t set_ = 0;
+    int set_stage_ = 0;
+    int set_popup_ = -1;
+    int unsent_ = 0;
+    bool set_called_off_ = false, set_unready_ = false;
+    // Why it was called off, as the server showed the opponent then.
+    SetEnd::How called_off_how_ = SetEnd::How::CalledOff;
+    // The set's opponent and series length, kept once the server has gone
+    // on from the set (for the Discord status of its last screens).
+    std::string set_opponent_;
+    std::string set_opponent_avatar_, set_opponent_mii_;
+    int set_games_ = 0;
+    // Its turn and stadium (ProfileMatch::first_pick, MatchRules::stadium),
+    // for the rematch's.
+    std::string set_first_pick_, set_stadium_;
+    std::string set_rules_; // SetEnd::rules
+    std::chrono::steady_clock::time_point set_done_{};
+
+    // The game's thread only.
+    std::uint64_t rules_seen_ = 0;
+    unsigned series_setup_ = 0; // ChargedWfcSnapshot::competitive_setups of the series
+    std::int64_t series_match_ = 0;
+    int series_games_ = 0;
+    std::vector<MatchGame> series_;
+    bool game_recorded_ = false, series_done_ = true;
+    // The series' game length (a time limit), for a game that broke off.
+    int series_time_ = 0;
+    // The series' game in play as the last Observe saw it (score, clock):
+    // broken off if this game closes during it.
+    std::optional<MatchGame> playing_;
+    // A forfeit to send (its set and games), whether the server answered it,
+    // and the set it booked: this player's, or the opponent's (the server
+    // showed it).
+    std::int64_t forfeit_ = 0;
+    std::vector<MatchGame> forfeit_games_;
+    bool forfeit_answered_ = false;
+    std::int64_t forfeited_ = 0, opponent_forfeited_ = 0;
+    // The game's online series (ObserveOnline): how each game ended.
+    ChargedOnlineMatchSnapshot online_{};
+    bool online_known_ = false;
+    // Its number when this series was set up: this series' is a later one.
+    unsigned series_online_before_ = 0;
+    // With the series about to be reported: its games as the game reported
+    // each end (its online series), when that holds at least the games
+    // counted here. This host looks once a second and can miss a game's end
+    // screen (a sync error right after the whistle unloads the match within
+    // it); the last game is broken off when it ended by a lost connection or
+    // out of sync.
+    void TakeOnlineGames();
+};
+} // namespace mscharged::platform

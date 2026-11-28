@@ -72,6 +72,8 @@ macOS. Once installed, the launcher keeps Recharged up to date in place.
   and high frame rates while the game keeps its original speed.
 - **Optional tweaks** such as skipping the intro or unlocking everything, three
   fixed bugs of the original game, and Dolphin texture packs.
+- **Replays** of every match, with its stats, to watch again or send to a
+  friend ([replays](docs/REPLAYS.md)).
 
 See the [feature list](docs/FEATURES.md) and the
 [default controls](docs/FEATURES.md#default-bindings).
@@ -139,6 +141,11 @@ See [how it works](docs/ARCHITECTURE.md).
 come from the original code, except for the optional tweaks you turn on and the
 three listed bug fixes.
 
+**Does it run on a Nintendo Switch?** Only as **homebrew**. A homebrew
+version is in development for Switch consoles with custom firmware
+(Atmosphère). It is not an official Switch game and not on the eShop, and an
+unmodified Switch cannot start it. See the [Switch guide](docs/SWITCH.md).
+
 **Something does not work.** See [troubleshooting](docs/TROUBLESHOOTING.md),
 and [CONTRIBUTING](CONTRIBUTING.md) for how to report it.
 
@@ -148,9 +155,11 @@ and [CONTRIBUTING](CONTRIBUTING.md) for how to report it.
 | --- | --- |
 | [Install guide](docs/INSTALL.md) | [Architecture](docs/ARCHITECTURE.md): how Recharged works |
 | [Steam Deck guide](docs/STEAM_DECK.md) | [Building from source](docs/BUILDING.md) |
-| [Features and controls](docs/FEATURES.md) | [Dependencies](extern/README.md) |
-| [Settings](docs/SETTINGS.md): Wii Remotes, saves, updates, options | [Licenses](LICENSES/README.md) |
-| [Troubleshooting](docs/TROUBLESHOOTING.md) | [Contributing](CONTRIBUTING.md): reports, ideas, pull requests |
+| [Nintendo Switch guide](docs/SWITCH.md) (homebrew) | [Dependencies](extern/README.md) |
+| [Features and controls](docs/FEATURES.md) | [Licenses](LICENSES/README.md) |
+| [Replays](docs/REPLAYS.md): watch your matches again, their stats | [Contributing](CONTRIBUTING.md): reports, ideas, pull requests |
+| [Settings](docs/SETTINGS.md): Wii Remotes, saves, updates, options | |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | |
 
 ## Credits
 

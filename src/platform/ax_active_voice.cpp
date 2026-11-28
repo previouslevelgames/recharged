@@ -180,8 +180,12 @@ void PrepareNativeAXADPCMVoiceInto(NativeAXPreparedVoiceFrame& result,
               "; direct/unknown processing is unqualified").c_str());
     if (state.src_select == 0)
         coefficients.Row(state.coefficient_select, state.fraction); // Fail before any sample reads/stores.
-    if (state.ratio > 0x40000)
-        Fail(NativeAXVoiceFailure::UnsupportedRate, "AX active slice qualifies ratios0..4 only, never clamps a source ratio");
+    // Every 16.16 ratio plays: the original SRC words 071C..0759/076D..07AE read
+    // ratio>>16 accelerator samples per output sample whatever its size, as the
+    // loop below does (tools/native_ax_voice_oracle.py has cases above 4). The
+    // game asks for more than 4 itself: AudioEffectBase::Update skips the
+    // parameter after a finished one, so pitch pairs ending together leave a
+    // frame without their -12s (Slow-mo_Captain_Hit while a replay catches up).
     if (state.gain != 0)
         Fail(NativeAXVoiceFailure::UnsupportedGain, "AX ADPCM nonzero accelerator gain is outside the owned sample proof");
     const auto* before = result.parameters_before.data();

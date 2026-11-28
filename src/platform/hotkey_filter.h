@@ -22,6 +22,19 @@ void SetHotkeys(const Hotkeys& hotkeys);
 // processing, on the window's thread); null leaves it doing nothing. The
 // fullscreen hotkey is ServiceFullscreenHotkey's.
 void SetHotkeyAction(HotkeyIndex hotkey, void (*action)());
+// While a text field of the host panel has the keyboard, only the panel and
+// fullscreen hotkeys act; the other hotkeys' keys type (a P types a P).
+void SetHotkeysTyping(bool typing);
+// While the Recharged Game Menu is open, its keys are the menu's (F there
+// searches, not stretches): only the menu's own, fullscreen and screenshot
+// hotkeys act.
+void SetHotkeysInMenu(bool in_menu);
+// A button of the host's over the game (the status box's CANCEL): a left
+// click in its area (window coordinates) is taken out of the event stream,
+// press and release, so the game never sees it, and its release there calls
+// `action` (in SDL's event processing, on the window's thread). An empty
+// area or a null action: none.
+void SetHotkeyClickArea(float left, float top, float right, float bottom, void (*action)());
 #if defined(MSCHARGED_AUTOPILOT)
 // Test builds' autopilot (src/platform/autopilot.cpp): what C, P and U held
 // together in the window do, called where the chord's last key comes down;

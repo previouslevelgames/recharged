@@ -1,6 +1,9 @@
 #pragma once
 
 #include "runtime/fps_overlay_layout.h"
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+#include "ui/rui_kit.h"
+#endif
 #include "platform/system_usage.h"
 
 #include <array>
@@ -15,12 +18,14 @@ struct ImFont;
 
 namespace mscharged::runtime {
 
+class HostMenus;
+
 // What the host draws over the presented picture, in windowed and fullscreen
 // mode: the performance overlay (display.fps_overlay: FPS | GPU % | CPU %, then
 // in network sessions LAT (round trip, ms) and in network matches with rollback
-// DLY (input delay, ms) | RB (rollback frames)) and short messages, such as what a display hotkey changed. Host
-// presentation only; the game never sees it. Use it on the presentation owner
-// thread, between game frames.
+// DLY (input delay, ms) | RB (rollback frames)), short messages, such as what a display hotkey changed, and
+// Recharged's menus. Host presentation only; the game never sees it. Use it on the presentation owner thread,
+// between game frames.
 class HostOverlay {
 public:
     using Clock = std::chrono::steady_clock;
@@ -35,6 +40,8 @@ public:
 
     // A new measurement, in frames per second.
     void SetRate(double rate);
+    // The performance numbers in `corner`, or none (the game's Settings switch them).
+    void SetPerformance(std::optional<OverlayCorner> corner);
     // The network numbers: none outside network sessions (LAT, DLY and RB
     // hidden), a latency alone in one, all three in a match with rollback.
     struct Network {
@@ -47,13 +54,78 @@ public:
     void SetNetwork(const Network& network);
     // Shows `text` for a moment, replacing the message shown before.
     void ShowMessage(std::string text, Clock::time_point now);
+    // A lasting hint in the top-left corner (the menus' key while the game is
+    // in its menus): its keys as keycaps, then `text`. Hidden while the menus
+    // show; messages show below it. None hides it.
+    struct Hint {
+        std::vector<std::string> keys;
+        std::string text;
+        bool operator==(const Hint&) const = default;
+    };
+    void SetHint(std::optional<Hint> hint);
+    // A lasting status in the bottom-right corner (a request that waits for
+    // its answer): a small gold title above its text, on a plate in the
+    // menus' look; above the performance numbers when they share the corner.
+    // With `action`, a button under them (its label; `hint` beside it), which
+    // the host makes clickable (StatusActionArea). Hidden while the menus
+    // show. None hides it.
+    struct Status {
+        std::string title;
+        std::string text;
+        std::string action; // the button's label, or empty for none
+        std::string hint;   // small, beside the button
+        bool operator==(const Status&) const = default;
+    };
+    void SetStatus(std::optional<Status> status);
+    // The mouse is over the status's button: it lights up.
+    void SetStatusHover(bool hover);
+    // Where the status's button was drawn last, in surface pixels (left, top,
+    // right, bottom); none while it is not shown.
+    std::optional<std::array<float, 4>> StatusActionArea() const { return statusAction_; }
+    // A live replay that catches up with its match: a screen over the whole
+    // picture (the match draws nothing behind it) with a gold title, the
+    // score, how far it got and when it is live, and a bar for that. Over it
+    // only messages and the performance numbers. None hides it.
+    struct CatchUp {
+        std::string title;
+        std::string score;    // empty: not known yet
+        std::string progress; // how far it got, when it is live
+        int percent = 0;      // of the way to the live match, 0..100
+        bool operator==(const CatchUp&) const = default;
+    };
+    void SetCatchUp(std::optional<CatchUp> catchUp);
+    // A watched match's players and how far its set is: a bar at the bottom,
+    // each side's flag and name towards its end, the games each side won
+    // between them and above them which game of how many it is. Hidden while
+    // the menus or the catch-up screen show. None hides it.
+    struct Scorebug {
+        struct Side {
+            std::string name;
+            std::string country; // two capital letters, or empty
+            int wins = 0;
+            bool operator==(const Side&) const = default;
+        };
+        Side home, away;
+        bool set = false;    // a set of more games: the games won and the caption show
+        std::string caption; // which game of how many
+        bool operator==(const Scorebug&) const = default;
+    };
+    void SetScorebug(std::optional<Scorebug> scorebug);
+    // The flags' atlas (overlay/flags.h) for the scorebug; without it a
+    // country shows as its letters.
+    void SetFlagAtlas(void* texture) { flagAtlas_ = texture; }
+    // Recharged's menus, drawn while shown under the performance numbers and
+    // messages; null for none.
+    void SetMenus(HostMenus* menus);
     // Rebuild only when a displayed value, the message's fade or the window's
-    // pixel size changes. Unknown measurements show N/A, including during the
-    // first sample window.
+    // pixel size changes, and every call while the menus show. Unknown
+    // measurements show N/A, including during the first sample window.
     void Update(std::uint32_t surface_width, std::uint32_t surface_height, Clock::time_point now);
 
 private:
-    void BuildFonts(float size);
+    void BuildFonts(float size, float menuScale);
+    void DrawCatchUp(const CatchUp& catchUp, std::uint32_t surface_width, std::uint32_t surface_height, float size);
+    void DrawScorebug(const Scorebug& scorebug, std::uint32_t surface_width, std::uint32_t surface_height, float size);
 
     std::optional<OverlayCorner> performance_;
     std::optional<platform::SystemUsageMonitor> usage_;
@@ -61,6 +133,15 @@ private:
     std::optional<int> value_;
     Network network_;
     std::string message_;
+    std::optional<Hint> hint_, shownHint_;
+    std::optional<Status> status_, shownStatus_;
+    bool statusHover_ = false, shownStatusHover_ = false;
+    std::optional<std::array<float, 4>> statusAction_;
+    std::optional<CatchUp> catchUp_, shownCatchUp_;
+    std::optional<Scorebug> scorebug_, shownScorebug_;
+    void* flagAtlas_ = nullptr, *shownFlagAtlas_ = nullptr;
+    HostMenus* menus_ = nullptr;
+    bool shownMenus_ = false;
     Clock::time_point messageShown_{};
     std::array<std::optional<int>, kMaxPerformanceMetrics> shownValues_{};
     std::size_t shownCount_ = 0;
@@ -70,9 +151,17 @@ private:
     std::uint32_t shownWidth_ = 0;
     std::uint32_t shownHeight_ = 0;
     float builtSize_ = 0.0f;
+    float builtMenuScale_ = 0.0f;
     ImFont* number_ = nullptr;
     ImFont* label_ = nullptr;
     ImFont* messageFont_ = nullptr;
+    ImFont* catchUpFont_ = nullptr; // the catch-up screen's score
+    ImFont* scorebugName_ = nullptr;   // the scorebug's names
+    ImFont* scorebugNumber_ = nullptr; // and its games won (bold)
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+    // Recharged's menus' (bold): their title, plates, rows and small lines.
+    ui::Fonts menuFonts_{};
+#endif
 };
 
 } // namespace mscharged::runtime

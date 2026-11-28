@@ -1,0 +1,73 @@
+From: mscharged-port
+Subject: Tweak: training's goalie goes out after the ball and back at a kickoff
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+The TRAINING page (tweak patch 0095) can take the opponent's goalie out in
+the middle of a match (tweak patch 0044 sends it far off the field, unseen
+and with no collisions), and put it back. Put back at once, it would play
+from up there, and its next save crashed (Goalie::InitActionSave, as the
+ball came to the goal); taken out with the ball in its hands, the ball went
+with it. A goalie holding the ball now stays until it lets go (a throw, a
+pass), and one that went out stays out until the next kickoff, whose
+Goalie::Reset puts it in its goal again, seen and solid (cCharacter::Reset).
+
+diff --git a/src/Game/Goalie.cpp b/src/Game/Goalie.cpp
+index 5a8f70b..fed0924 100644
+--- a/src/Game/Goalie.cpp
++++ b/src/Game/Goalie.cpp
+@@ -234,6 +234,14 @@ inline void Goalie::InitGoalieActionData()
+     }
+ }
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Port tweak "Training": whether each side's goalie is out of the match. It
++// goes out at once, but comes back only at a kickoff (Reset), which puts it in
++// its goal again: back in play from far off the field, its next save would
++// crash.
++static bool sTrainingGoalieOut[2];
++#endif
++
+ Goalie::Goalie(eCharacterClass gcc, const int* pTemplate,
+     cSHierarchy* pHierarchy, cAnimInventory* pAnimInventory,
+     const CharacterPhysicsData* pPhysicsData, GoalieTweaks* pTweaks,
+@@ -257,6 +265,11 @@ Goalie::Goalie(eCharacterClass gcc, const int* pTemplate,
+     mFatigue.Reset();
+     mFatigue.mfRecoverRate = pTweaks->fFatigueRecoverRate;
+     m_pHeadTrack->m_bTrackOOI = true;
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": a new match's goalies start in.
++    sTrainingGoalieOut[0] = false;
++    sTrainingGoalieOut[1] = false;
++#endif
+ }
+ 
+ void Goalie::ResetAnimState()
+@@ -301,6 +314,15 @@ void Goalie::Update(float dt)
+     // match when the launcher says so: it touches neither the ball nor the
+     // players, casts no shadow, is not drawn, and stands far from the field.
+     if (GetTrainingSide() == 1 - m_pTeam->m_nSide && !mscharged_tweak_training_away_goalie())
++    {
++        // One holding the ball keeps it, and goes out once it lets go: out
++        // at once, the ball would leave with it.
++        if (g_pBall == 0 || g_pBall->m_pOwner != this)
++        {
++            sTrainingGoalieOut[m_pTeam->m_nSide] = true;
++        }
++    }
++    if (sTrainingGoalieOut[m_pTeam->m_nSide])
+     {
+         m_pPhysicsCharacter->m_CanCollideWithBall = false;
+         m_pPhysicsCharacter->m_CanCollideWithCharacters = false;
+@@ -4537,6 +4559,12 @@ void Goalie::Reset(const nlVector3& v3Position, unsigned short aDirection)
+     mbNegGoalieNetCheck = false;
+     mpLooseBallInfo = 0;
+     RestoreBallAfterMegaStrike(false);
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": a kickoff brings a goalie that was out back
++    // (cCharacter::Reset makes it seen and solid again); Update takes it out
++    // again while the opponent still has none.
++    sTrainingGoalieOut[m_pTeam->m_nSide] = false;
++#endif
+ }
+ 
+ 

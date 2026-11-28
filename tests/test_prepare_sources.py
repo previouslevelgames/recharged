@@ -188,11 +188,94 @@ class SourcePreparationTests(unittest.TestCase):
                          ["one.patch", "example-tweaks/one.patch"])
         self.run_prepare(check=True)
 
+    def test_platform_layer_applies_only_when_selected(self):
+        self.patch("one.patch", "original\n", "first\n")
+        self.tweak_patch("one.patch", "first\n", "tweaked\n")
+        layer = self.root / "patches/example-switch"
+        layer.mkdir(parents=True)
+        (layer / "base").write_text(self.pin + "\n", newline="\n")
+        text = "".join(difflib.unified_diff(["tweaked\n"], ["switch\n"], fromfile="a/value.txt", tofile="b/value.txt"))
+        (layer / "one.patch").write_text(text, newline="\n")
+        (layer / "series").write_text("one.patch\n", newline="\n")
+        source = self.run_prepare()
+        self.assertEqual((source / "value.txt").read_text(), "tweaked\n")
+        key = json.loads((source.parent / "manifest.json").read_text())["key"]
+        source = self.run_prepare(layers=["switch"])
+        self.assertEqual((source / "value.txt").read_text(), "switch\n")
+        manifest = json.loads((source.parent / "manifest.json").read_text())
+        self.assertNotEqual(manifest["key"], key)
+        self.assertEqual([p["name"] for p in manifest["inputs"]["patches"]],
+                         ["one.patch", "example-tweaks/one.patch", "example-switch/one.patch"])
+        self.run_prepare(layers=["switch"], check=True)
+        with self.assertRaises(PreparationError):
+            self.run_prepare(check=True)  # the prepared tree has the layer: a build without it re-prepares
+        self.assertEqual((self.run_prepare() / "value.txt").read_text(), "tweaked\n")
+        with self.assertRaisesRegex(PreparationError, "Unknown patch layer"):
+            self.run_prepare(layers=["wii"])
+
+    def test_platform_layer_requires_the_pinned_base(self):
+        self.patch("one.patch", "original\n", "first\n")
+        layer = self.root / "patches/example-switch"
+        layer.mkdir(parents=True)
+        (layer / "base").write_text("0" * 40 + "\n", newline="\n")
+        (layer / "series").write_text("", newline="\n")
+        with self.assertRaisesRegex(PreparationError, "Patch base for example-switch"):
+            self.run_prepare(layers=["switch"])
+        self.run_prepare()  # without the layer, its directory is not read
+
     def test_tweak_series_requires_the_pinned_base(self):
         tweaks = self.tweak_patch("one.patch", "original\n", "tweaked\n")
         (tweaks / "base").write_text("0" * 40 + "\n", newline="\n")
         with self.assertRaisesRegex(PreparationError, "Patch base for example-tweaks"):
             self.run_prepare()
+
+    def extra_series(self, name, old, new, base=None):
+        folder = self.workspace / name  # outside the checkout, as a local experiment's
+        folder.mkdir()
+        (folder / "base").write_text((base or self.pin) + "\n", newline="\n")
+        text = "".join(difflib.unified_diff([old], [new], fromfile="a/value.txt", tofile="b/value.txt"))
+        (folder / "one.patch").write_text(text, newline="\n")
+        (folder / "series").write_text("one.patch\n", newline="\n")
+        return folder
+
+    def test_extra_series_apply_in_order_after_every_series(self):
+        self.patch("one.patch", "original\n", "first\n")
+        self.tweak_patch("one.patch", "first\n", "tweaked\n")
+        source = self.run_prepare()
+        key = json.loads((source.parent / "manifest.json").read_text())["key"]
+        first = self.extra_series("experiment", "tweaked\n", "experiment\n")
+        second = self.extra_series("second", "experiment\n", "second\n")
+        source = self.run_prepare(extra_series=[first, second])
+        self.assertEqual((source / "value.txt").read_text(), "second\n")
+        manifest_text = (source.parent / "manifest.json").read_text()
+        manifest = json.loads(manifest_text)
+        self.assertNotEqual(manifest["key"], key)
+        self.assertEqual([p["name"] for p in manifest["inputs"]["patches"]],
+                         ["one.patch", "example-tweaks/one.patch", "extra-1/one.patch", "extra-2/one.patch"])
+        self.assertNotIn(str(first), manifest_text)  # the manifest names no folder
+        self.run_prepare(extra_series=[first, second], check=True)
+        with self.assertRaises(PreparationError):
+            self.run_prepare(check=True)  # without them the inputs differ: a build re-prepares
+        self.assertEqual((self.run_prepare() / "value.txt").read_text(), "tweaked\n")
+        with self.assertRaisesRegex(PreparationError, "Patch failed: extra-1/one.patch"):
+            self.run_prepare(extra_series=[second, first])  # the order is the given one
+
+    def test_extra_series_apply_without_a_series_of_the_dependency(self):
+        shutil.rmtree(self.patch_dir)
+        folder = self.extra_series("experiment", "original\n", "experiment\n")
+        self.assertEqual((self.run_prepare(extra_series=[folder]) / "value.txt").read_text(), "experiment\n")
+
+    def test_extra_series_need_their_own_pinned_base_and_series(self):
+        stale = self.extra_series("stale", "original\n", "experiment\n", base="0" * 40)
+        with self.assertRaisesRegex(PreparationError, "Patch base for extra series"):
+            self.run_prepare(extra_series=[stale])
+        empty = self.workspace / "empty"
+        empty.mkdir()
+        with self.assertRaisesRegex(PreparationError, "needs its own base and series"):
+            self.run_prepare(extra_series=[empty])
+        folder = self.extra_series("experiment", "original\n", "experiment\n")
+        with self.assertRaisesRegex(PreparationError, "given twice"):
+            self.run_prepare(extra_series=[folder, folder])
 
     def test_untracked_and_ignored_files_are_not_exported(self):
         (self.submodule / "scratch.txt").write_text("ignored data\n", newline="\n")

@@ -1,0 +1,137 @@
+From: mscharged-port
+Subject: Competitive play: a tournament set's players take the home side in turn
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+RANKED puts the draft's first team at home (StartNetworkedGame), which
+matchmaking leaves to chance. The sets of Recharged's tournaments give the
+home side in turn (the lower seed in the first game), and the module knows
+this machine's. The draft host decides: when its player is on the other
+side, its game start message says so (a new field, mSwapSides), and every
+machine swaps the draft's two teams and the lineups in that message
+before anything reads them. One machine decides, so they agree.
+
+diff --git a/include/Game/NetworkMessages.h b/include/Game/NetworkMessages.h
+index 9bdd728..0f8ac92 100644
+--- a/include/Game/NetworkMessages.h
++++ b/include/Game/NetworkMessages.h
+@@ -27,6 +27,11 @@ public:
+     /* 0x1C */ s8 mTournamentSetup[3];
+     /* 0x20 */ u32 mSecondGameRandomSeed;
+     /* 0x24 */ u32 mThirdGameRandomSeed;
++#if defined(MSCHARGED_TWEAKS)
++    // Tweak patch 0079: the draft's two teams swap places for a set's
++    // game (the draft host decides it for every machine).
++    /* 0x28 */ u8 mSwapSides;
++#endif
+ };
+ 
+ struct NetworkDraftSides
+diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
+index 669a4b9..2f8a5a9 100644
+--- a/include/mscharged_competitive.h
++++ b/include/mscharged_competitive.h
+@@ -127,6 +127,15 @@ bool mscharged_competitive_draft_mirror(void);
+ int mscharged_competitive_mirror_dressed_side(void);
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++// A set's game (tweak patch 0079): this machine's side by the set's turn, 0
++// home or 1 away, -1 for the game's own (the draft host's side decides the
++// swap for every machine); and the game swapped its sides (this machine's
++// side now).
++int mscharged_competitive_set_side(void);
++void mscharged_competitive_sides_swapped(int side);
++#endif
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/Game/NetTournManager.cpp b/src/Game/NetTournManager.cpp
+index 77e3461..b58b254 100644
+--- a/src/Game/NetTournManager.cpp
++++ b/src/Game/NetTournManager.cpp
+@@ -373,6 +373,9 @@ bool NetTournManager::SendTournamentGameStart(NetworkTournamentGame* game)
+ 
+     u32 randomSeed = NetworkRandom();
+     NetMessageGameStart message;
++#if defined(MSCHARGED_TWEAKS)
++    message.mSwapSides = 0;
++#endif
+     message.mRandomSeed = randomSeed;
+     message.mMachineIndex = 0;
+     message.mMachineCount = 2;
+diff --git a/src/Game/NetworkGameStartMessage.cpp b/src/Game/NetworkGameStartMessage.cpp
+index 2cabb84..8720ee0 100644
+--- a/src/Game/NetworkGameStartMessage.cpp
++++ b/src/Game/NetworkGameStartMessage.cpp
+@@ -20,6 +20,9 @@ void NetMessageGameStart::Serialize(NetworkMessageSerializer* serializer)
+     serializer->Transfer(&mTournamentSetup[1], sizeof(mTournamentSetup) - 1);
+     serializer->Transfer(&mSecondGameRandomSeed, sizeof(mSecondGameRandomSeed));
+     serializer->Transfer(&mThirdGameRandomSeed, sizeof(mThirdGameRandomSeed));
++#if defined(MSCHARGED_TWEAKS)
++    serializer->Transfer(&mSwapSides, sizeof(mSwapSides));
++#endif
+ }
+ 
+ int NetMessageGameStart::GetType()
+diff --git a/src/Game/NetworkSession.cpp b/src/Game/NetworkSession.cpp
+index c287afc..e9a4076 100644
+--- a/src/Game/NetworkSession.cpp
++++ b/src/Game/NetworkSession.cpp
+@@ -325,6 +325,28 @@ void NetworkSession::SendGameStartToEveryone()
+     message.mTournamentSetup[1] = -1;
+     message.mTournamentSetup[2] = -1;
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Recharged's tournaments (tweak patch 0079): the set's players take the
++    // home side in turn, and the module knows this machine's. RANKED puts
++    // the draft's first team at home (StartNetworkedGame): when this
++    // machine's player is on the other side, every machine swaps the teams.
++    message.mSwapSides = 0;
++    if (IsOnlineRankedMatch() && machineCount == 2 && NetworkDraft::Instance()->mTeamCount == 2)
++    {
++        const int wanted = mscharged_competitive_set_side();
++        int local = -1;
++        for (int machine = 0; machine < 2; ++machine)
++        {
++            if (GetMachineRoster()->GetMachineAid(machine) == 0xFFFFFFFF)
++                local = machine;
++        }
++        // Machine 0's side, as StartNetworkedGame gives it.
++        const int first = NetworkDraft::Instance()->GetDraftTeam(0)->mPlayers[0].mPeerIndex != 0;
++        if (wanted >= 0 && local >= 0)
++            message.mSwapSides = wanted != (local == 0 ? first : !first);
++    }
++#endif
++
+     for (int machine = 0; machine < machineCount; ++machine)
+     {
+         u8 buffer[0x64];
+@@ -2224,6 +2246,27 @@ void NetworkSession::StartNetworkedGame(NetMessageGameStart* message)
+ 
+     u32 seed = message->mRandomSeed;
+     SetNetworkRandomSeed(seed);
++#if defined(MSCHARGED_TWEAKS)
++    // Tweak patch 0079: the draft host swapped the sides for a set's turn:
++    // the draft's two teams and the lineups in this message trade places
++    // on every machine, before anything reads them.
++    if (message->mSwapSides != 0 && IsOnlineRankedMatch() && message->mTournamentGame == 0 && mMachineCount == 2
++        && NetworkDraft::Instance()->mTeamCount == 2)
++    {
++        NetworkDraftTeam* teams = NetworkDraft::Instance()->mTeams;
++        NetworkDraftTeam home = teams[0];
++        teams[0] = teams[1];
++        teams[1] = home;
++        for (int character = 0; character < 4; ++character)
++        {
++            const u8 lineup = message->mHomeCharacters[character];
++            message->mHomeCharacters[character] = message->mAwayCharacters[character];
++            message->mAwayCharacters[character] = lineup;
++        }
++        const int first = teams[0].mPlayers[0].mPeerIndex != 0;
++        mscharged_competitive_sides_swapped(mLocalMachineId == 0 ? first : !first);
++    }
++#endif
+     GameInfoManager::GetInstance()->SetStadium(message->mStadium);
+     GameInfoManager::GetInstance()->SetTeam(0, message->mHomeCharacters[0]);
+     GameInfoManager::GetInstance()->SetSidekick(

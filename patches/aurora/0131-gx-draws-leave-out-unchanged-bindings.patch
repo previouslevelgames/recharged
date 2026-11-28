@@ -1,0 +1,178 @@
+From: mscharged-port
+Subject: GX draws leave out bindings that did not change
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host performance. Apply after 0130.
+
+Every GX draw bound the uniform group, its texture group and its index range
+again, although consecutive draws mostly share the first two and all use one
+index buffer. A GX draw now sets only the bindings that differ from the
+previous GX draw of the pass; the index buffer stays bound whole and each
+draw starts at its own first index (the same indices). A pass start, a
+custom draw or any draw other than a GX draw (clears, pokes, RmlUi) makes the
+next GX draw bind everything again.
+
+diff --git a/lib/gfx/encoding.cpp b/lib/gfx/encoding.cpp
+index 8715640..dd8a712 100644
+--- a/lib/gfx/encoding.cpp
++++ b/lib/gfx/encoding.cpp
+@@ -34,6 +34,7 @@ using webgpu::g_queue;
+ namespace {
+ constexpr Module Log{"aurora::gfx"};
+ WGPURenderPipeline g_currentPipeline = nullptr;
++uint32_t g_drawBindingEpoch = 0;
+ 
+ void apply_viewport(const wgpu::RenderPassEncoder& pass, const Viewport& vp) {
+   const float minDepth = gx::UseReversedZ ? 1.f - vp.zfar : vp.znear;
+@@ -122,6 +123,7 @@ void render_pass(const wgpu::RenderPassEncoder& pass, FramePacket& frame, Render
+                  const wgpu::RenderPassRenderAreaRect* area) {
+   ZoneScoped;
+   g_currentPipeline = nullptr;
++  ++g_drawBindingEpoch;
+ #ifdef AURORA_GFX_DEBUG_GROUPS
+   std::vector<std::string> lastDebugGroupStack;
+ #endif
+@@ -168,6 +170,9 @@ void render_pass(const wgpu::RenderPassEncoder& pass, FramePacket& frame, Render
+     } break;
+     case CommandType::Draw: {
+       auto& draw = cmd.data.draw;
++      if (!is_gx_draw(draw)) {
++        ++g_drawBindingEpoch;
++      }
+       if (draw.encoder != nullptr) {
+         draw.encoder(draw.payload.data(), pass, passInfo);
+       }
+@@ -175,6 +180,7 @@ void render_pass(const wgpu::RenderPassEncoder& pass, FramePacket& frame, Render
+     case CommandType::CustomDraw: {
+       render_custom_draw(cmd.data.customDraw, pass, passInfo);
+       g_currentPipeline = nullptr;
++      ++g_drawBindingEpoch;
+       pass.SetBindGroup(0, resources().staticBindGroup);
+       pass.SetBindGroup(2, gx::g_emptyTextureBindGroup);
+       if (hasViewport) {
+@@ -524,6 +530,8 @@ void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const FrameOp& op)
+ }
+ } // namespace detail
+ 
++uint32_t draw_binding_epoch() noexcept { return g_drawBindingEpoch; }
++
+ void bind_pipeline(const wgpu::RenderPipeline& pipeline, const wgpu::RenderPassEncoder& pass) {
+   if (pipeline.Get() == g_currentPipeline) {
+     return;
+diff --git a/lib/gfx/encoding.hpp b/lib/gfx/encoding.hpp
+index 077c98f..9336d43 100644
+--- a/lib/gfx/encoding.hpp
++++ b/lib/gfx/encoding.hpp
+@@ -6,6 +6,10 @@ namespace aurora::gfx {
+ 
+ bool bind_pipeline(PipelineRef ref, const wgpu::RenderPassEncoder& pass);
+ void bind_pipeline(const wgpu::RenderPipeline& pipeline, const wgpu::RenderPassEncoder& pass);
++// Counts the pass starts, custom draws and draws other than GX draws of the
++// render passes. A GX draw leaves out the bindings the previous GX draw set
++// only while this count is unchanged.
++uint32_t draw_binding_epoch() noexcept;
+ 
+ namespace detail {
+ void encode_op(wgpu::CommandEncoder& encoder, FramePacket& frame, const FrameOp& op);
+diff --git a/lib/gfx/frame_packet.hpp b/lib/gfx/frame_packet.hpp
+index eef7006..12c08a8 100644
+--- a/lib/gfx/frame_packet.hpp
++++ b/lib/gfx/frame_packet.hpp
+@@ -36,6 +36,8 @@ struct DrawCommand {
+   DrawEncoder encoder = nullptr;
+   alignas(std::max_align_t) std::array<std::byte, InlineDrawPayloadSize> payload{};
+ };
++// Whether a recorded draw is a GX draw (gx::render); defined in recording.cpp.
++bool is_gx_draw(const DrawCommand& command) noexcept;
+ 
+ enum class CommandType {
+   SetViewport,
+diff --git a/lib/gfx/recording.cpp b/lib/gfx/recording.cpp
+index 41da596..3fa6676 100644
+--- a/lib/gfx/recording.cpp
++++ b/lib/gfx/recording.cpp
+@@ -1357,6 +1357,10 @@ void push_draw_command(gx::DrawData data) {
+   push_draw_command(make_draw_command<gx::render>(data));
+ }
+ 
++bool detail::is_gx_draw(const DrawCommand& command) noexcept {
++  return command.encoder == &encode_draw<gx::render, gx::DrawData>;
++}
++
+ #ifdef AURORA_ENABLE_RMLUI
+ template <>
+ void push_draw_command(rmlui::DrawData data) {
+diff --git a/lib/gx/pipeline.cpp b/lib/gx/pipeline.cpp
+index 4f43fff..f9a3aee 100644
+--- a/lib/gx/pipeline.cpp
++++ b/lib/gx/pipeline.cpp
+@@ -1,6 +1,7 @@
+ #include "pipeline.hpp"
+ 
+ #include "../gfx/encoding.hpp"
++#include "../gfx/frame.hpp"
+ #include "../gfx/resources.hpp"
+ #include "../gfx/pipeline_cache.hpp"
+ #include "../gfx/resource_cache.hpp"
+@@ -123,19 +124,49 @@ void create_pipeline_async(const PipelineConfig& config, const gfx::RenderTarget
+   start(passes.main, "main", false);
+ }
+ 
++namespace {
++// What the previous GX draw bound in the current render pass, valid while
++// gfx::draw_binding_epoch() is unchanged. A draw sets only the bindings that
++// differ; the index buffer stays bound whole and each draw starts at its own
++// first index.
++struct Bindings {
++  uint32_t epoch = 0;
++  WGPUBindGroup uniform = nullptr;
++  uint32_t uniformOffset = 0;
++  bool hasTexture = false;
++  gfx::BindGroupRef texture{};
++  WGPUBuffer index = nullptr;
++};
++Bindings g_bindings;
++} // namespace
++
+ void render(const DrawData& data, const wgpu::RenderPassEncoder& pass) {
+   gfx::CompiledPipeline pipeline;
+   if (!gfx::get_pipeline(data.pipeline, pipeline)) {
+     return;
+   }
+   const auto& resources = gfx::detail::resources();
++  if (g_bindings.epoch != gfx::draw_binding_epoch()) {
++    g_bindings = {.epoch = gfx::draw_binding_epoch()};
++  }
+   pass.SetImmediates(0, &data.immediateData, sizeof(data.immediateData));
+-  const std::array offsets{data.uniformRange.offset};
+-  pass.SetBindGroup(1, resources.uniformBindGroup, offsets.size(), offsets.data());
+-  if (data.bindGroups.textureBindGroup) {
++  if (g_bindings.uniform != resources.uniformBindGroup.Get() || g_bindings.uniformOffset != data.uniformRange.offset) {
++    const std::array offsets{data.uniformRange.offset};
++    pass.SetBindGroup(1, resources.uniformBindGroup, offsets.size(), offsets.data());
++    g_bindings.uniform = resources.uniformBindGroup.Get();
++    g_bindings.uniformOffset = data.uniformRange.offset;
++  }
++  if (data.bindGroups.textureBindGroup &&
++      (!g_bindings.hasTexture || g_bindings.texture != data.bindGroups.textureBindGroup)) {
+     pass.SetBindGroup(2, gfx::find_bind_group(data.bindGroups.textureBindGroup));
++    g_bindings.hasTexture = true;
++    g_bindings.texture = data.bindGroups.textureBindGroup;
++  }
++  if (g_bindings.index != resources.indexBuffer.Get()) {
++    pass.SetIndexBuffer(resources.indexBuffer, wgpu::IndexFormat::Uint16);
++    g_bindings.index = resources.indexBuffer.Get();
+   }
+-  pass.SetIndexBuffer(resources.indexBuffer, wgpu::IndexFormat::Uint16, data.idxRange.offset, data.idxRange.size);
++  const auto firstIndex = static_cast<uint32_t>(data.idxRange.offset / sizeof(u16));
+   if (data.dstAlpha != UINT32_MAX) {
+     const wgpu::Color color{0.f, 0.f, 0.f, data.dstAlpha / 255.f};
+     pass.SetBlendConstant(&color);
+@@ -144,7 +175,7 @@ void render(const DrawData& data, const wgpu::RenderPassEncoder& pass) {
+     if (data.indexCount == 0) {
+       pass.Draw(data.vtxCount, data.instanceCount);
+     } else {
+-      pass.DrawIndexed(data.indexCount, data.instanceCount);
++      pass.DrawIndexed(data.indexCount, data.instanceCount, firstIndex);
+     }
+   };
+   if (pipeline.prepass) {

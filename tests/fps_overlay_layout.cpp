@@ -87,6 +87,30 @@ int main()
                     Check(message.text_x > message.left && message.right >= message.text_x + words
                         && message.text_y > message.top && message.text_y + font < message.bottom
                         && message.text_y == std::round(message.text_y), "Message text inside its panel");
+                    // A lasting status (a rematch's wait): bottom-right, above
+                    // the performance overlay when that takes the same corner.
+                    const bool below = corner == OverlayCorner::BottomRight;
+                    const float title = std::round(font * 0.78f);
+                    const auto status
+                        = LayoutOverlayStatus(size[0], size[1], font, title, words, below ? &layout : nullptr);
+                    Check(status.right == size[0] - margin
+                        && (below ? status.bottom < layout.top : status.bottom == size[1] - margin),
+                          "Status corner");
+                    Check(status.left >= 0 && status.top >= 0 && status.text_x > status.left
+                        && (status.left == 0 || status.right >= status.text_x + words)
+                        && status.title_y > status.top && status.text_y >= status.title_y + title
+                        && status.text_y + font < status.bottom && status.title_y == std::round(status.title_y)
+                        && status.text_y == std::round(status.text_y), "Status title and text inside its panel");
+                    // With a button row (CANCEL): the same corner, taller, the
+                    // button under the text and inside the panel.
+                    const float button = std::round(title * 1.9f);
+                    const auto withButton = LayoutOverlayStatus(size[0], size[1], font, title, words,
+                                                                below ? &layout : nullptr, button);
+                    Check(withButton.right == status.right && withButton.bottom == status.bottom
+                        && (withButton.top == 0 || withButton.top < status.top)
+                        && withButton.action_y >= withButton.text_y + font
+                        && (withButton.top == 0 || withButton.action_y + button < withButton.bottom)
+                        && withButton.action_y == std::round(withButton.action_y), "Status button row inside its panel");
                 }
             }
         std::cout << checks << " host overlay layout checks passed\n";

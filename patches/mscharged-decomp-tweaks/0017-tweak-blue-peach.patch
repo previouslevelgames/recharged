@@ -2,10 +2,11 @@ Subject: Tweak: blue Peach
 Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Peach has a second kit on the disc, blue with yellow: peach_alt.rlt, her
-goalie's peachgoalie_alt.rlt and her six sidekicks' <sidekick>_peach_alt.rlt
-textures. CharacterLoader dresses a captain in his alternate kit against a
-captain of his colours (GetAlternateCaptain, NeedsAlternateColour), but no
-other captain shares Peach's colour, so the retail game never shows it.
+goalie's peachgoalie_alt.rlt and her eight sidekicks' <sidekick>_peach_alt.rlt
+textures (Shy Guy's was never finished; fix patch 0087 makes it).
+CharacterLoader dresses a captain in his alternate kit against a captain of
+his colours (GetAlternateCaptain, NeedsAlternateColour), but no other captain
+shares Peach's colour, so the retail game never shows it.
 
 With "Blue Peach" enabled, Peach's team wears it on the field:
 HasAlternateSwapTexture swaps Peach's and her goalie's kit for it, her

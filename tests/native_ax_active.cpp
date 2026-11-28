@@ -390,6 +390,51 @@ void Run(int argc, char** argv) {
               "linear receipt changed original DSP/CPU fraction ownership");
         set_state(voice,AX_VOICE_STOP);sync(0);release(voice);++frames;
     }
+    // Ratios above 4, which the game's pitch effects ask for: a longer synthetic
+    // clip (same residual pattern, 840 samples) that no case reads to its end.
+    const auto high_oracle=File((std::filesystem::path(argv[3]).parent_path()/"highrate-oracle.bin").string().c_str());
+    Check(high_oracle.size()>=16&&std::memcmp(high_oracle.data(),"AXHIR001",8)==0&&LE32(high_oracle.data()+12)==840&&
+              high_oracle.size()==16+LE32(high_oracle.data()+8)*220,"original high-ratio oracle extent differs");
+    auto* long_sample=static_cast<unsigned char*>(OSAllocFromMEM2ArenaLo(480,32));
+    std::memset(long_sample,0,480);
+    for(unsigned i=0;i<60;++i)long_sample[i*8]=12;
+    for(unsigned i=0;i<840;++i) {
+        const unsigned nibble=(i/14)*16+2+i%14;
+        const unsigned bits=(((i*7+3)%16)-8)&15;
+        if(nibble&1)long_sample[nibble/2]|=bits;
+        else long_sample[nibble/2]|=bits<<4;
+    }
+    const auto long_pin=PinNativeDSPMemory(long_sample,480,false,NativeDSPMemoryEncoding::RawBytes);
+    alignas(SPSoundTable) std::array<unsigned char,
+        offsetof(SPSoundTable,sound)+sizeof(SPSoundEntry)+sizeof(SPADPCM)> long_storage{};
+    auto* long_table=reinterpret_cast<SPSoundTable*>(long_storage.data());long_table->entries=1;
+    long_table->sound[0].sampleRate=32000;long_table->sound[0].type=0;
+    long_table->sound[0].currentAddr=2;long_table->sound[0].endAddr=59*16+2+13;
+    reinterpret_cast<SPADPCM*>(long_table->sound+1)->adpcm.pred_scale=12;
+    sp_init(long_table,OSCachedToPhysical(long_sample)+0x80000000u,0);
+    for(unsigned index=0;index<LE32(high_oracle.data()+8);++index) {
+        const auto* c=high_oracle.data()+16+index*220;
+        const auto ratio=LE32(c);const auto bank=LE16(c+6);const bool linear=bank==0xffff;
+        auto* voice=acquire(15,nullptr,0);Check(voice,"high-ratio source voice allocation failed");
+        sp_prepare(sp_get(long_table,0),voice,32000);mix_channel(voice,0,0,-960,-960,-960,64,127,0);
+        AXPBSRC src{};src.ratioHi=ratio>>16;src.ratioLo=ratio;src.currentAddressFrac=LE16(c+4);
+        for(unsigned i=0;i<4;++i)src.last_samples[i]=LE16(c+8+i*2);
+        set_src(voice,&src);set_src_type(voice,linear?AX_SRC_TYPE_LINEAR:AX_SRC_TYPE_4TAP_8K+bank);
+        AXPBLPF no_filter{};set_lpf(voice,&no_filter);set_state(voice,AX_VOICE_RUN);sync(0);
+        const auto address=pb_bus+voice->index*320;
+        NativeAXSuppliedCoefficientROM no_bank;
+        const auto prepared=PrepareNativeAXADPCMVoiceFrame(memory,address,linear?no_bank:coefficients);
+        const auto* expected=c+16;const auto* receipt=expected+192;
+        for(unsigned i=0;i<96;++i)
+            Check(prepared.resampled[i]==Signed(LE16(expected+i*2)),"native SRC above ratio4 differs from original instructions");
+        Check(prepared.decoded_samples==LE16(receipt+10)&&BE16(prepared.parameters_after.data()+0xaa)==LE16(receipt),
+              "native accelerator count/fraction above ratio4 differs from original firmware stores");
+        for(unsigned i=0;i<4;++i)
+            Check(BE16(prepared.parameters_after.data()+0xac+i*2)==LE16(receipt+2+i*2),
+                  "native SRC history above ratio4 differs from original firmware stores");
+        set_state(voice,AX_VOICE_STOP);sync(0);release(voice);++frames;
+    }
+    ReleaseNativeDSPMemory(long_pin);
     NativeDSPMemoryPin owned_pin{};
     if(argc==10) {
         const auto resource=File(argv[6]), encoded=File(argv[7]), owned_oracle=File(argv[9]);

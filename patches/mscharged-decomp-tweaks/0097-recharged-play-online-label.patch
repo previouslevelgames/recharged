@@ -1,0 +1,77 @@
+Subject: Recharged: the main menu's Online button says PLAY ONLINE
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+Always on, without a switch, like the RECHARGED logo (tweak patch 0022).
+
+The main menu's Online button (main_menu_v3.fen, Online _Menu_Item) shows the
+localization key 0x1455335C, NINTENDO Wi-Fi CONNECTION in English (CONNEXION
+Wi-Fi NINTENDO, CONEXIÓN Wi-Fi DE NINTENDO, NINTENDO WFC in German, two lines
+in Japanese). Nintendo's service is gone: the button opens Recharged's online
+play, and with Override retail menus its PLAY ONLINE page.
+TLTextInstance::GetString and Render ask mscharged_tweak_loc_text
+(src/platform/game_tweaks.cpp) for each localized text they look up; for this
+key it gives PLAY ONLINE, in every language (Recharged's own texts are
+English; the Japanese texts use the same capitals). No other scene of the disc
+shows the key, and no game code looks it up by name. The menu's description
+of the button and the game's messages that name Nintendo Wi-Fi Connection keep
+their texts.
+
+diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
+index 23ba2ab..8ec21f9 100644
+--- a/include/mscharged_tweaks.h
++++ b/include/mscharged_tweaks.h
+@@ -289,6 +289,10 @@ bool mscharged_tweak_training_item_giant(void);
+ // once, the message of the popup that says so.
+ bool mscharged_tweak_online_locked(void);
+ const unsigned short* mscharged_tweak_take_online_lock_message(void);
++// Recharged's names for the game's own texts (tweak patch 0097), always on:
++// the text for a localization key (the hash of its name) the FE's text
++// components show, in every language, or null to keep the game's.
++const unsigned short* mscharged_tweak_loc_text(unsigned long key);
+ // Recharged's tournaments (tweak patch 0076): the game that wins one ends
+ // with the tournament trophy's ceremony, as the cut online tournament's
+ // would have. The trophy (a cup persona, 0 to 9) for a game won by
+diff --git a/src/Game/FE/tlTextInstance_runtime.cpp b/src/Game/FE/tlTextInstance_runtime.cpp
+index f323735..f6fc7be 100644
+--- a/src/Game/FE/tlTextInstance_runtime.cpp
++++ b/src/Game/FE/tlTextInstance_runtime.cpp
+@@ -5,6 +5,9 @@
+ #include "NL/nlLocalization.h"
+ #include "NL/nlString.h"
+ #include "NL/nlstring_tmpl.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_tweaks.h"
++#endif
+ 
+ const unsigned short* TLTextInstance::GetString() const
+ {
+@@ -32,6 +35,14 @@ const unsigned short* TLTextInstance::GetString() const
+             }
+         }
+         pWideTextString = locString;
++#if defined(MSCHARGED_TWEAKS)
++        // Port: a few of the game's texts are Recharged's (the main menu's
++        // Online button says PLAY ONLINE).
++        if (const unsigned short* portText = mscharged_tweak_loc_text(key))
++        {
++            pWideTextString = portText;
++        }
++#endif
+     }
+     else
+     {
+@@ -97,6 +108,14 @@ void TLTextInstance::Render(GLView* view, const nlColour& colour) const
+             }
+         }
+         pWideTextString = locString;
++#if defined(MSCHARGED_TWEAKS)
++        // Port: a few of the game's texts are Recharged's (the main menu's
++        // Online button says PLAY ONLINE).
++        if (const unsigned short* portText = mscharged_tweak_loc_text(key))
++        {
++            pWideTextString = portText;
++        }
++#endif
+     }
+     else
+     {

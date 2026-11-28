@@ -1,0 +1,153 @@
+From: mscharged-port
+Subject: Tweak: a live replay that catches up takes many steps a tick
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A replay takes more than one step in a fixed update's tick when it plays
+faster (GetNetworkInputPlaybackExtraUpdates, tweak patch 0071), and a match
+watched live from far behind its stream catches up as fast as the computer
+can: its tick takes steps until they have used their share of the time.
+After each step the port says whether the tick's steps end
+(mscharged_tweak_replay_tick_over): the share is used, or the step began a
+load (a cutscene's animations, a picture from the disc) that the next steps
+must wait for, as they do at a tick's start. The steps left stay in the
+replay for the next ticks; a match, and a replay at its own pace, takes one
+step a tick as before.
+
+Catching up, the steps would start sounds many times faster than the sounds
+end, until the audio has no voice (AudioSampleSource::Initialize then
+prepares a null one), no sliders (AllocateLocalAudioSliders) or no memory
+for a streamed one (a crowd's reaction) left. While it catches up
+(mscharged_tweak_replay_turbo) PlaySound and PlayOwnedSound start none but
+the tracked sounds (the music, the captains' streams), as for a cue the
+audio does not have. A replayed rollback step starts no sound either
+(MSCHARGED_AUDIO_ACTION): sound is no part of the match's steps.
+
+The match stands still while a cutscene plays, on each machine as long as
+it lasts there; catching up, the replay skips every part a player may skip,
+and the presentation's wipes before and after a cutscene run faster
+(Wiper::Run, mscharged_tweak_replay_wipe_speed), as it waits for them.
+
+diff --git a/include/mscharged_replay.h b/include/mscharged_replay.h
+--- a/include/mscharged_replay.h
++++ b/include/mscharged_replay.h
+@@ -44,6 +44,17 @@ bool mscharged_tweak_replay_read_input(int player, void* record, unsigned char*
+ // Each fixed step while a replay plays: the steps its speed adds to the one
+ // the router runs (-1 while it is paused: the step then runs none).
+ int mscharged_tweak_replay_extra_updates(void);
++// After each step of a fixed update's tick (tweak patch 0086): whether the
++// tick's steps end there while a replay plays (a live one catching up used
++// the tick's share of the time, or the step began a load the next steps wait
++// for). False for a match.
++bool mscharged_tweak_replay_tick_over(void);
++// Whether a live replay catches up as fast as the computer can now: it
++// starts no sound but the tracked ones meanwhile, its sound being off.
++bool mscharged_tweak_replay_turbo(void);
++// How many times faster the wipes around cutscenes run: more than 1 while a
++// live replay catches up.
++float mscharged_tweak_replay_wipe_speed(void);
+ // The title (passed as by Skip intro): whether it starts the replay's match
+ // instead of going to the main menu, once; then, from its update, the start.
+ bool mscharged_tweak_take_replay_start(void);
+diff --git a/src/Game/Audio/audio.cpp b/src/Game/Audio/audio.cpp
+--- a/src/Game/Audio/audio.cpp
++++ b/src/Game/Audio/audio.cpp
+@@ -1,6 +1,9 @@
+ #if defined(MSCHARGED_TWEAKS)
+ #include "mscharged_rollback_audio.h"
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_replay.h"
++#endif
+ #include "Game/Task/GameTaskState.h"
+ #include "revolution/types.h"
+ #include "NL/nlDLListContainer.inl"
+@@ -531,6 +534,17 @@ void UnloadSoundBanks(GameAudio* audio)
+ bool PlaySound(int slotId, unsigned long cueId,
+     const void* debugName, void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // A live replay catching up (tweak patch 0086) takes its steps many
++    // times faster than sounds end, until the audio has no voice, sliders or
++    // memory left: it starts none but the tracked ones (the music, the
++    // captains' streams) meanwhile, as for a cue the audio does not have.
++    if (sStartingTrackedSound == 0 && mscharged_tweak_replay_turbo())
++    {
++        g_pLastAudioHandle = 0;
++        return false;
++    }
++#endif
+ #if defined(MSCHARGED_TWEAKS)
+     if (sStartingTrackedSound == 0)
+     {
+@@ -561,6 +575,17 @@ bool PlaySound(int slotId, unsigned long cueId,
+ bool PlayOwnedSound(int slotId, unsigned long cueId,
+     XSoundOwner* owner, const void* debugName, void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // A live replay catching up (tweak patch 0086) takes its steps many
++    // times faster than sounds end, until the audio has no voice, sliders or
++    // memory left: it starts none but the tracked ones (the music, the
++    // captains' streams) meanwhile, as for a cue the audio does not have.
++    if (sStartingTrackedSound == 0 && mscharged_tweak_replay_turbo())
++    {
++        g_pLastAudioHandle = 0;
++        return false;
++    }
++#endif
+ #if defined(MSCHARGED_TWEAKS)
+     if (sStartingTrackedSound == 0)
+     {
+diff --git a/src/Game/Render/Wiper.cpp b/src/Game/Render/Wiper.cpp
+--- a/src/Game/Render/Wiper.cpp
++++ b/src/Game/Render/Wiper.cpp
+@@ -1,6 +1,9 @@
+ #include "Game/Task/GameTaskState.h"
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Render/Wiper.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_replay.h"
++#endif
+ 
+ #include "Game/NisPlayer.h"
+ #include "Game/Effects/EmissionController.h"
+@@ -115,6 +118,12 @@ void Wiper::Run(float dt)
+     }
+ 
+     dt = dt * GetConfigFloat(Config::Global(), "transitions/speed", 1.0f);
++#if defined(MSCHARGED_TWEAKS)
++    // A live replay catching up (tweak patch 0086) wipes faster: the match
++    // stands still while its presentation waits for the wipes around a
++    // cutscene.
++    dt *= mscharged_tweak_replay_wipe_speed();
++#endif
+     ScreenTransitionManager::Instance()->Update(dt);
+ }
+ 
+diff --git a/src/Game/Task/FixedUpdateTask.cpp b/src/Game/Task/FixedUpdateTask.cpp
+--- a/src/Game/Task/FixedUpdateTask.cpp
++++ b/src/Game/Task/FixedUpdateTask.cpp
+@@ -44,6 +44,9 @@
+ #if defined(MSCHARGED_TWEAKS)
+ #include "mscharged_autopilot.h"
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_replay.h"
++#endif
+ #include "Game/InputRouter.h"
+ #include "Game/NetworkInput.h"
+ #include "Game/NetworkSync.h"
+@@ -425,6 +428,14 @@ void FixedUpdateTask::Run(float dt)
+                 {
+                     break;
+                 }
++#if defined(MSCHARGED_TWEAKS)
++                // A replay's steps of this tick end where the port says: the
++                // rest wait in the replay for the next ticks.
++                if (mscharged_tweak_replay_tick_over())
++                {
++                    break;
++                }
++#endif
+             }
+ 
+             if (updated)

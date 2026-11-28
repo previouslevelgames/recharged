@@ -14,6 +14,12 @@ inline std::string PathUtf8(const std::filesystem::path& path)
 
 inline std::filesystem::path PathFromUtf8(std::string_view value)
 {
+#ifdef __SWITCH__
+    // libnx names paths on the SD card sdmc:/..., which std::filesystem takes for
+    // relative paths: absolute() puts the working folder in front of them again.
+    // The card is the default device, so the path without its name is the same file.
+    if (value.substr(0, 6) == "sdmc:/") value.remove_prefix(5);
+#endif
 #ifdef __cpp_char8_t
     return std::filesystem::path(std::u8string(value.begin(), value.end()));
 #else

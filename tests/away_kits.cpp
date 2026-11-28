@@ -24,6 +24,9 @@ bool mscharged_tweak_make_away_kit(const char* captain, bool team, void* bundle,
 bool mscharged_tweak_recolour_away_texture(const char* captain, int kind, void* texture, unsigned long size,
     const void* reference0, unsigned long size0, const void* reference1, unsigned long size1);
 bool mscharged_tweak_away_kit_photos(const char* captain);
+bool mscharged_tweak_unfinished_kit(const void* bundle, unsigned long size, const char* files[3]);
+bool mscharged_tweak_finish_unfinished_kit(void* bundle, unsigned long size, const void* source,
+    unsigned long source_size, const void* reference0, unsigned long size0, const void* reference1, unsigned long size1);
 }
 
 namespace
@@ -410,6 +413,72 @@ int main()
         Check(mscharged_tweak_away_kit_photos("mario") && !mscharged_tweak_away_kit_photos("luigi")
                 && !mscharged_tweak_away_kit_photos("bowser") && !mscharged_tweak_away_kit_photos(nullptr),
             "Only Mario's photos recolour");
+
+        // Unfinished kits (issue #176): Shy Guy's blue Peach kit is made from
+        // his pink one, compared with Luigi's and Wario's. Her pink turns
+        // blue, her light blue yellow; what the references share keeps its
+        // bytes.
+        const std::uint32_t unfinishedName = Hash("shyguy_peach_alt/shyguy_peach_alt");
+        const UnfinishedKit* shyGuy = UnfinishedKitNamed(unfinishedName);
+        Check(shyGuy != nullptr && UnfinishedKitNamed(Hash("shyguy_peach/shyguy_peach")) == nullptr,
+            "Shy Guy's blue Peach kit is the unfinished one");
+        Check(std::strcmp(UnfinishedKitFile(*shyGuy, 0), "art/characters/shyguy/shyguy_peach.rlt") == 0
+                && std::strcmp(UnfinishedKitFile(*shyGuy, 1), "art/characters/shyguy/shyguy_luigi.rlt") == 0
+                && std::strcmp(UnfinishedKitFile(*shyGuy, 2), "art/characters/shyguy/shyguy_wario.rlt") == 0
+                && UnfinishedKitFile(*shyGuy, 3) == nullptr && UnfinishedKitFile(*shyGuy, -1) == nullptr,
+            "It is made from his pink Peach kit, compared with Luigi's and Wario's");
+        constexpr std::uint32_t kPeachPink = 0xE2578B, kLightBlue = 0x67B6F9, kSlate = 0x3A4A5A;
+        const std::uint32_t pinkKit[4][4] = {{kPeachPink, kPeachPink, kLightBlue, kLightBlue},
+            {kPeachPink, kPeachPink, kLightBlue, kLightBlue}, {kGrey, kGrey, kWhite, kWhite},
+            {kPeachPink, kPeachPink, kGrey, kGrey}};
+        std::uint32_t luigiKit[4][4], warioKit[4][4], placeholder[4][4];
+        for (int y = 0; y < 4; ++y)
+            for (int x = 0; x < 4; ++x)
+            {
+                const std::uint32_t colour = pinkKit[y][x];
+                luigiKit[y][x] = colour == kPeachPink ? kGreen : colour == kLightBlue ? kSlate : colour;
+                warioKit[y][x] = colour == kPeachPink ? kYellow : colour == kLightBlue ? kPurple : colour;
+                placeholder[y][x] = colour == kPeachPink ? kRed : colour == kLightBlue ? kYellow : colour;
+            }
+        const std::vector<std::uint8_t> pinkTexture = Texture(pinkKit);
+        const std::vector<std::uint8_t> pinkBundle = Bundle({{Hash("shyguy_peach/shyguy_peach"), pinkTexture}});
+        const std::vector<std::uint8_t> luigiBundle = Bundle({{Hash("shyguy_luigi/shyguy_luigi"), Texture(luigiKit)}});
+        const std::vector<std::uint8_t> warioBundle = Bundle({{Hash("shyguy_wario/shyguy_wario"), Texture(warioKit)}});
+        std::vector<std::uint8_t> unfinished = Bundle({{unfinishedName, Texture(placeholder)}});
+        const std::vector<std::uint8_t> unfinishedBefore = unfinished;
+        const char* files[3] = {"", "", ""};
+        Check(FindUnfinishedKit(unfinished) == nullptr
+                && !mscharged_tweak_unfinished_kit(unfinished.data(), unfinished.size(), files) && files[0] == nullptr
+                && files[1] == nullptr && files[2] == nullptr,
+            "Only the disc's bytes are the unfinished kit: a changed file is left alone");
+        Check(!mscharged_tweak_unfinished_kit(nullptr, 0, files) && files[0] == nullptr, "No bundle holds none");
+        Check(!mscharged_tweak_finish_unfinished_kit(unfinished.data(), unfinished.size(), pinkBundle.data(),
+                  pinkBundle.size(), luigiBundle.data(), luigiBundle.size(), warioBundle.data(), warioBundle.size())
+                && unfinished == unfinishedBefore,
+            "The hooks' interface makes nothing of a changed file");
+        Check(!FinishUnfinishedKit(*shyGuy, unfinished, Bundle({{other, pinkTexture}}), luigiBundle, warioBundle)
+                && unfinished == unfinishedBefore,
+            "Without his pink kit it stays");
+        const std::vector<std::uint8_t> otherFormat = Bundle({{Hash("shyguy_peach/shyguy_peach"), Texture16(pinkKit, 1)}});
+        Check(!FinishUnfinishedKit(*shyGuy, unfinished, otherFormat, luigiBundle, warioBundle)
+                && unfinished == unfinishedBefore,
+            "A pink kit of another size or format leaves it");
+        Check(!FinishUnfinishedKit(*shyGuy, unfinished, pinkBundle, luigiBundle, {}) && unfinished == unfinishedBefore,
+            "It needs both references");
+        Check(FinishUnfinishedKit(*shyGuy, unfinished, pinkBundle, luigiBundle, warioBundle), "The kit is made");
+        auto madeSpan = FindBundleTexture(unfinished, unfinishedName);
+        const std::vector<std::uint8_t> made(madeSpan.begin(), madeSpan.end());
+        Check(made.size() == pinkTexture.size() && std::memcmp(made.data(), pinkTexture.data(), 32) == 0,
+            "It keeps the texture's header and size");
+        TexelColour(Block(made, 0, 0), c);
+        Check(c[2] > c[0] + 120 && c[2] > c[1] + 40 && c[1] > c[0] + 60, "Her pink turns her blue");
+        TexelColour(Block(made, 0, 3), c);
+        Check(c[2] > c[0] + 120, "all of it");
+        TexelColour(Block(made, 2, 0), c);
+        Check(c[0] > 230 && c[1] > 220 && c[2] < 80, "Her light blue turns yellow");
+        Check(std::memcmp(Block(made, 0, 2), Block(pinkTexture, 0, 2), 8) == 0
+                && std::memcmp(Block(made, 2, 2), Block(pinkTexture, 2, 2), 8) == 0,
+            "Grey and white the references share keep the pink kit's bytes");
 
         // A texture the engine cannot recolour still gets the away name, so
         // the away team never looks for a missing texture.

@@ -1,7 +1,12 @@
 # Settings
 
-Everything the launcher sets is saved in `recharged.ini` beside the program;
-[`recharged.ini.example`](../recharged.ini.example) explains every key. This
+Everything the launcher and the game's menus set is saved in `recharged.ini`
+beside the program; [`recharged.ini.example`](../recharged.ini.example)
+explains every key. The launcher keeps what the game must know before it starts
+or needs files and folders; everything that can change while the game runs is
+in the game: **OPTIONS** in its main menu, or **F1** (HOME) → **OPTIONS** from
+anywhere, with **GAMEPLAY** and **SETTINGS** (*Display*, *Sound*, *Controls*,
+*Advanced*). This
 page covers the settings that need more than a label: game images, graphics,
 audio, Wii Remotes, saves, texture packs, updates and command-line options. For installing, see the
 [install guide](INSTALL.md); for the full list of features and controls, the
@@ -17,8 +22,10 @@ Everything stays in the program folder:
 | `data/nand/` | The game's Wii saves (or the folder set under *Game → Save data*) |
 | `data/pipeline_cache.db` | Compiled shaders for your graphics card |
 | `data/launcher/` | What the launcher found in your game images, and their banners |
-| `texture_packs/` | Texture packs (or the folder set under *Gameplay → Mods*) |
-| `data/texture_dumps/` | The game's textures, when *Dump textures* is on |
+| `data/online/` | Your competitive play sign-in and your Discord friends' link, one file each per settings file (readable only by you) |
+| `texture_packs/` | Texture packs (or the folder set under *Extras → Mods*) |
+| `data/texture_dumps/` | The game's textures, when `[mods] dump_textures` is on |
+| `replays/` | A replay of every offline match ([replays](REPLAYS.md)) |
 | `logs/recharged.log` | The log of the last run |
 | `screenshots/` | Screenshots taken with the screenshot key (**P** by default), in the folder the game was started from |
 
@@ -65,14 +72,14 @@ disc.
 ## Graphics
 
 **Graphics API.** Linux uses Vulkan and macOS uses Metal. On Windows,
-**Advanced → Graphics API** chooses Automatic, Vulkan or DirectX 12 for the next
+**Graphics → Rendering → Graphics API** chooses Automatic, Vulkan or DirectX 12 for the next
 start (`[display] backend = auto`, `vulkan` or `d3d12`). Automatic uses Vulkan
 and switches to DirectX 12 when Vulkan cannot start, for example when the
 graphics driver is too old for it. A chosen API is never switched: if it fails,
 the game says so. Keep the shader compiler DLLs from the Windows package beside
 `recharged.exe`.
 
-**Graphics card** (Windows and Linux, **Advanced → Graphics card**,
+**Graphics card** (Windows and Linux, **Graphics → Rendering → Graphics card**,
 `[display] gpu`). *Automatic* draws with the fastest card; on a PC with two
 (a gaming laptop, say) you can choose one. The launcher lists the cards
 Windows offers (on Linux, those with a Vulkan driver) and stores the choice as
@@ -92,18 +99,28 @@ prepared from the next start on. The log records each one
 (`Graphics: new pipeline compiled while drawing in … ms`); attaching such a
 log to an issue gets the pipeline added to the package for everyone.
 
-**Clear shader cache** (Advanced → Diagnostics & analytics) removes the compiled
+**Clear shader cache** (Graphics → Rendering) removes the compiled
 shaders and the pipelines learned on this PC. The next start prepares the
 bundled list again. Saves, settings and frame recordings are kept.
 
-**Frame rate** (Display → Frame rate, `[display] frame_rate`) draws above the
+**Frame rate** (Settings → Display → Frame rate, `[display] frame_rate`) draws above the
 console's 60 FPS: `display` follows the refresh rate of the window's display,
 `unlimited` sets no limit, and a number from 30 to 1000 caps the rate. VSync
 holds any rate to the display's. The game keeps its own speed; movies and
 everything else timed by the Wii's video signal stay at their real rate. The
 log's `Frame rate:` line shows how frames are paced.
 
-**Aspect ratio** (Display → Aspect ratio, `[display] aspect`). **16:9** (the
+**In the background** (Settings → Display, `[display] background_throttle`
+and `background_frame_rate`: 15, 30 by default, or 60; *No limit* turns it off)
+draws at most that many frames per second while the game's window is minimized or another window has
+the focus, to save power. The chosen frame rate returns as soon as you go
+back to the game. Under gamescope (Steam's Game Mode, or gamescope on a
+desktop) the game always looks focused and visible, so it keeps its frame
+rate there. The game keeps
+its own speed, online matches included; a few effects that change once per
+frame, such as blinking images, run slower while in the background.
+
+**Picture** (Settings → Display → Picture, `[display] aspect`). **16:9** (the
 default) is the game's widescreen layout and **4:3** its original one; both
 keep their shape. A window keeps that shape when you resize it, so the picture
 fills it; a display of another shape (16:10, 21:9) shows bars beside or above
@@ -114,16 +131,15 @@ fills a screen of another shape in matches without stretching: the game shows
 more of the stadium at the sides of a wider screen (21:9) or above and below a
 taller one (16:10, the Steam Deck), with the HUD in the 16:9 middle. Menus keep
 their 16:9 picture. **F** switches the stretched picture or the wider view on
-and off while playing, for that run. The Display page
-tells what each choice does on your display.
+and off while playing, for that run.
 
-**3D resolution** (Display → 3D resolution, `[display] resolution`). **Full**
+**3D resolution** (Settings → Display → 3D resolution, `[display] resolution`). **Full**
 (`window`, the default) draws the game at the resolution its picture has on the
 screen, the sharpest. **Native** is the Wii's 640 x 448 and **2x-4x** its
 multiples, for slower graphics cards. **Page Up** and **Page Down** change it
 while playing, for that run.
 
-**Picture style** (Display → Picture style, `[display] picture`). **Modern**
+**Picture style** (Settings → Display → Picture style, `[display] picture`). **Modern**
 draws the game's picture crisp, straight into the window; when the 3D
 resolution is not Full, **Upscaling** scales it to the screen smoothly
 (`clean`) or with square pixels (`sharp`, the default). **Original TV**
@@ -131,24 +147,27 @@ resolution is not Full, **Upscaling** scales it to the screen smoothly
 (`tv_border = true`) also shows the empty border a Wii sends around its
 picture, which a TV hides.
 
-**Resolution** (Display → Resolution) lists the sizes your graphics card offers
-for the display. In a window it is the window's size (`[display] width` and
+**Window size** and **Fullscreen resolution** (launcher: Graphics → Screen) list the
+sizes your graphics card offers for the display. The window's size (`[display] width` and
 `height`), of the picture's shape while the window keeps it; a size larger
 than a window can take there opens as the largest window that fits. The game
 window also opens at the size and place you leave it at
 (`remember_window = false` turns that off; the place is `position`). Wayland
-desktops place windows themselves. In fullscreen it is the screen's resolution
+desktops place windows themselves. In fullscreen the screen has its resolution
 (`fullscreen_resolution`): **Desktop** (`desktop`, the default) keeps the
 display's own; another (`1280x720`) switches the display to it while the game
 runs. A resolution of another shape than the display may be stretched by the
 display or shown with bars.
 
-**Fullscreen** (Display → Mode, `[display] fullscreen`) covers the whole
-display, at the resolution chosen for it. **Alt+Enter** (Option+Return on a
-Mac, the `fullscreen` hotkey) switches between fullscreen and a window while
-playing, for that run only; that Enter never presses A.
+**Fullscreen** (Settings → Display → Fullscreen, `[display] fullscreen`) covers
+the whole display, at the resolution chosen for it, and is kept for the next
+start. **Alt+Enter** (Option+Return on a Mac, the `fullscreen` hotkey) switches
+between fullscreen and a window for that run only; that Enter never presses A.
+**Display** (Graphics → Screen, `[display] monitor`) chooses the screen the game
+opens on when there are several.
 
-**Antialiasing** (Display → Antialiasing, `[display] antialiasing`) smooths
+**Antialiasing** (launcher: Graphics → Screen → Antialiasing, `[display] antialiasing`,
+from the next start) smooths
 jagged edges. **4x MSAA** (`4x`, the default) smooths the edges of 3D shapes.
 **FXAA** (`fxaa`) smooths the finished picture at almost no cost, but softens
 fine detail and text a little. **4x MSAA + FXAA** (`4x_fxaa`) does both.
@@ -157,15 +176,16 @@ smooths the edges inside textures, such as stripes on banners; it costs the most
 **Off** (`off`) is the lightest. Multisampling always uses 4 samples: the
 graphics layer offers no 2x or 8x.
 
-**Performance mode** (the gear on the **Play** button,
-`[display] performance_mode`) lightens matches for weaker PCs: no
+**Performance mode** (Settings → Display, `[display] performance_mode`, from
+the next match; the antialiasing from the next start) lightens matches for weaker PCs: no
 antialiasing, crowd, background NPCs, ambient stadium effects, bloom, heat
 distortion, depth of field or stadium shadows. Gameplay is untouched: hazards,
 lightning, wind, debris, character and ball shadows stay, and so do the effects
 that show them. It keeps your 3D render size, leaves the menus as they are, and
 restores your antialiasing preference when turned off.
 
-**Performance overlay** (Display) shows `FPS | GPU | CPU` in a corner of your
+**Performance numbers** (Settings → Display, `[display] fps_overlay` and
+`fps_overlay_corner`) show `FPS | GPU | CPU` in a corner of your
 choice, also in fullscreen, and `LAT` in a network session and `DLY` and `RB`
 in a network match with rollback. GPU and CPU are total system usage, including
 other apps; drivers that hide the GPU counters show `N/A`. **LAT** is the
@@ -175,8 +195,8 @@ the most steps the game predicted at once since the last reading.
 
 ## Audio
 
-**Master volume** and **Mute** (Audio → Output) set the game's whole output.
-**Sound levels** (Audio, `[audio] music_volume` to `movie_volume`) set each kind
+**Master volume** and **Mute** (Settings → Sound) set the game's whole output.
+**Sound levels** (Settings → Sound, `[audio] music_volume` to `movie_volume`) set each kind
 of sound from 0 to 100 % of the level the game gives it, for example to turn
 the music down for a recording while voices and effects stay:
 
@@ -190,7 +210,7 @@ the music down for a recording while voices and effects stay:
 | Cutscenes | Captain introductions, goal celebrations, Mega Strikes and the scenes after a match, with their own music and voices |
 | Movies | The intro movie, the stadium previews and the credits |
 
-They apply when the game starts, to what plays on the PC only: the sounds the
+They change at once, for what plays on the PC only: the sounds the
 game also plays on a Wii Remote's speaker keep their level there, which the
 Remote's **Speaker volume** sets. The music, sound effect and voice settings
 in the game's own *Options* menu still apply on top and stay saved with your
@@ -224,8 +244,8 @@ extensions are not supported.
   your system's Bluetooth settings (no PIN).
 
 Over Bluetooth the Remote needs a separate sensor bar for its pointer.
-The **Wii Remote** card on the Controls page has the Wii's own Remote
-settings:
+The game's **Settings → Controls** has the Wii's own Remote settings (the
+sensor bar and sensitivity count from the next start):
 
 - **Sensor bar** (`controls.sensor_bar`): whether the bar sits at the
   `bottom` or `top` of the screen. It must be in view of the Remote's camera
@@ -236,11 +256,12 @@ settings:
   disturb it.
 - **Speaker volume** (`controls.speaker_volume`, 0-100, default 70 like the
   Wii): the game plays some sounds on each player's Remote as well as on the
-  TV. 0 sends no sound to the Remotes. How clean it sounds depends on the
+  TV. 0 sends no sound to the Remotes (turning the speakers off or on counts
+  from the next start, a new volume at once). How clean it sounds depends on the
   Bluetooth link; turn it down or off if it crackles. The log
   (`logs/recharged.log`) says when the connection was too slow for it.
 
-The **Rumble** card switches rumble for Wii Remotes and gamepads
+**Rumble** (Settings → Controls) switches rumble for Wii Remotes and gamepads
 (`controls.rumble`) and sets how strongly gamepads rumble
 (`controls.rumble_strength`, 0-100). A Wii Remote's motor is either on or
 off. A connected Wii Remote lights the light of its player, in the launcher
@@ -257,9 +278,11 @@ player 1 when nobody is left. The page also shows each Remote's battery level.
 
 **Keys and gamepad profiles.** The sliders button beside a player opens its
 keys (`[keyboard]`) or its gamepad profile (`[gamepad_profileN]`). Each action
-takes up to two keys; the middle and side mouse buttons (`Mouse Middle`,
+takes up to two keys, or up to three gamepad inputs; the middle and side mouse buttons (`Mouse Middle`,
 `Mouse 4`, `Mouse 5`) can take a key's place, while left and right click stay
-A and B. A gamepad profile also sets, for both sticks:
+A and B. One gamepad input can press several actions at once (a press does
+all of them); the profile page marks it in orange. A gamepad profile also
+sets, for both sticks:
 
 - **Inner dead zone** (`inner_deadzone`, 0-30 %, default 15): the stick rests
   until it is tilted this far. Raise it if a worn stick drifts.
@@ -276,11 +299,22 @@ the Nunchuk's octagonal gate, and the game applies its own dead zone of 15
 counts on each axis, so a nearly straight push reads straight. The two dead
 zones then shape the pointer stick only.
 
+**Sticks** (`sticks`): which stick moves the Nunchuk stick and which the
+pointer. `split` (Nunchuk left): the left stick moves the Nunchuk stick and the
+right one points; `swapped` (Nunchuk right) the other way round; `shared`: the
+left stick does both, as the Classic Controller mod for the Wii game does, and
+the right stick is free. Settings files from before it say `swap_sticks = true`
+for swapped, and their profiles stay split otherwise. A stick pointer, like
+the gyro pointer, starts in the middle whenever the game turns the pointer on
+(menus, a goalie's Mega Strike defence); in a match the game reads no pointer,
+so the left stick moving it meanwhile changes nothing. It is the game's
+pointer only: the mouse cursor never moves.
+
 **Sticks as buttons**: pushing a stick one way past half its travel can press
 any action, like a button (`rightstick_up`, `leftstick_left` and so on in the
-INI). To bind one, select the action and push the stick. With the gyro
-pointer on, **Right stick as D-pad** puts the free stick on the D-pad: in a
-match the D-pad dekes with the ball and slide-tackles without it. A stick that
+INI). To bind one, select the action and push the stick. With shared sticks
+or the gyro pointer on, **Right stick as D-pad** puts the free stick on the
+D-pad: in a match the D-pad dekes with the ball and slide-tackles without it. A stick that
 also moves the Nunchuk stick or the pointer does both at once; the profile page
 says so.
 
@@ -296,7 +330,20 @@ through Steam Input usually show the game no gyro.
 
 The profile page shows both sticks and triggers live with these settings, and
 the gyro pointer when it is on.
-The built-in Default always uses the defaults; changing it makes your own copy.
+**Default** is the layout of the Classic Controller mod for the Wii game, by
+the controller's labels: A and B (the right trigger presses B too), X for C,
+the left trigger for Z, Y to shake the Remote and the left bumper to shake the
+Nunchuk; the D-pad, the right stick and the right bumper (a deke) press the
+D-pad; Start and Back press 1, and + and − as well (they switch stadiums and do
+nothing in a match); 2 is unused. The left stick moves both the Nunchuk stick
+and the pointer (`sticks = shared`). A Nintendo controller gets the same
+labels in its own places; a GameCube controller has Start for 1 and +, X for
+C, Y and Z for the shakes, R for the deke and the C-stick for the D-pad.
+
+The built-in profiles never change: **Default**, and **Classic 1.1**, the
+Default of versions up to 1.1.5, both laid out for the connected controller,
+plus any that come with the game; changing one makes your own copy. Their
+names are taken: an own profile that already had one gets a number added.
 
 **Hotkeys** (Controls → Hotkeys, `[hotkeys]`) work in the game window whoever
 plays: **P** saves a screenshot (`screenshot`), **H** shows or hides the HUD in
@@ -304,15 +351,64 @@ a match (`hud`), **F** stretches the picture over the window or gives it back
 its shape (`stretch`), **Page Up** and **Page Down** raise and lower the 3D
 resolution (`resolution_up`, `resolution_down`), and **Alt+Enter**
 (Option+Return on a Mac) switches between fullscreen and a window
-(`fullscreen`); the last four last for the run. Click a hotkey, then press the
+(`fullscreen`); the last four last for the run. **F1** opens and closes the
+**Recharged Game Menu** (`panel`) in the game's own look; HOME on any controller
+does the same, and **F2** opens it on the gameplay options (`game_options`). It
+has **ONLINE**, **OPTIONS** and **QUIT RECHARGED**:
+
+- **ONLINE** (the **PLAY ONLINE** page): your set, then **QUICK PLAY** with
+  **PLAY FRIENDS** (the friends who have Recharged open and your last
+  opponents of a set who aren't friends; a player's page challenges them or
+  keeps them as a friend), **QUICK UNRANKED MATCH** (a search for an opponent),
+  **RANKED MATCH** (the game's online RANKED from anywhere in its menus:
+  **Play RANKED** takes the game by itself
+  into a RANKED search, with your own Mii or one you choose there; from another
+  menu it goes on once you are back on the main menu or the online menu), and
+  after a set played in this game **REMATCH** with your opponent's name (the
+  set again by its rules; whose turn it is picks the stadium). A challenge, a
+  rematch or a search you send closes the menu: a box in the bottom-right
+  corner shows it until it is answered (a challenge or rematch at most a
+  minute), with **CANCEL** (a click, or **CANCEL REQUEST** on QUICK PLAY),
+  **LEADERBOARD** (this season's and today's leaders and your place, with a
+  player profile) and **WII ONLINE (LEGACY)** (the game's own online menu).
+  **Do not disturb** sits at the bottom of **QUICK PLAY**. A player on
+  another version of the game carries its tag (US, EU, JP, KR); a set between two
+  versions plays by the European one.
+- **OPTIONS**: **GAMEPLAY**, the gameplay options (saved at once, counting
+  from the next match; Fast menus and Unlock everything at once, Skip intro
+  from the next start; online matches play by their own rules), and
+  **SETTINGS**: *Display* (fullscreen, the picture's shape and style, the 3D
+  resolution, Performance mode, VSync, the frame rate, the performance
+  numbers), *Sound* (master volume, mute, the sound levels, the challenge
+  sound), *Controls* (rumble, the HUD at kickoff, the mouse pointer, the Wii
+  Remote settings) and *Advanced* (the Discord status, the launcher, the
+  graphics API and card, the diagnostics).
+
+The D-pad, the arrow keys or the mouse pick an item, A or Enter presses it, − and
++ (Q and E) switch a page's categories, and B, Escape or Backspace go back a
+page. A Wii Remote points at the items as in the game's menus, and so does a
+gamepad's pointer stick or gyro (not a stick shared with the Nunchuk stick):
+the player's hand shows once it moves, and A presses what it points at; after
+the D-pad, A presses the lit item until the hand moves again. The mouse points
+only as in the game: for the keyboard & mouse player, or with **Mouse pointer**
+on for a controller playing alone (Settings → Controls, from the next start). While the game is in its menus, the top-left
+corner shows the menu's keys (F1 or HOME), and a challenge you sent from the
+menu closes it when it is
+accepted: the game goes on into the set. While it is open the game behind it is
+blurred and gets no input: online matches go on, and in an offline match it
+presses the game's pause. In an online match the game's pause button (1 on a
+Wii Remote) opens a small menu instead, **CONTINUE** or **FORFEIT**: the match
+goes on meanwhile, and a forfeit ends it for both players as a loss for you (a
+set's opponent wins the set; their game tells them).
+Click a hotkey, then press the
 new key, alone or with Ctrl, Shift or Alt (Control or Option on a Mac); Escape
 cancels and Backspace or Delete leaves it unused. In the file a hotkey is a key
 name after the `Ctrl+`, `Shift+` and `Alt+` it needs (`Ctrl+Shift+F12`), or
 `none`. A hotkey's key does not reach the game, so a key pressed alone cannot
 be a key of keyboard & mouse too; with Ctrl, Shift or Alt it can. The Windows
 and Command keys stay with the system. A settings file whose keyboard & mouse
-keys already use F, Page Up or Page Down keeps them, with that hotkey unused.
-With **Show the HUD when a match starts** off (`show_hud = false`), every match
+keys already use F, F1, Page Up or Page Down keeps them, with that hotkey unused.
+With **HUD at kickoff** off (Settings → Controls, `show_hud = false`), every match
 starts without the scoreboard, player markers and captions, for clean
 recordings; the HUD key shows them, and the Mega Strike meter stays.
 
@@ -328,7 +424,7 @@ EOF
 sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
 ```
 
-For diagnosis, **Advanced → Verbose console** (or `RECHARGED_WIIMOTE_DEBUG=1`)
+For diagnosis, the game's **Settings → Advanced → Verbose console** (or `RECHARGED_WIIMOTE_DEBUG=1`)
 logs every step of the Remote setup, including the devices the launcher sees
 and how each Remote answers.
 
@@ -363,17 +459,17 @@ one the game, Dolphin and a Wii read. The first change of each launcher session
 copies the save to `backups/` in the save folder. Until the game has saved once
 there is no save, and so nothing to change.
 
-**Match rules** writes a preset into the same save: the game keeps one set of
-match settings and cheats for matches on the console and one for online
-matches with friends, and the preset replaces the one you choose (the backup
-is the same). Every cheat can be chosen, whether the save has unlocked it or
-not. Presets other than Default and Competitive are files in `match-presets/`
-beside `recharged.ini`, one per preset, named after it (`quick-3.ini`):
+**Match rules** keeps presets of a battle's rules, which a challenge or a
+search for an opponent starts from (see *Online*); they don't touch the game
+save, whose own match settings the game's settings screen changes. Every cheat
+can be chosen, whether the save has unlocked it or not. Besides the built-in
+Retail ranked and Competitive and the server's own rule sets (all read-only;
+**Copy** makes one of your own), presets are files in `match-presets/` beside
+`recharged.ini`, one per preset, named after it (`quick-3.ini`):
 
 ```ini
 name = "Quick 3"
-skill = superstar          # rookie, professional, superstar, legend, megastriker
-best_of = 3                # 1, 3, 5, 7 or 9
+best_of = 3                # 1, 3, 5 or 7 (9 plays 7)
 win_by = goals             # time or goals
 minutes = 3                # 2 to 5, with win_by = time
 goals = 3                  # 3 to 10, with win_by = goals
@@ -382,6 +478,9 @@ player_cheat = none        # none, devastating, safe, skill_shot, glass_jaw
 powerup_cheat = none       # none, explosives, freezing, shells, giant, accelerator,
                            # peelin_out, heat_seekers, bombs_away, super, infinite,
                            # butterfingers
+stadium = random           # random or a stadium (the_palace, ...)
+tweaks = fast_terrain      # fast_terrain, no_mega_strikes, thunder_island_walls,
+                           # mirror_match, comma-separated
 ```
 
 Settings left out are a new save's. A file the page cannot read is listed
@@ -396,7 +495,7 @@ Texture packs replace the game's textures with sharper images; they change
 only how the game looks. Recharged reads packs made for Dolphin: a pack is a
 folder or a `.zip` file of images named `tex1_<size>_<hash>_<format>.png` (or
 `.dds`), usually in a folder named `R4Q` (all versions) or after one version
-(`R4QE01`, `R4QP01`). Drop the pack's folder or `.zip` file onto **Gameplay →
+(`R4QE01`, `R4QP01`). Drop the pack's folder or `.zip` file onto **Extras →
 Mods**, which copies it into `texture_packs` in the program folder (`[mods]
 texture_folder`; you can choose another folder there), or put it there
 yourself. The list there switches packs on and off; drag a pack (or use its
@@ -413,17 +512,40 @@ kit is found by colour); the Super Team keeps its own look. Outside matches a
 recoloured image shows only once it is ready, so the game can stop for a moment
 the first time one appears; during a match they load in the background too.
 
-**Dump textures** (`[mods] dump_textures`) is for pack makers: each
-texture no pack replaces is saved to `data/texture_dumps` as a `.dds` file
-named as packs need it.
+**Dump textures** (`[mods] dump_textures = true`, only in `recharged.ini`) is
+for pack makers: each texture no pack replaces is saved to `data/texture_dumps`
+as a `.dds` file named as packs need it.
+
+## Replays
+
+Every offline match (Domination and the Cup's matches; not Training) is kept as a
+replay: `replays/replay_<date>-<time>.msc` beside the program, about 5 KB a
+minute. Watch them in the launcher's **Replays** page, where **Keep
+replays** is `record`.
+
+```ini
+[replays]
+record = true   # false keeps no replays on this PC
+keep = 100      # the newest 100 stay, older ones are deleted; 0 keeps all
+show_players = true  # a watched online match shows its players (O switches it)
+```
+
+Online games go to the server whatever `record` says: it streams them to
+spectators and keeps the ones it asks for. Only files whose names begin with
+`replay_` are ever deleted: rename a replay
+to keep it. Watching, the speed keys, the match stats, the game image a
+replay needs and sharing replays are explained in [replays](REPLAYS.md).
 
 ## Discord status
 
 While the Discord app runs on the same computer, your Discord profile shows
 what you are playing: the menu you are in, or the match with its mode,
-stadium, captains, score and match time. The game talks only to the Discord
-app on your computer, which shows the status to your friends. Switch it off on
-the launcher's **Game** page (`[discord] rich_presence`); Discord's own
+stadium, captains, score and match time. During a set (Online) it shows
+your opponent and the games won so far, and while the set waits in the
+launcher what it waits for (your opponent's answer, getting ready); a
+challenge to you shows only once you accept it. The game talks only to the Discord
+app on your computer, which shows the status to your friends. Switch it off in
+the game's **Settings → Advanced** (`[discord] rich_presence`); Discord's own
 activity privacy setting hides it too. Builds that do not come from the
 project's releases and test builds have no Discord application and show no
 status, unless `[discord] application_id` names one.
@@ -453,9 +575,170 @@ every match back while it is played, offline too, and checks that the replays
 agree: a test of the rollback, not for playing. Saving the settings never
 writes `rollback_test` or `rollback_log`.
 
+## Competitive play
+
+Sets against other Recharged players are played by the rules of the project's
+online server, `https://rechargedwfc.net`. The launcher's **Online** pages set
+them up: **Player profile** (who you are signed in as, your Mii, your friend
+code, your Discord friends or Connect Discord, your flag, the server, and
+Sign out, which also ends the Discord link on this computer),
+**Match rules** (the presets a challenge starts from, see *Match settings*,
+and the server's rule sets) and **Sidekicks**. Your friends, quick
+matches, your set, the RANKED leaderboards and the events are in the
+Recharged Game Menu (**F1** or HOME, see Hotkeys). A dot before
+**Online** in the sidebar shows the sign-in: green signed in, red not; signed
+out, **Player profile** shows what playing online brings and its two ways in,
+**Connect Discord** and **Play with a Mii**, and the pages that need the
+sign-in point there. A private server's `https://` address (from its admins) goes in
+`[online] profile_server`; only the file changes it. When that server's admins
+post a message (a restart, an event), the Play page shows it at its top
+until it ends. A set is a series against
+one player, by the rules its challenge set: game length or goal limit, the
+games of the series, the stadium, the game's stadium, player and power-up
+cheats, and the *Competitive gameplay* tweaks both teams play with (the skill
+level is only for the CPU).
+
+1. Make your profile on **Online** → **Online player profile**. A profile is a
+   name (yours alone on the server: nobody else can take it) and a face, a Mii
+   the game shows too, named after you (cut to a Mii's 10 characters). Discord
+   is optional. The page offers, from the top:
+   - **Welcome back**: the profiles of this computer's game save. **Continue**
+     signs in with that Mii's online data, without starting the game.
+   - **Connect Discord**: the browser opens a page that shows a code; go on
+     only if it is the code the launcher shows. A Discord account that has a
+     profile brings it back on any computer: its name, face and friend code
+     (the Mii and its online data come into the game save). A new one makes a
+     profile, whose name and face you choose next (**Finish your profile**).
+   - **Create a profile**: a name and a face (**Another face** rolls a new
+     one, **Edit face** opens the Mii editor), or a Mii of this computer.
+     Without Discord the profile lives in this computer's game folder.
+   - **Import from Dolphin or an old Recharged folder**: the Miis that have
+     been online there come into this computer's save with their friend codes;
+     their profiles then show under Welcome back.
+
+   Signed in, the profile shows its name (**Rename**), its face (**Edit
+   face**), its friend code and Discord: **Connect Discord** keeps the
+   profile on any computer and brings your Discord friends, **Disconnect**
+   takes it off again (once your Mii has played online). Connecting a Discord
+   account that has a profile of its own: a profile made a moment ago goes
+   into it at once; one that has played asks whether it goes into it (its
+   name, face and friend code win, the sets of both stay). Importing while
+   signed in asks the same for an imported profile. The profile's Mii is kept
+   as `[online] mii` (its create ID) and plays your sets and online games.
+   **Switch profile** signs out: Continue brings the profile back on this
+   computer once its Mii has been online, Discord on any other.
+2. Challenge a player who has Recharged open from the Recharged Game Menu:
+   **Challenge** opens the challenge's setup. It starts from the preset used
+   last (`[online] challenge_rules`): one of the server's rule sets or one of
+   your own (**Match rules**). Every rule can change there for this challenge
+   only, the preset stays as it is; **Send challenge** sends it, and the
+   player you challenge sees the rules before accepting.
+   They accept or decline on a card over their game while it is in its menus
+   (A accepts, B declines; the game waits behind the card), or, with only the
+   launcher open (*In the launcher*), in a dialog there: its Accept starts the
+   game straight into the set, Decline (Escape, B) says no. The list says what
+   each player does, the mode first and then where in it: *Domination ·
+   choosing teams*, *Striker Cup · Cup Central*, *Strikers 101 · in a lesson*,
+   *Ranked · looking for a match*, *Vs CPU · playing* and so on (an older
+   Recharged just *In the game* or *Playing a match*). A set says its step
+   against the opponent: *Set · challenged by Mario*, then *Set vs Mario ·
+   connecting*, *choosing teams*, *game 2 of 3* and *between games* (servers
+   from 1.2.12 on). A player in a match, in an online draft or in a set can be
+   challenged once it is over.
+   A chime plays, and the window flashes when it is in the background, when
+   someone challenges you and when your challenge is accepted (at the master
+   volume, not when muted).
+3. Once they accept, both games go on by themselves: the launcher starts the
+   set's game, and a game that already runs (the challenge was accepted on its
+   card) goes on from its main menu or online menu, without closing. The game
+   signs in to the online server with your own Mii (in the online menu, with
+   the Mii it uses) and goes straight to the captain draft against your
+   opponent, where you choose your captain and sidekicks. It passes the menus
+   on its way unseen: you see the frontend move to the online area, the
+   login's Connecting screen and the draft. (When your Mii from the launcher
+   is not on this computer, you choose a Mii yourself.) A game that is
+   elsewhere in its menus says so: back on the main menu or the online menu,
+   it goes on. **Not ready** in the Recharged Game Menu holds the set until you
+   press **Ready to play!** again.
+4. After the series both games report the result and stay in the online menu,
+   with a card: **Rematch** challenges your opponent again by the same rules,
+   and once they accept, the next set goes on into RANKED. The rematch is the
+   other player's turn: whoever drafted second in the set picks the stadium
+   on the card (or in the launcher's dialog) with their **Rematch** or
+   **Accept**, and drafts first; the side changes with the first pick (at
+   home with defence priority, away without it). A new challenge is its
+   challenger's turn (they set up the stadium). A forfeited set has a rematch
+   too. A set that stopped
+   (a message in the game, or the games didn't meet) offers **Play it again**,
+   your Ready to play! for it. **Not now** (B) leaves it; closing a set's game
+   opens the launcher again. When one player leaves the set (**Back** in the
+   search, **Not ready**, or closing the game), it is called off for both: the
+   other game hears it within seconds, leaves the search and the online menus
+   for the main menu, nobody else is met, and a message tells who left: such a
+   set has no rematch, challenge them again. Both can challenge someone else
+   at once.
+   A game broken off during the match (a game closed or lost its connection)
+   counts at its score then once a third of it was played and a goal was
+   scored: a third of its clock, or for a goal limit a third of the goals by
+   the leader. Before that it doesn't count, and a set without a game that
+   counts ends without a result. A game that closes during the match reports
+   the game it broke off, so the set ends at once for both; the other game,
+   after the game's own message that the connection was lost, goes back to the
+   main menu. When the other player's game went away without a report, the
+   set is settled from the one report a minute later, or once their report
+   hasn't come within 5 minutes.
+5. One game runs per game folder: while one runs, a second Recharged of the
+   same folder doesn't start the game. A replay or a **Watch** link starts
+   anyway and watches beside it (see [Replays](REPLAYS.md)). A second game of
+   yours in a set (from another folder or computer) takes the set over, and the
+   first leaves it.
+
+Your **friends** are kept on the server, so they follow you to every
+computer: a player's screen in the Recharged Game Menu adds them or takes them off.
+Playing someone doesn't make them a friend.
+
+With Discord you need no Mii of your own: the launcher makes one from your
+Discord account, named after your Discord name, the same on every computer,
+when you play while signed in (Player profile shows it as **Your Mii**;
+**Edit** changes its face, the name stays your Discord name). It is an
+ordinary Mii: it shows in the game's online Mii list, and you can play the
+game's own online modes with it too. Playing with a
+Mii, your sets go with the Mii you chose.
+
+### Miis and the Mii editor
+
+The launcher shows every Mii with its face, drawn from the Mii parts on your
+game image just as the game draws its Mii pictures; before the image is
+chosen (or when it can't be read) a Mii shows as a figure on its favourite
+colour.
+
+**Edit** (on Player profile's Your Mii, and **Edit face** for a new Mii)
+opens the **Mii editor**: no Mii Channel needed. The
+head shows large, with the expression you pick under it; the sections beside
+it hold the face (shape, skin, make-up), hair (style, colour, parting),
+eyebrows, eyes, nose, mouth, glasses, facial hair, mole, and the name (up to
+10 characters) and favourite colour. Parts show as pictures of the head with
+each one; sizes and positions are sliders. **Undo** takes back the last
+change, **Start over** goes back to the Mii as it was, **Random** rolls a
+whole new face (name and favourite colour stay), **Cancel** or the back arrow
+leaves it. **Save Mii** writes the Mii into the Wii's Mii database in the save folder (the
+previous database is copied to `backups/` first), in its own place: the Mii
+keeps who it is online, with its friend code and profile.
+
+A set lasts while both have Recharged open; closing it ends your sets that
+have no result yet. Every other game, and the game's own online menu, stay as
+in the original. The log's `Competitive:` lines tell what it did.
+
 ## The launcher
 
-**Reopen after the game** (Advanced → Interface, `[launcher] reopen_after_game`,
+**Menu language** (Advanced → Interface, `[interface] language`, `auto` by default) is the
+language of Recharged's own menus and messages, in the launcher and in the game:
+`auto` follows the PC's language when Recharged has it, else English. The game's
+own texts follow its text language. The translations are files in
+`assets/lang` beside the program (one folder per language); `assets/lang/README.md`
+explains how to make one.
+
+**Reopen the launcher** (the game's Settings → Advanced, `[launcher] reopen_after_game`,
 off by default) opens the launcher again when you close the game. A game that
 stops with an error message closes as before.
 
@@ -479,7 +762,9 @@ check cannot reach GitHub, a message says so: online play stays off until the
 update is in. **Check for updates** tries again, and so does the next start of
 the launcher; everything offline keeps working. The game checks by itself too,
 also when it starts without the launcher, and **Online** in its main menu
-then says why it stays closed. A folder that was not unpacked from a package,
+then says why it stays closed; so do the game menu's online pages (no
+challenge, search, Ready to play! or Play RANKED; declining and withdrawing
+still work) and the launcher's challenges. A folder that was not unpacked from a package,
 or is not writable, cannot update itself: download the new version and unpack
 it over the folder. Test builds update themselves the same way but are never
 kept offline; local builds only ask.
@@ -488,7 +773,8 @@ kept offline; local builds only ask.
 to follow: official releases, or also the **test builds** of changes that are
 not released yet, with the change's description as notes. Switching asks
 whether to install the other channel's build; *Later* keeps the build and
-the choice you had. On a test build, *Release*
+the choice you had. With no test build to switch to, Test goes back to
+Release by itself. On a test build, *Release*
 offers the way back to the latest release. A test build moves on to the
 release that contains it.
 
@@ -518,7 +804,7 @@ These options override the INI for one run, without saving:
 | `--aspect 16:9\|4:3\|stretch\|auto` | Aspect ratio (`auto`: 16:9 or 4:3, whichever is closer to the screen's shape) |
 | `--frame-rate original\|display\|unlimited\|FPS` | Frame rate |
 | `--no-tweaks` | All `[gameplay]` tweaks off (the bug fixes stay) |
-| `--training` | Start training: straight into a training match |
+| `--replay FILE` | Play a replay ([replays](REPLAYS.md)); a `.msc` file alone does the same |
 | `--config FILE` | Use another INI file |
 | `--launcher` | Open the launcher even with `--disc` |
 
@@ -529,11 +815,16 @@ These options override the INI for one run, without saving:
 Each run writes `logs/recharged.log` beside the program: settings, devices,
 graphics adapter, warnings and errors. Attach it to an
 [issue](https://github.com/previouslevelgames/recharged/issues) when reporting a
-problem; it can contain your user name in paths. **Advanced → Log detail** and
-**Verbose console** add more detail.
+problem; it can contain your user name in paths. **Log detail** (the game's
+Settings → Advanced, `[advanced] log_level`) and the game's **Verbose console**
+add more detail. With Log detail at *Debug*
+(`[advanced] log_level = debug`) every line begins with its time, and the log
+also gets the WFC library's reports of the online login and of finding and
+connecting to an opponent. The lines of competitive sets (`Competitive:`)
+always have their time.
 
 On Windows and macOS no console or Terminal window opens with the game.
-**Advanced → Diagnostics & analytics → Log window** (`[advanced] log_window`,
+**Log window** (the game's Settings → Advanced, `[advanced] log_window`,
 off by default) shows the log as it is written, in a separate window (Terminal
 on macOS). Closing that window or selecting text in it does not stop or slow
 the game; it closes when the game ends (on Windows it stays open after an
@@ -542,12 +833,15 @@ also prints to that console, whose prompt returns at once
 (`start /wait recharged.exe` waits for the game). On macOS the `recharged`
 file beside the app runs it in Terminal with the output there.
 
-**Advanced → Diagnostics & analytics → Performance stats**
-(`[advanced] frame_logging`) records frame times: each session writes a
+**Performance stats** (the game's Settings → Advanced, from the next start,
+`[advanced] frame_logging`) records frame times: each session writes a
 `frame-times_<timestamp>_<process>.csv` in the `logs` folder beside the program
 (next to `recharged.log`), with one row per game frame (frame time, game-thread
 and process CPU, presents, draws, pipeline creations), and a `.csv.summary.txt`
 with the distribution and longest frames on exit. Each row also names the arena
 being played, and the summary starts with the version and settings, then
-repeats the figures for every arena, so testers can compare arenas. **Frame
+repeats the figures for every arena, so testers can compare arenas. The rows
+and the summary also show where each frame's time goes: the game's own work
+(drawing, the rest of the frame, its sound) and its waits, the graphics
+threads' work, the waits for the GPU and presenting. **Frame
 recordings → Open folder** opens that location.

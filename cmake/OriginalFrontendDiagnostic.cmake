@@ -181,14 +181,41 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     target_sources(${target} PRIVATE src/platform/debug_layer_toggles.cpp)
     # The Discord status (issue #71): what the game is doing, read by the host after a frame.
     target_sources(${target} PRIVATE src/platform/presence_snapshot.cpp)
+    # Override retail menus (development switch): the game's menus Recharged
+    # stands in for, read after a frame, and the host's commands (tweak patch 0070).
+    target_sources(${target} PRIVATE src/platform/menu_snapshot.cpp)
+    # The trophy room (CHARGED_MENU_TROPHY_ROOM): the camera on the cut online
+    # tournament's trophy, from the game's online menu.
+    target_sources(${target} PRIVATE src/platform/trophy_room.cpp)
+    # Its four presentation natives on the tournament's trophy (decomp patch
+    # 0765), with the online menu it starts from, the cameras it moves and the
+    # cup's natives that hide and show the cup trophies (7 and 36).
+    if(MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE AND MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS
+       AND MSCHARGED_DIAGNOSTIC_FRONTEND_CUP)
+        target_compile_definitions(${target} PRIVATE MSCHARGED_DIAGNOSTIC_FRONTEND_TROPHY_ROOM=1)
+    endif()
+    # Competitive play: the match's rules (tweak patch 0055) and the game's WFC
+    # login, read by the host after a frame.
+    target_sources(${target} PRIVATE src/platform/competitive_match.cpp)
     # [gameplay] tweaks: the hooks of patches/mscharged-decomp-tweaks (their
     # MSCHARGED_TWEAKS definition is set above, before the selections).
     target_sources(${target} PRIVATE src/platform/game_tweaks.cpp src/platform/gx_texture.cpp src/platform/away_kits.cpp)
+    # Simulation profiles: the rules a network match between releases plays by
+    # (tweak patches 0066 and 0067).
+    target_sources(${target} PRIVATE src/platform/sim_profile.cpp)
+    # Match replays: the game's own input recorder writes every offline match
+    # and plays a replay back through the port (tweak patch 0071), with the
+    # match's stats (0085).
+    target_sources(${target} PRIVATE src/platform/match_replay.cpp src/platform/match_replay_stream.cpp
+                                      src/platform/match_stats.cpp)
+    # A replay poses its characters on the host's worker threads (tweak patch 0091).
+    target_sources(${target} PRIVATE src/platform/parallel_pose.cpp)
     # The original game's globals in sections of their own (rbk_data/rbk_bss),
     # which a rollback saves with the arenas: a linker script on ELF (GNU ld,
-    # lld), and on PE and Mach-O a launcher that renames the same files'
-    # sections after each compile (the linker gathers them by name).
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # lld; a static game image takes its sections into the image's data), and
+    # on PE and Mach-O a launcher that renames the same files' sections after
+    # each compile (the linker gathers them by name).
+    if(CMAKE_SYSTEM_NAME MATCHES "^(Linux|NintendoSwitch)$")
         set(_rollback_sections "${CMAKE_CURRENT_SOURCE_DIR}/cmake/rollback_sections.ld")
         target_link_options(${target} PRIVATE "LINKER:-T,${_rollback_sections}")
         set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${_rollback_sections}")
@@ -253,6 +280,9 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     endif()
     if(WIN32)
         mscharged_import_original_windows_host(${target})
+    elseif(MSCHARGED_STATIC_GAME)
+        # Linked into the program (cmake/StaticGameImages.cmake), not loaded.
+        mscharged_make_static_game_image(${target} ${suffix})
     else()
         add_dependencies(charged_original_game_host ${target})
     endif()
@@ -271,6 +301,9 @@ mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_us
 mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_eu R4QP01_REV2 eu)
 mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_jp R4QJ01 jp)
 mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_kr R4QK01 kr)
+if(MSCHARGED_STATIC_GAME AND TARGET mscharged)
+    mscharged_link_static_game_images(mscharged)
+endif()
 
 if(BUILD_TESTING)
     add_test(NAME original_module_vtables

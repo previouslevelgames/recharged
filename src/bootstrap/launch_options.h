@@ -1,9 +1,12 @@
 #pragma once
 
 #include "bootstrap/config.h"
+#include <array>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace mscharged
 {
@@ -20,7 +23,8 @@ struct LaunchOptions
     std::optional<std::string> aspect;
     std::optional<std::string> frame_rate;
     bool no_tweaks = false; // --no-tweaks: play without the [gameplay] tweaks
-    bool training = false;  // --training: Start training
+    // --replay FILE (or a .msc file alone): play that match again.
+    std::optional<std::filesystem::path> replay;
 };
 
 enum class SettingSource { Defaults, Config, Launcher, CommandLine, GameMode };
@@ -36,13 +40,35 @@ struct ResolvedLaunch
     SettingSource aspect_source = SettingSource::Defaults;
     SettingSource frame_rate_source = SettingSource::Defaults;
     SettingSource tweaks_source = SettingSource::Defaults;
-    // Start training (--training or the launcher's button): the game goes from
-    // the title straight into a training match.
-    bool start_training = false;
+    // A replay (--replay): the game goes from the title straight into the
+    // recorded match and plays it back; empty for none.
+    std::filesystem::path replay_path;
+    // A game of a finished online match watched from the WFC server's
+    // dashboard (its Replay button): the recharged:// link of the match's next
+    // game whose replay the server keeps, which the game opens once the replay
+    // ended; empty for none.
+    std::string replay_next_link;
+    // A game the WFC server kept, started from its dashboard: its match and
+    // game and the ticket, for the players and the set shown over it; match 0
+    // for none.
+    std::int64_t replay_match = 0;
+    int replay_game = 0;
+    std::string replay_ticket;
     // When the launcher that starts the game found this build up to date
     // (seconds since 1970), 0 when it did not: the game's online check
     // (launcher/online_gate.h) then needs no request of its own.
     std::int64_t update_verified = 0;
+    // A competitive set's go (the launcher's lobby, both pressed Ready to
+    // play!): the game goes from the title through the online login with the
+    // player's own Mii (its create ID) straight into RANKED against the set's
+    // opponent, and the launcher opens again afterwards.
+    bool start_competitive = false;
+    std::int64_t competitive_set = 0;
+    std::array<unsigned char, 8> competitive_mii{};
+    // The player's Discord friends as the launcher knows them (their Discord
+    // account ids; none while Discord isn't linked): the game's online panel
+    // shows those who play Recharged.
+    std::vector<std::string> discord_friends;
 };
 
 // Consume a shared option at argv[index], including its value where required.
@@ -61,11 +87,11 @@ void ApplyGameModeDisplay(ResolvedLaunch& launch, bool game_mode);
 std::string DescribeLaunch(const ResolvedLaunch& launch);
 const char* SettingSourceName(SettingSource source);
 inline constexpr std::string_view LaunchOptionsHelp =
-    "Launch settings: [--config FILE] [--disc FILE | --disk FILE] [--window | --fullscreen] [--size WIDTHxHEIGHT] [--aspect auto|4:3|16:9|stretch] [--frame-rate original|display|unlimited|FPS] [--no-tweaks] [--training]\n"
+    "Launch settings: [--config FILE] [--disc FILE | --disk FILE] [--window | --fullscreen] [--size WIDTHxHEIGHT] [--aspect auto|4:3|16:9|stretch] [--frame-rate original|display|unlimited|FPS] [--no-tweaks] [--replay FILE]\n"
     "Command-line settings override the INI for this run only; later options win.\n"
     "--frame-rate takes original, display, unlimited or 30 to 1000 frames per second.\n"
     "--no-tweaks turns the [gameplay] tweaks off for this run.\n"
-    "--training goes from the title straight into a training match.\n"
+    "--replay FILE (or the .msc file alone) plays a recorded match again; with --disc it starts at once.\n"
     "Options with values accept --option VALUE or --option=VALUE, before or after the runtime mode.\n"
     "INI disc paths are relative to that INI; command-line paths are relative to the working directory.\n";
 }

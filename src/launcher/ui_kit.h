@@ -54,6 +54,7 @@ struct Fonts
     ImFont* title = nullptr;    // 30 dp
     ImFont* button = nullptr;   // 22 dp
     ImFont* overline = nullptr; // 21 dp
+    ImFont* display = nullptr;  // 72 dp, digits only (the set's countdown)
 };
 // Rasterizes Roboto at the exact framebuffer pixel size for `font_raster`
 // pixels per dp; io.FontGlobalScale maps the glyphs back to window units.
@@ -68,7 +69,8 @@ enum class Icon
 {
     None, Play, Disc, Display, Audio, Keyboard, Sliders, Info, Folder, Check, Warning, Error, Refresh, Mouse,
     Gamepad, Copy, Link, Target, Back, GitHub, Download, Flask, Tag, Trophy, Gear, Close, Up, Down, Archive, More,
-    Heart, Bug, Layers, Bulb, Code, Person, Pitch, Clipboard
+    Heart, Bug, Layers, Bulb, Code, Person, Pitch, Clipboard, Medal, Chat, Bracket, Podium, Dice, Paint, Lock,
+    Stats
 };
 void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 center, float size, ImU32 color);
 
@@ -86,7 +88,8 @@ ImVec2 TextSize(ImFont* font, const char* text);
 void FillGradient(ImDrawList* draw, ImVec2 min, ImVec2 max, ImU32 top_left, ImU32 bottom_right,
                   float rounding, bool horizontal);
 
-bool NavItem(const char* label, Icon icon, bool selected, float width);
+// height 0: the usual row (44 dp).
+bool NavItem(const char* label, Icon icon, bool selected, float width, float height = 0.0f);
 struct NavPage
 {
     const char* label;
@@ -95,8 +98,14 @@ struct NavPage
 };
 // A sidebar group of pages, open while one of them is shown: its row, and a
 // raised panel with the pages under it. Returns 0 for a click on the group's
-// row, 1 and up for one on a page, -1 for none.
-int NavGroup(const char* label, Icon icon, bool open, std::initializer_list<NavPage> pages, float width);
+// row, 1 and up for one on a page, -1 for none. row_height 0: the usual row
+// (44 dp), as NavItem. Without pages the row stands alone (no chevron);
+// `status`, when given, is a dot in that colour after the label; `pulse`
+// sends rings out of it, as a live connection's.
+int NavGroup(const char* label, Icon icon, bool open, const std::vector<NavPage>& pages, float width,
+             float row_height = 0.0f, const ImVec4* status = nullptr, bool pulse = false);
+// The height an open NavGroup adds under its row for that many pages.
+float NavGroupPagesHeight(std::size_t pages);
 bool PrimaryButton(const char* id, const char* label, ImVec2 size, bool enabled, Icon icon = Icon::None,
                    bool glow = false);
 bool SecondaryButton(const char* id, const char* label, ImVec2 size, bool enabled = true,
@@ -120,9 +129,8 @@ struct SplitPress
 };
 SplitPress SplitPrimaryButton(const char* id, const char* label, ImVec2 size, const SplitSegment& segment,
                               bool enabled, Icon icon = Icon::None, bool glow = false);
-// Dropdown menu rows (inside a popup), each `width` wide: a switch with a
-// description, an action with a chevron, and a divider.
-bool MenuToggle(const char* id, const char* label, const char* description, bool* value, float width);
+// Dropdown menu rows (inside a popup), each `width` wide: an action with a
+// chevron, and a divider.
 bool MenuAction(const char* id, const char* label, float width);
 void MenuSeparator(float width);
 // Text button without a frame until hovered, for quiet actions next to a primary button.
@@ -147,6 +155,11 @@ bool SegmentedIcons(const char* id, int* selected, std::initializer_list<Segment
 // `minimum`..`maximum`.
 bool PercentSlider(const char* id, int* value, float width, const char* zero_label = nullptr, int minimum = 0,
                    int maximum = 100);
+// A slider for a small whole number between a minus and a plus button, with
+// `label` (the value, or a word for it) after them; `reversed` shows the
+// maximum at the left, for values that grow the other way.
+bool StepSlider(const char* id, int* value, int minimum, int maximum, float width, const char* label,
+                bool reversed = false);
 void Chip(const char* text, const ImVec4& color, Icon icon = Icon::None);
 // Small battery gauge (0-100%), coloured by charge, with the percentage after it.
 void BatteryIcon(int percent);
@@ -156,15 +169,14 @@ bool KeyCapButton(const char* id, const char* key, bool waiting);
 // Clickable keycaps of keys pressed together ("Ctrl + Shift + F12"), one
 // button; `waiting` shows them pulsing while they wait for key presses.
 bool KeyComboButton(const char* id, const std::vector<std::string>& keys, bool waiting);
-// Keycap with a drawn arrow: 0 up, 1 down, 2 left, 3 right (no font glyphs needed).
-void KeyCapArrow(int direction);
 void DrawChevron(ImDrawList* draw, ImVec2 center, float size, ImU32 color);
 void DrawChevronDown(ImDrawList* draw, ImVec2 center, float size, ImU32 color);
 // The Discord logo, `width` wide (three quarters as tall), its eyes in `eyes`:
 // the colour it sits on.
 void DrawDiscordMark(ImDrawList* draw, ImVec2 center, float width, ImU32 color, ImU32 eyes);
 // A button in Discord's colour with its logo, for a link to a Discord server.
-bool DiscordButton(const char* id, const char* label, ImVec2 size);
+// `hero`: the big call to action, a pill with a bold label and a glow.
+bool DiscordButton(const char* id, const char* label, ImVec2 size, bool hero = false);
 // A small flag of a disc region (the disc ID's fourth letter: E USA, P Europe,
 // J Japan, K Korea; grey for others), `height` tall and 1.5 times as wide.
 // Always shown with the region's name: the flag alone tells nothing to some.
@@ -184,6 +196,11 @@ void BeginSubRows();
 void EndSubRows();
 void EndRows();
 void PageHeader(const char* title, const char* description);
+// The header of a page that is one feature, on or off: its switch at the
+// title line's right end with `label` beside it, `about` as their tooltip.
+// True when it was switched.
+bool PageHeader(const char* title, const char* description, const char* label, const char* about, const char* id,
+                bool* value);
 void Spinner(ImVec2 center, float radius, ImU32 color);
 // Letter-spaced text (overlines and small headings).
 void DrawTracked(ImDrawList* draw, ImFont* font, ImVec2 position, ImU32 color, const char* text, float tracking);

@@ -1,5 +1,6 @@
 #include "launcher/update_service.h"
 
+#include "bootstrap/texts.h"
 #include "launcher/github_requests.h"
 #include "launcher/update_install.h"
 #include "platform/http_client.h"
@@ -18,6 +19,9 @@ namespace mscharged::launcher
 namespace
 {
 namespace fs = std::filesystem;
+
+// The run whose work this worker thread does (its cancel token), for Set.
+thread_local const platform::HttpCancel* tRun = nullptr;
 
 std::string Stamp()
 {
@@ -40,12 +44,15 @@ UpdateService::UpdateService(BuildIdentity build, fs::path base) : build_(std::m
 UpdateService::~UpdateService()
 {
     Cancel();
-    if (worker_.joinable()) worker_.join();
+    for (auto& worker : workers_)
+        if (worker.thread.joinable()) worker.thread.join();
 }
 
 void UpdateService::Set(const std::function<void(Status&)>& change)
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    // A run the next one replaced changes nothing any more.
+    if (tRun && tRun != cancel_.get()) return;
     change(status_);
     ++status_.serial;
 }
@@ -71,16 +78,38 @@ void UpdateService::Cancel()
 void UpdateService::Start(std::shared_ptr<platform::HttpCancel> cancel, const std::function<void(Status&)>& begin,
                           std::function<void()> task)
 {
+    const platform::HttpCancel* run = cancel.get();
     std::shared_ptr<platform::HttpCancel> previous;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         previous = std::exchange(cancel_, std::move(cancel));
     }
+    // Not waited for: a download notices the cancel only after a while, and
+    // joining here held the window that long.
     if (previous) previous->Cancel();
-    if (worker_.joinable()) worker_.join();
+    JoinEndedWorkers();
     // The new state shows at once, before the next Snapshot().
     Set(begin);
-    worker_ = std::thread(std::move(task));
+    auto ended = std::make_shared<std::atomic<bool>>(false);
+    workers_.push_back({std::thread([run, ended, task = std::move(task)] {
+                            tRun = run;
+                            task();
+                            ended->store(true);
+                        }),
+                        ended});
+}
+
+void UpdateService::JoinEndedWorkers()
+{
+    for (auto it = workers_.begin(); it != workers_.end();)
+    {
+        if (!it->ended->load()) ++it;
+        else
+        {
+            it->thread.join();
+            it = workers_.erase(it);
+        }
+    }
 }
 
 void UpdateService::Check(UpdateChannel channel, int chosen, bool hidden)
@@ -393,7 +422,7 @@ void UpdateService::RunInstall(PublishedBuild offer, std::shared_ptr<platform::H
     {
         const BuildIdentity build = Build();
         const PackageAsset* asset = offer.PackageFor(build.package);
-        if (!asset) throw std::runtime_error("This release has no package for " + build.package + ".");
+        if (!asset) throw std::runtime_error(texts::T("launcher.update.install.no_package", {{"package", build.package}}));
         std::string expected = ExpectedSha256(*asset, {});
         if (expected.empty())
             if (const PackageAsset* sums = offer.Checksums())
@@ -401,7 +430,8 @@ void UpdateService::RunInstall(PublishedBuild offer, std::shared_ptr<platform::H
                 const auto reply = platform::HttpGet(GitHubRequest(sums->url, build, cancel));
                 if (reply.status == 200) expected = ExpectedSha256(*asset, reply.body);
             }
-        if (expected.empty()) throw std::runtime_error("The release has no checksum for " + asset->name + ".");
+        if (expected.empty())
+            throw std::runtime_error(texts::T("launcher.update.install.no_checksum", {{"name", asset->name}}));
 
         fs::create_directories(download);
         const fs::path archive = download / PathFromUtf8(asset->name);
@@ -414,18 +444,19 @@ void UpdateService::RunInstall(PublishedBuild offer, std::shared_ptr<platform::H
                 state.total = total ? total : asset->size;
             });
         });
-        if (status != 200) throw std::runtime_error("The download failed with error " + std::to_string(status) + ".");
+        if (status != 200)
+            throw std::runtime_error(texts::T("launcher.update.install.download_failed", {{"status", std::to_string(status)}}));
         if (asset->size && fs::file_size(archive) != asset->size)
-            throw std::runtime_error("The download is incomplete.");
+            throw std::runtime_error(texts::T("launcher.update.install.download_incomplete"));
         if (platform::Sha256File(archive) != expected)
-            throw std::runtime_error("The download is damaged (its checksum does not match).");
+            throw std::runtime_error(texts::T("launcher.update.install.download_damaged"));
 
         Set([](Status& state) { state.state = State::Installing; });
         const fs::path root = UnpackPackage(archive, staged, [&] { return cancel->Cancelled(); });
         const auto incoming = ReadPackageManifest(root / kPackageManifest);
         const PortVersion version = ParsePortVersion(incoming.version);
         if (CompareVersions(version, offer.version) != 0 || version.commit != offer.version.commit)
-            throw std::runtime_error("The package holds version " + incoming.version + ", not the one offered.");
+            throw std::runtime_error(texts::T("launcher.update.install.wrong_version", {{"version", incoming.version}}));
         if (cancel->Cancelled()) throw platform::HttpError("Cancelled", true);
         InstallStagedPackage(base_, root, backup);
         cleanup();
@@ -433,8 +464,18 @@ void UpdateService::RunInstall(PublishedBuild offer, std::shared_ptr<platform::H
     }
     catch (const std::exception& error)
     {
-        cleanup();
-        RemoveIfEmpty(backup);
+        // Half replaced: the unpacked package and the previous files stay for
+        // FinishUpdates at the next start (UnfinishedReplacement).
+        if (dynamic_cast<const UnfinishedReplacement*>(&error))
+        {
+            std::error_code ignored;
+            fs::remove_all(download, ignored);
+        }
+        else
+        {
+            cleanup();
+            RemoveIfEmpty(backup);
+        }
         const auto* http = dynamic_cast<const platform::HttpError*>(&error);
         const bool cancelled = cancel->Cancelled() || (http && http->Cancelled());
         Set([&](Status& state) {

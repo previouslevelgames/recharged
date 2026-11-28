@@ -49,6 +49,7 @@ struct NativeAXNormalCommandDevice::State {
             throw std::logic_error("AX normal slice received a different bus lifetime");
         const auto before=Context(s.status.history);
         s.chip.ValidateNativeDataWords(0x0ce4,before.data(),before.size());
+        const NativeDSPMemoryScope transfers; // one lock for the whole command frame
         auto frame=PrepareNativeAXCommandFrame(bus,address,bytes,s.status.history,s.coefficients);
         CommitNativeAXCommandFrame(bus,frame,s.status.history);
         const auto after=Context(s.status.history);

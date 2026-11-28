@@ -5,6 +5,7 @@
 #include <chrono>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 
 namespace fs = std::filesystem;
@@ -69,6 +70,21 @@ int main()
         Reject([&] { SaveConfig(file, settings); });
         Require(LoadConfig(path).contents == saved, "Invalid settings must not overwrite the file");
         settings.master_volume = 65;
+        // The game's overlay saves one gameplay option and leaves the rest.
+        SaveGameTweak(path, GameTweak::FastTerrain, true);
+        {
+            const auto overlay = LoadConfig(path);
+            Require(overlay.settings.tweaks[GameTweakIndex(GameTweak::FastTerrain)]
+                && !overlay.settings.tweaks[GameTweakIndex(GameTweak::NoMegaStrikes)]
+                && overlay.settings.width == 1920 && overlay.settings.master_volume == 65
+                && overlay.contents.find("; keep my comment\r\n") != std::string::npos
+                && overlay.contents.find("option = keep me\r\n") != std::string::npos,
+                "An overlay option saved alone");
+            SaveGameTweak(path, GameTweak::FastTerrain, false);
+            Require(!LoadConfig(path).settings.tweaks[GameTweakIndex(GameTweak::FastTerrain)], "And off again");
+            Reject([&] { SaveGameTweak(path, GameTweak::NoHud, true); });
+            file = LoadConfig(path);
+        }
         std::ofstream(path, std::ios::app) << "; edited elsewhere\r\n";
         Reject([&] { SaveConfig(file, settings); });
         Require(LoadConfig(path).contents.find("edited elsewhere") != std::string::npos, "External edits survive");
@@ -137,6 +153,60 @@ int main()
                     && Settings{}.PadProfileOf(2).name == "Default"
                     && Settings{}.PadProfileOf(2).inputs[mscharged::GamepadActionA] == "a",
                 "Gamepads play with the built-in Default profile");
+        // Built-in profiles beside Default, Classic 1.1 first: never stored, and
+        // their names are taken.
+        Require(!Settings::BuiltinPadProfiles().empty() && Settings::BuiltinPadProfiles()[0].name == "Classic 1.1"
+                    && Settings::BuiltinPadProfiles()[0].follows == mscharged::GamepadLayout::Classic
+                    && Settings::DefaultPadProfile().follows == mscharged::GamepadLayout::Default
+                    && !ValidPadProfileName("classic 1.1") && !ValidPadProfileName("Default")
+                    && ValidPadProfileName("Classic"),
+                "Classic 1.1 is built in");
+        {
+            const auto shipped = ParseBuiltinPadProfiles(
+                "[gamepad_profile1]\nname = Sample\ncontroller = nintendo\na = b | x\nsticks = shared\n");
+            Require(shipped.size() == 1 && shipped[0].name == "Sample" && shipped[0].controller == "nintendo"
+                        && shipped[0].inputs[mscharged::GamepadActionA] == "b | x"
+                        && shipped[0].sticks == mscharged::GamepadSticks::Shared && !shipped[0].follows,
+                    "A built-in profile written as in recharged.ini did not load");
+            // The profiles shipped with the game load, and come after Classic 1.1.
+            const auto& builtins = Settings::BuiltinPadProfiles();
+            Require(builtins.size() >= 2 && builtins[1].name == "iceVirtue" && builtins[1].controller == "xbox"
+                        && builtins[1].inputs[mscharged::GamepadActionB] == "righttrigger"
+                        && builtins[1].inputs[mscharged::GamepadActionRight] == "b"
+                        && builtins[1].sticks == mscharged::GamepadSticks::Split && !builtins[1].follows,
+                    "The built-in profile of iceVirtue did not load");
+            Require(builtins.size() >= 3 && builtins[2].name == "ImSpiker"
+                        && builtins[2].inputs[mscharged::GamepadActionC] == "rightshoulder"
+                        && builtins[2].inputs[mscharged::GamepadActionPlus] == "rightshoulder"
+                        && builtins[2].inputs[mscharged::GamepadActionShakeNunchuk] == "x | b"
+                        && builtins[2].sticks == mscharged::GamepadSticks::Shared,
+                    "The built-in profile of ImSpiker did not load");
+            Require(builtins.size() >= 4 && builtins[3].name == "Jok3r"
+                        && builtins[3].inputs[mscharged::GamepadActionC] == "righttrigger | b"
+                        && builtins[3].inputs[mscharged::GamepadActionHome] == "none"
+                        && builtins[3].sticks == mscharged::GamepadSticks::Shared,
+                    "The built-in profile of Jok3r did not load");
+            Reject([] { ParseBuiltinPadProfiles("[gamepad_profile1]\nname = classic 1.1\n"); });
+            Reject([] { ParseBuiltinPadProfiles("[gamepad_profile1]\nname = Default\n"); });
+        }
+        std::ofstream(path) << "[controls]\ngamepad1_profile = classic 1.1\n";
+        {
+            const auto loaded = LoadConfig(path).settings;
+            Require(loaded.PadProfileIndex(0) == Settings::BuiltinPadProfileIndex(0)
+                        && loaded.pad_profile_names[0] == "Classic 1.1"
+                        && loaded.PadProfileOf(0).follows == mscharged::GamepadLayout::Classic,
+                    "A gamepad did not find the built-in Classic 1.1 by name");
+        }
+        // A profile of a player named like a built-in one gets a number, and its gamepads keep it.
+        std::ofstream(path) << "[controls]\ngamepad1_profile = classic 1.1\n"
+                               "[gamepad_profile1]\nname = Classic 1.1\nb = x\n[gamepad_profile2]\nname = Classic 1.1 2\n";
+        {
+            const auto loaded = LoadConfig(path).settings;
+            Require(loaded.pad_profiles.size() == 2 && loaded.pad_profiles[0].name == "Classic 1.1 3"
+                        && loaded.PadProfileIndex(0) == 0 && loaded.pad_profile_names[0] == "Classic 1.1 3"
+                        && loaded.pad_profiles[0].inputs[mscharged::GamepadActionB] == "x",
+                    "A profile named like a built-in one was not renamed or lost its gamepad");
+        }
         std::ofstream(path) << "; my pads\n[controls]\ngamepad2_profile = kyle\ngamepad3_profile = Gone\n"
                                "[gamepad_profile1]\n; Kyle's layout\nname = Kyle\na = b | start\nswap_sticks = true\n"
                                "inner_deadzone = 22\nouter_deadzone = 90\ntrigger_press = 30\noctagon_stick = true\n"
@@ -147,8 +217,11 @@ int main()
             const auto& loaded = file.settings;
             Require(loaded.pad_profiles.size() == 2 && loaded.pad_profiles[0].name == "Kyle"
                         && loaded.pad_profiles[0].inputs[mscharged::GamepadActionA] == "b | start"
-                        && loaded.pad_profiles[0].inputs[mscharged::GamepadActionB] == "b"
-                        && loaded.pad_profiles[0].swap_sticks && loaded.pad_profiles[0].controller == "xbox"
+                        && loaded.pad_profiles[0].inputs[mscharged::GamepadActionB]
+                               == Settings::DefaultPadInputs()[mscharged::GamepadActionB]
+                        && loaded.pad_profiles[0].sticks == mscharged::GamepadSticks::Swapped
+                        && loaded.pad_profiles[1].sticks == mscharged::GamepadSticks::Split
+                        && loaded.pad_profiles[0].controller == "xbox"
                         && loaded.pad_profiles[1].controller == "gamecube",
                     "Gamepad profiles load, with their controller kind");
             Require(loaded.pad_profiles[0].inner_deadzone == 22 && loaded.pad_profiles[0].outer_deadzone == 90
@@ -178,11 +251,12 @@ int main()
             changed.pad_profiles[0].octagon_stick = true;
             changed.pad_profiles[0].gyro_pointer = true;
             changed.pad_profiles[0].gyro_speed = 25;
+            changed.pad_profiles[0].sticks = mscharged::GamepadSticks::Shared;
             SaveConfig(file, changed);
             const auto saved = LoadConfig(path);
             Require(saved.settings.pad_profiles.size() == 1 && saved.settings.pad_profiles[0].name == "Spare"
                         && saved.settings.pad_profiles[0].inputs[mscharged::GamepadActionB] == "x"
-                        && !saved.settings.pad_profiles[0].swap_sticks
+                        && saved.settings.pad_profiles[0].sticks == mscharged::GamepadSticks::Shared
                         && saved.settings.pad_profiles[0].controller == "gamecube"
                         && saved.settings.pad_profiles[0].inner_deadzone == 0
                         && saved.settings.pad_profiles[0].outer_deadzone == 100
@@ -219,6 +293,15 @@ int main()
         std::ofstream(path) << "[gamepad_profile17]\nname = Many\n";
         Reject([&] { LoadConfig(path); });
         std::ofstream(path) << "[gamepad_profile1]\nname = Pad\na = a | b | x\n";
+        Require(LoadConfig(path).settings.pad_profiles[0].inputs[mscharged::GamepadActionA] == "a | b | x",
+                "A gamepad action takes three inputs");
+        std::ofstream(path) << "[gamepad_profile1]\nname = Pad\na = a | b | x | y\n";
+        Reject([&] { LoadConfig(path); });
+        // sticks wins over the older swap_sticks; an unknown value is refused.
+        std::ofstream(path) << "[gamepad_profile1]\nname = Pad\nswap_sticks = true\nsticks = shared\n";
+        Require(LoadConfig(path).settings.pad_profiles[0].sticks == mscharged::GamepadSticks::Shared,
+                "sticks = shared did not load");
+        std::ofstream(path) << "[gamepad_profile1]\nname = Pad\nsticks = both\n";
         Reject([&] { LoadConfig(path); });
         for (const char* range : {"inner_deadzone = 31", "inner_deadzone = -1", "outer_deadzone = 69",
                                   "outer_deadzone = 101", "trigger_press = 9", "trigger_press = 91",
@@ -324,35 +407,41 @@ int main()
             try { LoadConfig(path); } catch (const std::runtime_error&) { rejected = true; }
             Require(rejected, "An unknown Super Team side is rejected");
         }
-        // Training's item, captain and stadium.
+        // Training's item, and its opponent.
         {
-            Require(Settings{}.training_item == "green_shell" && Settings{}.training_captain == "mario"
-                    && Settings{}.training_stadium == "tutorialfield", "Training defaults");
+            Require(Settings{}.training_item == "green_shell", "Training defaults");
+            // Start training's keys, from before Training was the game's only,
+            // are accepted and dropped on save.
             std::ofstream(path) << "[gameplay]\ntraining_item = giant_bobomb\ntraining_captain = petey\n"
-                                   "training_stadium = lavapit\n";
+                                   "training_stadium = lavapit\ntraining_away_captain = wario\ntraining_side = away\n";
             auto loaded = LoadConfig(path);
-            Require(loaded.settings.training_item == "giant_bobomb" && loaded.settings.training_captain == "petey"
-                    && loaded.settings.training_stadium == "lavapit",
-                    "The Training settings load");
+            Require(loaded.settings.training_item == "giant_bobomb", "The Training settings load");
             auto changed = loaded.settings;
             changed.training_item = "none";
             SaveConfig(loaded, changed);
             Require(LoadConfig(path).settings.training_item == "none", "The Training settings round trip");
-            std::ofstream(path) << "[gameplay]\ntraining_stadium = lowpolystadium\n";
+            {
+                std::ifstream saved(path);
+                const std::string text((std::istreambuf_iterator<char>(saved)), std::istreambuf_iterator<char>());
+                Require(text.find("training_captain") == std::string::npos
+                            && text.find("training_stadium") == std::string::npos
+                            && text.find("training_away_captain") == std::string::npos
+                            && text.find("training_side") == std::string::npos,
+                        "Start training's keys are dropped on save");
+            }
+            std::ofstream(path) << "[gameplay]\ntraining_item = golden_shell\n";
             bool rejected = false;
             try { LoadConfig(path); } catch (const std::runtime_error&) { rejected = true; }
-            Require(rejected, "An unknown Training stadium is rejected");
-            Require(Settings{}.training_away_captain == "bowser" && Settings{}.training_away_fielders == 0
-                    && Settings{}.training_away_goalie && Settings{}.training_skip_goals
-                    && Settings{}.training_away_skill == "rookie" && Settings{}.training_side == "home",
+            Require(rejected, "An unknown Training item is rejected");
+            Require(Settings{}.training_away_fielders == 0 && Settings{}.training_away_goalie
+                    && Settings{}.training_skip_goals && Settings{}.training_away_skill == "rookie",
                     "Training opponent defaults");
-            std::ofstream(path) << "[gameplay]\ntraining_away_captain = wario\ntraining_away_fielders = 2\n"
+            std::ofstream(path) << "[gameplay]\ntraining_away_fielders = 2\n"
                                    "training_away_goalie = false\ntraining_skip_goals = true\n"
-                                   "training_away_skill = megastriker\ntraining_side = away\n";
+                                   "training_away_skill = megastriker\n";
             const auto opponent = LoadConfig(path).settings;
-            Require(opponent.training_away_captain == "wario" && opponent.training_away_fielders == 2
-                    && !opponent.training_away_goalie && opponent.training_skip_goals
-                    && opponent.training_away_skill == "megastriker" && opponent.training_side == "away",
+            Require(opponent.training_away_fielders == 2 && !opponent.training_away_goalie
+                    && opponent.training_skip_goals && opponent.training_away_skill == "megastriker",
                     "The Training opponent settings load");
             std::ofstream(path) << "[gameplay]\ntraining_away_fielders = 5\n";
             rejected = false;
@@ -399,7 +488,7 @@ int main()
         Require(!defaults.fps_overlay && defaults.fps_overlay_corner == "top-right"
             && defaults.monitor == 0 && !defaults.graphics_validation
             && defaults.log_level == "info" && !defaults.verbose_console && !defaults.frame_logging && !defaults.log_window
-            && defaults.ui_scale == "auto" && defaults.update_channel == "auto"
+            && defaults.ui_scale == "auto" && defaults.interface_language == "auto" && defaults.update_channel == "auto"
             && defaults.test_build == 0 && !defaults.reopen_after_game && defaults.show_welcome && defaults.gpu == "auto"
             && !defaults.performance_mode,
             "Host setting defaults");
@@ -416,6 +505,7 @@ int main()
         hostSettings.frame_logging = true;
         hostSettings.log_window = true;
         hostSettings.ui_scale = "150";
+        hostSettings.interface_language = "pt-BR";
         hostSettings.update_channel = "test";
         hostSettings.test_build = 72;
         hostSettings.reopen_after_game = true;
@@ -428,7 +518,7 @@ int main()
             && hostReloaded.monitor == 2 && hostReloaded.graphics_validation
             && hostReloaded.log_level == "warning" && hostReloaded.verbose_console && hostReloaded.frame_logging
             && hostReloaded.log_window
-            && hostReloaded.ui_scale == "150" && hostReloaded.update_channel == "test"
+            && hostReloaded.ui_scale == "150" && hostReloaded.interface_language == "pt-BR" && hostReloaded.update_channel == "test"
                 && hostReloaded.test_build == 72 && hostReloaded.reopen_after_game && !hostReloaded.show_welcome && hostReloaded.gpu == "10de:1f99",
             "Host settings round trip");
         const auto hostText = LoadConfig(host).contents;
@@ -510,6 +600,79 @@ int main()
                 "Saving wrote the default online server");
         std::ofstream(path) << "[online]\nserver = example.org\n";
         Require(LoadConfig(path).settings.online_server == "example.org", "Another online server kept");
+        // [online] profile_server: the project's server when left out or
+        // empty; only the file sets it, so saving neither writes nor drops it.
+        Require(defaults.profile_server == "https://rechargedwfc.net", "Profile server default");
+        std::ofstream(path) << "[online]\nprofile_server =\n";
+        auto emptyProfiles = LoadConfig(path);
+        Require(emptyProfiles.settings.profile_server == "https://rechargedwfc.net",
+                "An empty profile server is the default");
+        SaveConfig(emptyProfiles, emptyProfiles.settings);
+        Require(LoadConfig(path).contents.find("profile_server =\n") != std::string::npos,
+                "Saving wrote the default profile server");
+        std::ofstream(path) << "[online]\nprofile_server = http://127.0.0.1:8080\n";
+        auto ownProfiles = LoadConfig(path);
+        Require(ownProfiles.settings.profile_server == "http://127.0.0.1:8080", "Another profile server read");
+        ownProfiles.settings.profile_server = "https://other.example";
+        SaveConfig(ownProfiles, ownProfiles.settings);
+        Require(LoadConfig(path).settings.profile_server == "http://127.0.0.1:8080",
+                "Saving changed the profile server of the file");
+        Require(LoadConfig(host).contents.find("profile_server") == std::string::npos,
+                "Saving added a profile server");
+        // [online] challenge_rules: empty by default (the server's first rule
+        // set); a chosen one is kept and saved.
+        Require(defaults.challenge_rules.empty(), "Challenge rules default");
+        std::ofstream(path) << "[online]\nchallenge_rules = Best of 5\n";
+        auto rulesFile = LoadConfig(path);
+        Require(rulesFile.settings.challenge_rules == "Best of 5", "Challenge rules read");
+        rulesFile.settings.challenge_rules = "Competitive";
+        SaveConfig(rulesFile, rulesFile.settings);
+        Require(LoadConfig(path).contents.find("challenge_rules = Competitive") != std::string::npos,
+                "Saving wrote the challenge rules");
+        // The game's overlay saves the challenges' rules alone, the rest of the file as it is.
+        std::ofstream(path) << "; my note\r\n[online]\r\nchallenge_rules = Competitive ; chosen\r\nmystery = 1\r\n"
+                               "[display]\r\nwidth = 1920\r\n";
+        SaveChallengeRules(path, "Best of 5 (Legend)");
+        {
+            const auto overlay = LoadConfig(path);
+            Require(overlay.settings.challenge_rules == "Best of 5 (Legend)" && overlay.settings.width == 1920
+                    && overlay.contents.find("; my note\r\n") != std::string::npos
+                    && overlay.contents.find("mystery = 1\r\n") != std::string::npos
+                    && overlay.contents.find("challenge_rules = Best of 5 (Legend)") != std::string::npos,
+                    "The challenges' rules saved alone");
+            const auto before = overlay.contents;
+            Reject([&] { SaveChallengeRules(path, "Two\nlines"); });
+            Require(LoadConfig(path).contents == before, "A refused name leaves the file");
+            SaveChallengeRules(path, "");
+            Require(LoadConfig(path).settings.challenge_rules.empty(), "And back to the server's first");
+        }
+        // The challenge sound always plays: its old switch is retired.
+        std::ofstream(path) << "[online]\nchallenge_sound = false\nrollback = true\n";
+        auto soundFile = LoadConfig(path);
+        SaveConfig(soundFile, soundFile.settings);
+        const auto soundSaved = LoadConfig(path).contents;
+        Require(soundSaved.find("challenge_sound") == std::string::npos
+            && soundSaved.find("rollback = true") != std::string::npos, "The challenge sound's old switch is removed");
+        // [online] mii: none by default; a create ID read in lowercase and
+        // saved, anything else refused.
+        Require(defaults.online_mii.empty(), "Online Mii default");
+        std::ofstream(path) << "[online]\nmii = 82C6FC69A1B2C3D4\n";
+        auto miiFile = LoadConfig(path);
+        Require(miiFile.settings.online_mii == "82c6fc69a1b2c3d4", "Online Mii read");
+        miiFile.settings.online_mii = "80ae6afc5551b321";
+        SaveConfig(miiFile, miiFile.settings);
+        Require(LoadConfig(path).contents.find("mii = 80ae6afc5551b321") != std::string::npos
+                    && LoadConfig(path).settings.online_mii == "80ae6afc5551b321",
+                "Saving wrote the online Mii");
+        miiFile = LoadConfig(path);
+        miiFile.settings.online_mii.clear();
+        SaveConfig(miiFile, miiFile.settings);
+        Require(LoadConfig(path).settings.online_mii.empty(), "The online Mii cleared");
+        for (const char* bad : {"82c6fc69", "82c6fc69a1b2c3d4ff", "82c6fc69a1b2c3dz", "Nelly"})
+        {
+            std::ofstream(path) << "[online]\nmii = " << bad << "\n";
+            Reject([&] { LoadConfig(path); });
+        }
         std::ofstream(path) << "[online]\nrollback = true\nrollback_test = true\nrollback_delay = 9\nrollback_log = rb.txt\n";
         auto rollbackFile = LoadConfig(path);
         Require(rollbackFile.settings.rollback && rollbackFile.settings.rollback_test
@@ -603,12 +766,14 @@ int main()
         // [gameplay] tweaks: only the recommended ones on by default and
         // without the section, and those turn off; each round trips on its
         // own and invalid values are rejected.
-        const unsigned recommended = GameTweakBit(GameTweak::FairBallContests) | GameTweakBit(GameTweak::MatchPoint);
+        const unsigned recommended = GameTweakBit(GameTweak::FairBallContests) | GameTweakBit(GameTweak::MatchPoint)
+            | GameTweakBit(GameTweak::OverrideRetailMenus);
         Require(defaults.GameTweakMask() == recommended, "Only recommended tweaks are on by default");
         std::ofstream(path) << "[game]\ndisc = game.rvz\n";
         Require(LoadConfig(path).settings.GameTweakMask() == recommended,
             "No [gameplay] section means the recommended tweaks");
-        std::ofstream(path) << "[game]\ndisc = game.rvz\n[gameplay]\nfair_ball_contests = false\nmatch_point = false\n";
+        std::ofstream(path) << "[game]\ndisc = game.rvz\n[gameplay]\nfair_ball_contests = false\nmatch_point = false\n"
+                                "override_retail_menus = false\n";
         Require(LoadConfig(path).settings.GameTweakMask() == 0, "A recommended tweak turns off");
         for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
         {
@@ -628,7 +793,7 @@ int main()
         // which an old [gameplay] no_hud still sets until the next save.
         {
             Require(defaults.hotkeys
-                        == std::array<std::string, HotkeyCount>{"P", "H", "F", "PageUp", "PageDown", "Alt+Return"}
+                        == std::array<std::string, HotkeyCount>{"P", "H", "F", "PageUp", "PageDown", "Alt+Return", "F1", "F2"}
                     && defaults.show_hud && defaults.ModuleTweakMask() == defaults.GameTweakMask(), "Hotkey defaults");
             Require(GameTweakIndex(GameTweak::NoHud) == kGameTweaks.size(), "No HUD is listed as a tweak");
             std::ofstream(path) << "[game]\ndisc = game.rvz\n[gameplay]\nno_hud = true\nskip_intro = true\n";
@@ -663,7 +828,8 @@ int main()
             const auto older = LoadConfig(path).settings;
             Require(older.hotkeys[HotkeyStretch] == kNoHotkey && older.hotkeys[HotkeyResolutionDown] == kNoHotkey
                     && older.hotkeys[HotkeyResolutionUp] == "PageUp" && older.hotkeys[HotkeyScreenshot] == "P"
-                    && older.hotkeys[HotkeyHud] == "H" && older.hotkeys[HotkeyFullscreen] == "Alt+Return",
+                    && older.hotkeys[HotkeyHud] == "H" && older.hotkeys[HotkeyFullscreen] == "Alt+Return"
+                    && older.hotkeys[HotkeyPanel] == "F1" && older.hotkeys[HotkeyOptions] == "F2",
                     "A new hotkey took an older INI's keyboard key");
             std::ofstream(path) << "[keyboard]\nc = F\n[hotkeys]\nstretch = F\nresolution_up = none\n";
             const auto named = LoadConfig(path).settings;
@@ -705,6 +871,30 @@ int main()
         for (const char* invalid : {"[display]\nframe_rate = 29\n", "[display]\nframe_rate = 1001\n",
                                     "[display]\nframe_rate = uncapped\n", "[display]\nframe_rate = 60.0\n",
                                     "[display]\nframe_rate =\n"})
+        {
+            std::ofstream(path) << invalid;
+            Reject([&] { LoadConfig(path); });
+        }
+        // display.background_throttle: on at 30 FPS by default; 15, 30 and 60
+        // round trip, anything else is rejected.
+        Require(defaults.background_throttle && defaults.background_frame_rate == 30,
+            "Background throttle is on at 30 FPS by default");
+        for (const int hz : {15, 60})
+        {
+            const auto background = directory / ("background-" + std::to_string(hz) + ".ini");
+            auto backgroundFile = LoadConfig(background, true);
+            Settings backgroundSettings;
+            backgroundSettings.background_throttle = false;
+            backgroundSettings.background_frame_rate = hz;
+            SaveConfig(backgroundFile, backgroundSettings);
+            const auto reloaded = LoadConfig(background);
+            Require(!reloaded.settings.background_throttle && reloaded.settings.background_frame_rate == hz
+                && reloaded.contents.find("background_throttle = false") != std::string::npos
+                && reloaded.contents.find("background_frame_rate = " + std::to_string(hz)) != std::string::npos,
+                "Background frame rate round trip");
+        }
+        for (const char* invalid : {"[display]\nbackground_frame_rate = 20\n", "[display]\nbackground_frame_rate = 0\n",
+                                    "[display]\nbackground_frame_rate = 120\n", "[display]\nbackground_throttle = 30\n"})
         {
             std::ofstream(path) << invalid;
             Reject([&] { LoadConfig(path); });

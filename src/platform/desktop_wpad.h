@@ -58,6 +58,10 @@ struct DesktopWpadSettings {
     // controls.rumble_strength: how strongly a gamepad's motors run when the
     // game rumbles (0-100 %). Wii Remotes have an on/off motor.
     int rumble_strength = 100;
+    // Keyboard & mouse only stand in on keyboard_channel because no configured
+    // controller was there at start: the gamepad that joins on that channel
+    // takes it over, and keyboard & mouse stop playing.
+    bool keyboard_until_gamepad = false;
 };
 
 // Native desktop buttons are carried by explicit SDL virtual core-Wii devices.
@@ -81,4 +85,12 @@ struct DesktopWpadSettings {
 void InitializeDesktopWpad(SDL_Window* window, DesktopWpadSettings settings);
 void ServiceDesktopWpad();
 void ShutdownDesktopWpad();
+// The WPAD channel (player - 1) the keyboard & mouse remote plays on, or -1.
+int DesktopKeyboardWpadChannel();
+// Whether the mouse points in the game: for the keyboard & mouse player, or
+// (controls.mouse_pointer) for a controller playing alone as player 1.
+bool DesktopMousePoints();
+// controls.rumble_strength changed while the game runs (owner thread): the
+// gamepads' next rumble runs at `percent`.
+void SetDesktopRumbleStrength(int percent);
 } // namespace mscharged::platform

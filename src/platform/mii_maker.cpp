@@ -6,7 +6,8 @@
 
 namespace mscharged::platform {
 namespace {
-constexpr std::size_t kNameChars = 10, kRecordBytes = 0x4A;
+constexpr std::size_t kNameChars = 10, kRecordBytes = 0x4A, kNameOffset = 0x2, kCreateIdOffset = 0x18;
+constexpr unsigned kColorBits = 0x1E;
 // Create IDs count 4-second steps from 2006-01-01 (Unix 1136073600) in their
 // low 28 bits; the top bit marks an ordinary Mii, neither special (golden
 // pants) nor temporary (RFLi_CREATE_ID_MASK_*, RFLi_Config.h).
@@ -36,6 +37,87 @@ std::u16string Utf16(const std::string& text) {
     }
     return cells;
 }
+// A key's bits: FNV-1a over its bytes, spread by SplitMix64's finalizer.
+// Stable everywhere, which is all a Mii's key needs.
+std::uint64_t Mix(std::uint64_t x) {
+    x += 0x9E3779B97F4A7C15ull;
+    x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+    x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+    return x ^ (x >> 31);
+}
+
+std::array<std::uint64_t, 2> KeyBits(const std::string& key) {
+    std::uint64_t hash = 14695981039346656037ull;
+    for (const char c : key) {
+        hash ^= static_cast<unsigned char>(c);
+        hash *= 1099511628211ull;
+    }
+    const auto first = Mix(hash);
+    return {first, Mix(first)};
+}
+
+// UTF-8 to code points; nullopt for invalid UTF-8.
+bool CodePoints(const std::string& text, std::u32string& points) {
+    for (std::size_t n = 0; n < text.size();) {
+        const auto lead = static_cast<unsigned char>(text[n]);
+        const std::size_t length = lead < 0x80             ? 1
+                                   : (lead & 0xE0) == 0xC0 ? 2
+                                   : (lead & 0xF0) == 0xE0 ? 3
+                                   : (lead & 0xF8) == 0xF0 ? 4
+                                                           : 0;
+        if (!length || n + length > text.size()) return false;
+        std::uint32_t c = length == 1 ? lead : lead & (0x7F >> length);
+        for (std::size_t k = 1; k < length; ++k) {
+            const auto next = static_cast<unsigned char>(text[n + k]);
+            if ((next & 0xC0) != 0x80) return false;
+            c = (c << 6) | (next & 0x3F);
+        }
+        points.push_back(c);
+        n += length;
+    }
+    return true;
+}
+
+// Characters a Mii's name can show: the basic plane without control,
+// surrogate, private-use and invisible format characters.
+bool Showable(char32_t c) {
+    if (c < 0x20 || (c >= 0x7F && c < 0xA0) || c > 0xFFFF) return false;
+    if (c >= 0xD800 && c < 0xF900) return false; // surrogates, private use
+    if (c == 0xAD || (c >= 0x200B && c <= 0x200F) || (c >= 0x2028 && c <= 0x202E) || (c >= 0x2060 && c <= 0x206F)
+        || (c >= 0xFE00 && c <= 0xFE0F) || c == 0xFEFF || (c >= 0xFFF0))
+        return false;
+    return true;
+}
+
+std::string Fitted(const std::string& name) {
+    std::u32string points;
+    if (!CodePoints(name, points)) return {};
+    std::u32string kept;
+    for (const char32_t c : points) {
+        const bool space = c == U' ' || c == U'\u00A0' || c == U'\u3000' || c == U'\t';
+        if (space) {
+            if (!kept.empty() && kept.back() != U' ') kept.push_back(U' ');
+        } else if (Showable(c)) {
+            kept.push_back(c);
+        }
+    }
+    if (kept.size() > kNameChars) kept.resize(kNameChars);
+    while (!kept.empty() && kept.back() == U' ') kept.pop_back();
+    std::string fitted;
+    for (const char32_t c : kept) {
+        if (c < 0x80) {
+            fitted += char(c);
+        } else if (c < 0x800) {
+            fitted += char(0xC0 | (c >> 6));
+            fitted += char(0x80 | (c & 0x3F));
+        } else {
+            fitted += char(0xE0 | (c >> 12));
+            fitted += char(0x80 | ((c >> 6) & 0x3F));
+            fitted += char(0x80 | (c & 0x3F));
+        }
+    }
+    return fitted;
+}
 } // namespace
 
 bool ValidMiiName(const std::string& name) {
@@ -46,9 +128,11 @@ bool ValidMiiName(const std::string& name) {
     return true;
 }
 
-std::string MakeRandomMii(const std::string& name, std::uint32_t seed, std::int64_t created) {
+std::string MakeRandomMii(const std::string& name, std::uint32_t seed, std::int64_t created, int favorite_color) {
     if (!ValidMiiName(name))
         throw std::invalid_argument("A Mii's name has 1 to 10 characters.");
+    if (favorite_color < -1 || favorite_color >= kMiiFavoriteColors)
+        throw std::invalid_argument("A Mii's favourite colour is one of the Wii's twelve.");
     const auto cells = Utf16(name);
     unsigned short wii_name[kNameChars]{};
     for (std::size_t n = 0; n < cells.size(); ++n) wii_name[n] = cells[n];
@@ -66,7 +150,123 @@ std::string MakeRandomMii(const std::string& name, std::uint32_t seed, std::int6
 
     std::string record(kRecordBytes, '\0');
     ChargedMakeRandomMiiRecord(wii_name, create_id, record.data());
+    // The colour is bits 1-4 of the record's first big-endian half-word
+    // (RFLiCharData's favoriteColor); the face's draws stay as they were.
+    if (favorite_color >= 0)
+        record[1] = char((static_cast<unsigned char>(record[1]) & ~kColorBits) | (favorite_color << 1));
     return record;
+}
+
+std::array<unsigned char, 8> MiiRecordCreateId(const std::string& record) {
+    if (record.size() != kRecordBytes) throw std::invalid_argument("Not a Mii record.");
+    std::array<unsigned char, 8> id{};
+    for (std::size_t n = 0; n < id.size(); ++n) id[n] = static_cast<unsigned char>(record[kCreateIdOffset + n]);
+    return id;
+}
+
+int MiiRecordFavoriteColor(const std::string& record) {
+    if (record.size() != kRecordBytes) throw std::invalid_argument("Not a Mii record.");
+    return (static_cast<unsigned char>(record[1]) & kColorBits) >> 1;
+}
+
+std::string MiiRecordName(const std::string& record) {
+    if (record.size() != kRecordBytes) throw std::invalid_argument("Not a Mii record.");
+    // Up to 10 UTF-16 (big-endian) cells, 0 after the last.
+    std::string name;
+    for (std::size_t n = 0; n < kNameChars; ++n) {
+        std::uint32_t c = static_cast<unsigned char>(record[kNameOffset + 2 * n]) << 8
+            | static_cast<unsigned char>(record[kNameOffset + 2 * n + 1]);
+        if (!c) break;
+        if (c >= 0xD800 && c < 0xDC00 && n + 1 < kNameChars) {
+            const std::uint32_t low = static_cast<unsigned char>(record[kNameOffset + 2 * n + 2]) << 8
+                | static_cast<unsigned char>(record[kNameOffset + 2 * n + 3]);
+            if (low >= 0xDC00 && low < 0xE000) {
+                c = 0x10000 + ((c - 0xD800) << 10) + (low - 0xDC00);
+                ++n;
+            }
+        }
+        if (c < 0x80) {
+            name += char(c);
+        } else if (c < 0x800) {
+            name += char(0xC0 | (c >> 6));
+            name += char(0x80 | (c & 0x3F));
+        } else if (c < 0x10000) {
+            name += char(0xE0 | (c >> 12));
+            name += char(0x80 | ((c >> 6) & 0x3F));
+            name += char(0x80 | (c & 0x3F));
+        } else {
+            name += char(0xF0 | (c >> 18));
+            name += char(0x80 | ((c >> 12) & 0x3F));
+            name += char(0x80 | ((c >> 6) & 0x3F));
+            name += char(0x80 | (c & 0x3F));
+        }
+    }
+    return name;
+}
+
+void SetMiiRecordName(std::string& record, const std::string& name) {
+    if (record.size() != kRecordBytes) throw std::invalid_argument("Not a Mii record.");
+    if (!ValidMiiName(name)) throw std::invalid_argument("A Mii's name has 1 to 10 characters.");
+    const auto cells = Utf16(name);
+    for (std::size_t n = 0; n < kNameChars; ++n) {
+        const char16_t c = n < cells.size() ? cells[n] : 0;
+        record[kNameOffset + 2 * n] = char(c >> 8);
+        record[kNameOffset + 2 * n + 1] = char(c & 0xFF);
+    }
+}
+
+std::string MiiCreateIdText(const std::array<unsigned char, 8>& create_id) {
+    static constexpr char kDigits[] = "0123456789abcdef";
+    std::string text;
+    for (const unsigned char byte : create_id) {
+        text += kDigits[byte >> 4];
+        text += kDigits[byte & 0x0F];
+    }
+    return text;
+}
+
+std::optional<std::array<unsigned char, 8>> ParseMiiCreateId(std::string_view text) {
+    if (text.size() != 16) return std::nullopt;
+    std::array<unsigned char, 8> id{};
+    for (std::size_t n = 0; n < text.size(); ++n) {
+        const char c = text[n];
+        const int digit = c >= '0' && c <= '9' ? c - '0'
+            : c >= 'a' && c <= 'f'              ? c - 'a' + 10
+            : c >= 'A' && c <= 'F'              ? c - 'A' + 10
+                                                : -1;
+        if (digit < 0) return std::nullopt;
+        id[n / 2] = static_cast<unsigned char>(id[n / 2] << 4 | digit);
+    }
+    return id;
+}
+
+std::array<unsigned char, 8> KeyedMiiCreateId(const std::string& key) {
+    const auto bits = KeyBits(key)[1];
+    std::array<unsigned char, 8> id{};
+    for (std::size_t n = 0; n < id.size(); ++n) id[n] = static_cast<unsigned char>(bits >> (56 - 8 * n));
+    // An ordinary Mii: not special (top bit set), not temporary, and the
+    // other two flag bits clear as in every create ID the Wii makes.
+    id[0] = static_cast<unsigned char>(0x80 | (id[0] & 0x0F));
+    return id;
+}
+
+std::string MakeKeyedMii(const std::string& name, const std::string& key) {
+    if (!ValidMiiName(name))
+        throw std::invalid_argument("A Mii's name has 1 to 10 characters.");
+    const auto cells = Utf16(name);
+    unsigned short wii_name[kNameChars]{};
+    for (std::size_t n = 0; n < cells.size(); ++n) wii_name[n] = cells[n];
+    const auto create_id = KeyedMiiCreateId(key);
+    g_random.seed(std::uint32_t(KeyBits(key)[0] >> 32));
+    std::string record(kRecordBytes, '\0');
+    ChargedMakeRandomMiiRecord(wii_name, create_id.data(), record.data());
+    return record;
+}
+
+std::string FitMiiName(const std::string& name, const std::string& fallback) {
+    for (const auto* candidate : {&name, &fallback})
+        if (auto fitted = Fitted(*candidate); !fitted.empty()) return fitted;
+    return "Player";
 }
 } // namespace mscharged::platform
 

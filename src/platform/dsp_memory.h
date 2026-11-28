@@ -57,4 +57,18 @@ std::size_t DSPBackendReadSampleBytes(NativeDSPMemoryEndpoint endpoint, std::uin
                                       unsigned char* destination, std::size_t capacity);
 void DSPBackendWriteMemory(NativeDSPMemoryEndpoint endpoint, std::uint32_t physical_address,
                            const void* source, std::size_t bytes);
+
+// Holds the ownership lock for a scope, and the transfers this thread makes
+// inside it skip their own. The AX device holds one per command frame, which
+// makes hundreds of transfers. A nested scope takes nothing.
+class NativeDSPMemoryScope {
+public:
+    NativeDSPMemoryScope();
+    ~NativeDSPMemoryScope();
+    NativeDSPMemoryScope(const NativeDSPMemoryScope&) = delete;
+    NativeDSPMemoryScope& operator=(const NativeDSPMemoryScope&) = delete;
+
+private:
+    bool held_ = false;
+};
 } // namespace mscharged::platform

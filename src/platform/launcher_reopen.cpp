@@ -26,6 +26,12 @@ namespace
 {
 std::filesystem::path g_program;
 std::vector<std::string> g_arguments;
+bool g_reopen = false; // the launcher opens again when the game closes
+#ifdef _WIN32
+// The arguments changed (ReopenWithReplay): the command line is built from
+// them instead of this run's.
+bool g_command_line = false;
+#endif
 
 #ifndef _WIN32
 // The game's devices, sockets and files must not stay open in the launcher:
@@ -49,15 +55,33 @@ void CloseDescriptorsOnExec()
 #endif
 } // namespace
 
-void ArmLauncherReopen(const std::filesystem::path& program, int argc, char** argv)
+void ArmLauncherReopen(const std::filesystem::path& program, int argc, char** argv, bool on)
 {
     g_program = program;
     g_arguments.assign(argv, argv + argc);
+    g_reopen = on;
+}
+
+bool LauncherReopenKnown() { return !g_program.empty(); }
+
+void SetLauncherReopen(bool on) { g_reopen = on && !g_program.empty(); }
+
+bool LauncherReopenOn() { return g_reopen; }
+
+void ReopenWithReplay(const std::filesystem::path& replay)
+{
+    if (g_program.empty()) return;
+    const std::string first = g_arguments.empty() ? PathUtf8(g_program) : g_arguments.front();
+    g_arguments = {first, PathUtf8(replay)};
+#ifdef _WIN32
+    g_command_line = true;
+#endif
+    g_reopen = true;
 }
 
 bool ReopenLauncher(const char* reason)
 {
-    if (g_program.empty()) return false;
+    if (g_program.empty() || !g_reopen) return false;
     std::error_code error;
     if (!std::filesystem::is_regular_file(g_program, error))
     {
@@ -67,6 +91,16 @@ bool ReopenLauncher(const char* reason)
     EndSessionLog(reason);
 #ifdef _WIN32
     std::wstring command = GetCommandLineW();
+    if (g_command_line)
+    {
+        // Each argument quoted (the paths may hold spaces; none ends in a backslash).
+        command.clear();
+        for (const auto& argument : g_arguments)
+        {
+            if (!command.empty()) command += L' ';
+            command += L'"' + PathFromUtf8(argument).wstring() + L'"';
+        }
+    }
     STARTUPINFOW startup{};
     startup.cb = sizeof startup;
     PROCESS_INFORMATION process{};
