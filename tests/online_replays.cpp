@@ -721,6 +721,45 @@ void Watching()
         Require(!ReadWatchTicket(file, kept, error) && !error.empty(), "a ticket of no game of a match is refused");
     }
 
+    // Who plays the match and the set so far, for the spectator's overlay.
+    {
+        const std::string info =
+            "{\"match\": 12, \"mode\": \"ranked\", \"best_of\": 3, \"state\": \"in_progress\","
+            " \"home\": {\"name\": \"Birnen\", \"mii\": \"Anosch\", \"country\": \"CH\"},"
+            " \"away\": {\"name\": \"\", \"mii\": \"Sam\", \"country\": \"de\"},"
+            " \"games\": [{\"number\": 1, \"score\": {\"home\": 2, \"away\": 1}},"
+            "             {\"number\": 2, \"score\": {\"home\": 0, \"away\": 3}}, {\"number\": 3}]}";
+        std::string target, head;
+        bool known = true;
+        FakeServer server([&](const Received& request, bool) {
+            target = request.target;
+            head = request.head;
+            return known ? Http(200, info) : Http(404, "{\"error\":\"not found\"}");
+        });
+        WatchTicket watch;
+        watch.match = 12;
+        watch.ticket = "00ff";
+        WatchedMatch match;
+        bool absent = true;
+        Require(FetchWatchedMatch(server.Address(), watch, match, absent, error) && !absent,
+                "the match's details come: " + error);
+        Require(target == "/api/v1/wfc/streams/12/info"
+                    && head.find("\r\nAuthorization: Bearer 00ff") != std::string::npos,
+                "for its match, the ticket out of the URL: " + target);
+        Require(match.home.name == "Birnen" && match.home.country == "CH" && match.away.name == "Sam"
+                    && match.away.country.empty() && match.best_of == 3,
+                "the player's name, else the Mii's; a flag only as two capital letters");
+        Require(match.games.size() == 2 && match.WinsBefore(1) == std::pair(0, 0) && match.WinsBefore(2) == std::pair(1, 0)
+                    && match.WinsBefore(3) == std::pair(1, 1),
+                "the games won before a game, without a game that tells no score");
+        known = false;
+        Require(!FetchWatchedMatch(server.Address(), watch, match, absent, error) && absent,
+                "a server that tells none says so");
+        Require(!ReadWatchedMatch("{\"home\": 1}", match, error) && !error.empty()
+                    && !ReadWatchedMatch("not json", match, error),
+                "an answer that is not one is refused");
+    }
+
     // A ticket the server does not take.
     {
         FakeServer server([](const Received&, bool) {

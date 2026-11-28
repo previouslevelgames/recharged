@@ -48,6 +48,12 @@ struct ResolvedLaunch
     // game whose replay the server keeps, which the game opens once the replay
     // ended; empty for none.
     std::string replay_next_link;
+    // A game the WFC server kept, started from its dashboard: its match and
+    // game and the ticket, for the players and the set shown over it; match 0
+    // for none.
+    std::int64_t replay_match = 0;
+    int replay_game = 0;
+    std::string replay_ticket;
     // When the launcher that starts the game found this build up to date
     // (seconds since 1970), 0 when it did not: the game's online check
     // (launcher/online_gate.h) then needs no request of its own.

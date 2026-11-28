@@ -94,6 +94,26 @@ public:
         bool operator==(const CatchUp&) const = default;
     };
     void SetCatchUp(std::optional<CatchUp> catchUp);
+    // A watched match's players and how far its set is: a bar at the bottom,
+    // each side's flag and name towards its end, the games each side won
+    // between them and above them which game of how many it is. Hidden while
+    // the menus or the catch-up screen show. None hides it.
+    struct Scorebug {
+        struct Side {
+            std::string name;
+            std::string country; // two capital letters, or empty
+            int wins = 0;
+            bool operator==(const Side&) const = default;
+        };
+        Side home, away;
+        bool set = false;    // a set of more games: the games won and the caption show
+        std::string caption; // which game of how many
+        bool operator==(const Scorebug&) const = default;
+    };
+    void SetScorebug(std::optional<Scorebug> scorebug);
+    // The flags' atlas (overlay/flags.h) for the scorebug; without it a
+    // country shows as its letters.
+    void SetFlagAtlas(void* texture) { flagAtlas_ = texture; }
     // Recharged's menus, drawn while shown under the performance numbers and
     // messages; null for none.
     void SetMenus(HostMenus* menus);
@@ -105,6 +125,7 @@ public:
 private:
     void BuildFonts(float size, float menuScale);
     void DrawCatchUp(const CatchUp& catchUp, std::uint32_t surface_width, std::uint32_t surface_height, float size);
+    void DrawScorebug(const Scorebug& scorebug, std::uint32_t surface_width, std::uint32_t surface_height, float size);
 
     std::optional<OverlayCorner> performance_;
     std::optional<platform::SystemUsageMonitor> usage_;
@@ -117,6 +138,8 @@ private:
     bool statusHover_ = false, shownStatusHover_ = false;
     std::optional<std::array<float, 4>> statusAction_;
     std::optional<CatchUp> catchUp_, shownCatchUp_;
+    std::optional<Scorebug> scorebug_, shownScorebug_;
+    void* flagAtlas_ = nullptr, *shownFlagAtlas_ = nullptr;
     HostMenus* menus_ = nullptr;
     bool shownMenus_ = false;
     Clock::time_point messageShown_{};
@@ -133,6 +156,8 @@ private:
     ImFont* label_ = nullptr;
     ImFont* messageFont_ = nullptr;
     ImFont* catchUpFont_ = nullptr; // the catch-up screen's score
+    ImFont* scorebugName_ = nullptr;   // the scorebug's names
+    ImFont* scorebugNumber_ = nullptr; // and its games won (bold)
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
     // Recharged's menus' (bold): their title, plates, rows and small lines.
     ui::Fonts menuFonts_{};

@@ -4,6 +4,7 @@
 #include "platform/name_glyphs.h"
 #include "platform/path.h"
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
+#include "overlay/flags.h"
 #include "runtime/host_menus.h"
 #endif
 
@@ -40,6 +41,9 @@ constexpr auto kMessageFade = std::chrono::milliseconds(500);
 constexpr int kOpacitySteps = 8;
 // The catch-up screen's score, in message sizes.
 constexpr float kCatchUpScoreScale = 2.0f;
+// The scorebug's names and games won, in message sizes; a name is cut to
+// this many message sizes.
+constexpr float kScorebugNameScale = 1.35f, kScorebugNumberScale = 1.8f, kScorebugNameWidth = 12.0f;
 
 ImU32 WithAlpha(ImU32 color, int opacity)
 {
@@ -146,6 +150,8 @@ void HostOverlay::SetStatusHover(bool hover) { statusHover_ = hover; }
 
 void HostOverlay::SetCatchUp(std::optional<CatchUp> catchUp) { catchUp_ = std::move(catchUp); }
 
+void HostOverlay::SetScorebug(std::optional<Scorebug> scorebug) { scorebug_ = std::move(scorebug); }
+
 void HostOverlay::BuildFonts(float size, float menuScale)
 {
     ImGuiIO& io = ImGui::GetIO();
@@ -174,8 +180,10 @@ void HostOverlay::BuildFonts(float size, float menuScale)
         label_ = add(size);
         messageFont_ = addText(MessageFontSize(size));
         catchUpFont_ = addText(std::round(MessageFontSize(size) * kCatchUpScoreScale));
+        scorebugName_ = addText(std::round(MessageFontSize(size) * kScorebugNameScale));
         config.FontBuilderFlags |= ImGuiFreeTypeBuilderFlags_Bold;
         number_ = add(size);
+        scorebugNumber_ = add(std::round(MessageFontSize(size) * kScorebugNumberScale));
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
         // Recharged's menus' (when there are any), at the size they draw
         // them (a lit plate's a little larger than the rest).
@@ -238,6 +246,143 @@ void HostOverlay::DrawCatchUp(const CatchUp& catchUp, std::uint32_t surface_widt
     centred(messageFont_, size, progress, kLabel, catchUp.progress);
 }
 
+void HostOverlay::DrawScorebug(const Scorebug& scorebug, std::uint32_t surface_width, std::uint32_t surface_height,
+                               float size)
+{
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    const float width = float(surface_width), height = float(surface_height);
+    const float nameSize = std::round(size * kScorebugNameScale), numberSize = std::round(size * kScorebugNumberScale);
+    const float captionSize = std::round(size * 0.85f);
+    const float pad = std::round(size * 0.8f), gap = std::round(size * 0.55f);
+    const float rowHeight = std::round(size * 2.7f), round = std::round(size * 0.35f);
+    const float edge = std::max(2.0f, std::round(size * 0.16f)), shadow = std::max(1.0f, std::round(size / 12.0f));
+    const float flagHeight = std::round(nameSize * 0.8f), flagWidth = std::round(flagHeight * 4.0f / 3.0f);
+    const auto measure = [](ImFont* font, float pixels, const std::string& text) {
+        return font->CalcTextSizeA(pixels, FLT_MAX, 0, text.c_str()).x;
+    };
+    // A name no wider than kScorebugNameWidth message sizes: longer ones are
+    // cut, whole characters, with an ellipsis.
+    const auto fit = [&](const std::string& name) {
+        const float most = std::round(size * kScorebugNameWidth);
+        if (measure(scorebugName_, nameSize, name) <= most) return name;
+        std::string cut = name;
+        while (!cut.empty() && measure(scorebugName_, nameSize, cut + "\xE2\x80\xA6") > most) {
+            while (!cut.empty() && (static_cast<unsigned char>(cut.back()) & 0xC0) == 0x80) cut.pop_back();
+            if (!cut.empty()) cut.pop_back();
+        }
+        return cut + "\xE2\x80\xA6";
+    };
+    // A country: its flag, else its letters in an outlined box (no atlas, or
+    // none for it).
+    struct Country {
+        float width = 0.0f;
+        bool flag = false;
+        float u0 = 0, v0 = 0, u1 = 0, v1 = 0;
+    };
+    const auto country = [&](const std::string& code) {
+        Country out;
+        if (code.empty()) return out;
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+        if (const int cell = overlay::FlagCell(code); flagAtlas_ && cell >= 0) {
+            const auto uv = overlay::FlagCellUv(cell);
+            out = {flagWidth, true, uv.u0, uv.v0, uv.u1, uv.v1};
+            return out;
+        }
+#endif
+        out.width = std::round(measure(messageFont_, captionSize, code) + captionSize * 0.8f);
+        return out;
+    };
+    const auto drawCountry = [&](const std::string& code, const Country& look, float x, float middle) {
+        const ImVec2 min{x, std::round(middle - flagHeight * 0.5f)}, max{x + look.width, min.y + flagHeight};
+        if (look.flag) {
+            draw->AddImageRounded(static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(flagAtlas_)), min, max,
+                                  {look.u0, look.v0}, {look.u1, look.v1}, IM_COL32_WHITE, 2.0f);
+            draw->AddRect(min, max, IM_COL32(255, 255, 255, 40), 2.0f, 0, 1.0f);
+            return;
+        }
+        draw->AddRect(min, max, IM_COL32(240, 240, 240, 150), 3.0f, 0, 1.0f);
+        const float textWidth = measure(messageFont_, captionSize, code);
+        draw->AddText(messageFont_, captionSize,
+                      {std::round(x + (look.width - textWidth) * 0.5f), std::round(middle - captionSize * 0.6f)},
+                      kNumber, code.c_str());
+    };
+    const std::string homeName = fit(scorebug.home.name), awayName = fit(scorebug.away.name);
+    const Country homeCountry = country(scorebug.home.country), awayCountry = country(scorebug.away.country);
+    const auto sideWidth = [&](const std::string& name, const Country& look) {
+        return measure(scorebugName_, nameSize, name) + (look.width > 0 ? look.width + gap : 0.0f);
+    };
+    // Both sides as wide as the wider: the middle stays in the picture's middle.
+    const float side =
+        std::ceil(std::max(sideWidth(homeName, homeCountry), sideWidth(awayName, awayCountry)));
+    // The middle: each side's games won in a box, or VS for a single game.
+    const std::string versus = "VS";
+    const float numberBox = std::round(numberSize * 1.35f);
+    const float middleWidth =
+        scorebug.set ? 2 * numberBox : std::round(measure(scorebugNumber_, captionSize * 1.15f, versus) + 2 * gap);
+    const float total = 2 * pad + 2 * side + 4 * gap + middleWidth;
+    const float left = std::round((width - total) * 0.5f), right = left + total;
+    const float bottom = std::round(height - size * 1.3f), top = bottom - rowHeight;
+    const float middle = std::round((top + bottom) * 0.5f);
+    // The caption's tab first: the plate's shadow falls over its foot.
+    const float centre = std::round(width * 0.5f);
+    if (scorebug.set && !scorebug.caption.empty()) {
+        const float tabWidth = std::round(measure(messageFont_, captionSize, scorebug.caption) + 2 * pad);
+        const float tabHeight = std::round(captionSize * 1.75f);
+        const ImVec2 min{std::round(centre - tabWidth * 0.5f), top - tabHeight}, max{min.x + tabWidth, top + round};
+        draw->AddRectFilled(min, max, IM_COL32(18, 20, 26, 225), round, ImDrawFlags_RoundCornersTop);
+        draw->AddRect(min, max, IM_COL32(255, 255, 255, 34), round, ImDrawFlags_RoundCornersTop, 1.0f);
+        const float textY = std::round(min.y + (tabHeight - captionSize) * 0.5f);
+        draw->AddText(messageFont_, captionSize, {min.x + pad + 1, textY + 1}, kShadow, scorebug.caption.c_str());
+        draw->AddText(messageFont_, captionSize, {min.x + pad, textY}, kGold, scorebug.caption.c_str());
+    }
+    // The plate: the menus' dark glass, gold at both ends.
+    const float drop = std::max(1.0f, std::round(size * 0.12f));
+    draw->AddRectFilled({left, top + drop}, {right, bottom + drop}, IM_COL32(0, 0, 0, 110), round);
+    draw->AddRectFilled({left, top}, {right, bottom}, IM_COL32(18, 20, 26, 225), round);
+    draw->AddRect({left, top}, {right, bottom}, IM_COL32(255, 255, 255, 34), round, 0, 1.0f);
+    draw->AddRectFilled({left, top}, {left + edge, bottom}, kGold, round, ImDrawFlags_RoundCornersLeft);
+    draw->AddRectFilled({right - edge, top}, {right, bottom}, kGold, round, ImDrawFlags_RoundCornersRight);
+    // The middle, darker.
+    const float middleLeft = std::round(centre - middleWidth * 0.5f), middleRight = middleLeft + middleWidth;
+    draw->AddRectFilled({middleLeft, top}, {middleRight, bottom}, IM_COL32(6, 7, 10, 235));
+    if (scorebug.set) {
+        draw->AddLine({centre, top + std::round(rowHeight * 0.22f)}, {centre, bottom - std::round(rowHeight * 0.22f)},
+                      IM_COL32(255, 255, 255, 60), 1.0f);
+        const auto wins = [&](int count, int other, float boxLeft) {
+            const std::string text = std::to_string(count);
+            const float x = std::round(boxLeft + (numberBox - measure(scorebugNumber_, numberSize, text)) * 0.5f);
+            const float y = std::round(middle - numberSize * 0.62f);
+            draw->AddText(scorebugNumber_, numberSize, {x + shadow, y + shadow}, kShadow, text.c_str());
+            // The side ahead in the set in gold.
+            draw->AddText(scorebugNumber_, numberSize, {x, y}, count > other ? kGold : kNumber, text.c_str());
+        };
+        wins(scorebug.home.wins, scorebug.away.wins, middleLeft);
+        wins(scorebug.away.wins, scorebug.home.wins, centre);
+    } else {
+        const float vsSize = std::round(captionSize * 1.15f);
+        draw->AddText(scorebugNumber_, vsSize,
+                      {std::round(centre - measure(scorebugNumber_, vsSize, versus) * 0.5f),
+                       std::round(middle - vsSize * 0.62f)},
+                      kGold, versus.c_str());
+    }
+    // Each side towards the middle: home's flag then name, away's name then flag.
+    const float nameY = std::round(middle - nameSize * 0.62f);
+    const auto name = [&](float x, const std::string& text) {
+        draw->AddText(scorebugName_, nameSize, {x + shadow, nameY + shadow}, kShadow, text.c_str());
+        draw->AddText(scorebugName_, nameSize, {x, nameY}, kNumber, text.c_str());
+    };
+    float x = middleLeft - 2 * gap - sideWidth(homeName, homeCountry);
+    if (homeCountry.width > 0) {
+        drawCountry(scorebug.home.country, homeCountry, x, middle);
+        x += homeCountry.width + gap;
+    }
+    name(x, homeName);
+    x = middleRight + 2 * gap;
+    name(x, awayName);
+    if (awayCountry.width > 0)
+        drawCountry(scorebug.away.country, awayCountry, x + measure(scorebugName_, nameSize, awayName) + gap, middle);
+}
+
 void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_height, Clock::time_point now)
 {
     if (surface_width == 0 || surface_height == 0) return;
@@ -271,7 +416,8 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     const std::optional<CatchUp> catchUp = catchUp_;
     const std::optional<Hint> hint = menus || catchUp ? std::nullopt : hint_;
     const std::optional<Status> status = menus || catchUp ? std::nullopt : status_;
-    const bool showing = performance_ || opacity > 0 || menus || hint || status || catchUp;
+    const std::optional<Scorebug> scorebug = menus || catchUp ? std::nullopt : scorebug_;
+    const bool showing = performance_ || opacity > 0 || menus || hint || status || catchUp || scorebug;
     // (Its button is where it was drawn last, until it is drawn no more.)
     if (!status || status->action.empty()) statusAction_.reset();
     if (!showing) {
@@ -282,7 +428,7 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     // The menus are live: every frame while they show.
     if (drawn_ && !menus && !shownMenus_ && values == shownValues_ && count == shownCount_ && message_ == shownMessage_
         && opacity == shownOpacity_ && hint == shownHint_ && status == shownStatus_ && catchUp == shownCatchUp_
-        && statusHover_ == shownStatusHover_ && surface_width == shownWidth_
+        && scorebug == shownScorebug_ && flagAtlas_ == shownFlagAtlas_ && statusHover_ == shownStatusHover_ && surface_width == shownWidth_
         && surface_height == shownHeight_)
         return;
     const auto size = FpsOverlayFontSize(surface_width, surface_height);
@@ -303,6 +449,8 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
     if (menus) menus_->Draw(float(surface_width), float(surface_height), menuFonts_);
 #endif
+    // A watched match's players under the corners' numbers and messages.
+    if (scorebug) DrawScorebug(*scorebug, surface_width, surface_height, MessageFontSize(size));
     ImDrawList* draw = ImGui::GetForegroundDrawList();
     const float shadow = std::max(1.0f, std::round(size / 15.0f));
     std::optional<FpsOverlayLayout> performanceLayout;
@@ -420,6 +568,8 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     shownStatus_ = status;
     shownStatusHover_ = statusHover_;
     shownCatchUp_ = catchUp;
+    shownScorebug_ = scorebug;
+    shownFlagAtlas_ = flagAtlas_;
     shownMenus_ = menus;
     shownOpacity_ = opacity;
     shownWidth_ = surface_width;

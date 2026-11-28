@@ -17,24 +17,36 @@ constexpr std::uint8_t kFrameKeepalive = 0, kFrameGame = 1, kFrameData = 2, kFra
 // A frame larger than this is no frame of the server's.
 constexpr std::size_t kMostFrame = 16u << 20;
 constexpr int kConnectTimeout = 5000;
-} // namespace
 
-bool FetchKeptReplay(const std::string& server, const WatchTicket& ticket, std::vector<std::uint8_t>& file,
-                     int& next_game, std::string& error, std::chrono::milliseconds timeout)
+
+// A GET of `path` with a watch ticket (out of the URL: request logs keep
+// URLs): the answer's status, its head (names in lower case) and its body,
+// at most `most` bytes. False with `error` set when there is no answer.
+struct TicketAnswer
 {
-    file.clear();
-    next_game = 0;
-    // The largest file the server keeps (1 MiB), its head and a margin.
-    constexpr std::size_t kMostAnswer = (1u << 20) + (64u << 10);
+    int status = 0;
+    std::string head;
+    std::string body;
+
+    // A field's value as it came (after "name:"), or null.
+    const char* Field(const char* name) const
+    {
+        const auto at = head.find(std::string("\r\n") + name + ":");
+        return at == std::string::npos ? nullptr : head.c_str() + at + 3 + std::strlen(name);
+    }
+};
+
+bool TicketGet(const std::string& server, const std::string& path, const WatchTicket& ticket, const char* accept,
+               std::size_t most, std::chrono::milliseconds timeout, TicketAnswer& answer, std::string& error)
+{
     TcpClient connection;
     if (!connection.Connect(server, kConnectTimeout, error))
     {
         error = "The server cannot be reached: " + error;
         return false;
     }
-    const std::string request = "GET /api/v1/wfc/replays/" + std::to_string(ticket.match) + "/"
-        + std::to_string(ticket.game) + " HTTP/1.1\r\nHost: " + server
-        + "\r\nUser-Agent: Recharged\r\nAccept: application/octet-stream\r\nAuthorization: Bearer " + ticket.ticket
+    const std::string request = "GET " + path + " HTTP/1.1\r\nHost: " + server
+        + "\r\nUser-Agent: Recharged\r\nAccept: " + accept + "\r\nAuthorization: Bearer " + ticket.ticket
         + "\r\nConnection: close\r\n\r\n";
     const auto until = std::chrono::steady_clock::now() + timeout;
     auto late = [&] { return std::chrono::steady_clock::now() > until; };
@@ -50,7 +62,7 @@ bool FetchKeptReplay(const std::string& server, const WatchTicket& ticket, std::
         if (!sent) connection.WaitReadable(5);
     }
     // The whole answer: the server closes the connection after it.
-    std::string answer;
+    std::string whole;
     char buffer[16384];
     for (;;)
     {
@@ -58,10 +70,10 @@ bool FetchKeptReplay(const std::string& server, const WatchTicket& ticket, std::
         if (got < 0) break;
         if (got > 0)
         {
-            answer.append(buffer, std::size_t(got));
-            if (answer.size() > kMostAnswer)
+            whole.append(buffer, std::size_t(got));
+            if (whole.size() > most + (64u << 10))
             {
-                error = "The server's answer is larger than a replay.";
+                error = "The server's answer is larger than expected.";
                 return false;
             }
             continue;
@@ -73,48 +85,152 @@ bool FetchKeptReplay(const std::string& server, const WatchTicket& ticket, std::
         }
         connection.WaitReadable(100);
     }
-    const auto end = answer.find("\r\n\r\n");
-    int status = 0;
-    if (answer.compare(0, 5, "HTTP/") == 0 && end != std::string::npos)
-        if (const auto space = answer.find(' '); space < end) status = std::atoi(answer.c_str() + space + 1);
-    if (!status)
+    const auto end = whole.find("\r\n\r\n");
+    answer.status = 0;
+    if (whole.compare(0, 5, "HTTP/") == 0 && end != std::string::npos)
+        if (const auto space = whole.find(' '); space < end) answer.status = std::atoi(whole.c_str() + space + 1);
+    if (!answer.status)
     {
         error = "The server's answer cannot be read.";
         return false;
     }
-    std::string head = answer.substr(0, end);
-    std::transform(head.begin(), head.end(), head.begin(), [](unsigned char c) { return char(std::tolower(c)); });
-    auto field = [&](const char* name) -> const char* {
-        const auto at = head.find(std::string("\r\n") + name + ":");
-        return at == std::string::npos ? nullptr : answer.c_str() + at + 3 + std::strlen(name);
-    };
-    if (status != 200)
-    {
-        error = status == 404 ? "The server keeps no replay of game " + std::to_string(ticket.game) + " of this match."
-            : status == 401 || status == 403
-            ? "The server does not take this ticket (a ticket lasts four hours, on the server that made it)."
-            : "The server answered HTTP " + std::to_string(status) + ".";
-        return false;
-    }
-    std::size_t length = answer.size() - end - 4;
-    if (const char* value = field("content-length"))
+    answer.head = whole.substr(0, end);
+    std::transform(answer.head.begin(), answer.head.end(), answer.head.begin(),
+                   [](unsigned char c) { return char(std::tolower(c)); });
+    std::size_t length = whole.size() - end - 4;
+    if (const char* value = answer.Field("content-length"))
     {
         const std::size_t said = std::size_t(std::strtoull(value, nullptr, 10));
         if (said > length)
         {
-            error = "The replay came cut short.";
+            error = "The server's answer came cut short.";
             return false;
         }
         length = said;
     }
-    if (const char* value = field("x-next-game"))
+    answer.body.assign(whole, end + 4, length);
+    return true;
+}
+
+// The text of `value` (a JSON string), at most `most` bytes, cut at a
+// character's start.
+std::string Text(const JsonValue& value, std::size_t most)
+{
+    std::string text = value.Text();
+    if (!value.IsString()) text.clear();
+    if (text.size() > most)
+    {
+        std::size_t cut = most;
+        while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80) --cut;
+        text.resize(cut);
+    }
+    return text;
+}
+} // namespace
+
+bool FetchKeptReplay(const std::string& server, const WatchTicket& ticket, std::vector<std::uint8_t>& file,
+                     int& next_game, std::string& error, std::chrono::milliseconds timeout)
+{
+    file.clear();
+    next_game = 0;
+    // The largest file the server keeps (1 MiB).
+    TicketAnswer answer;
+    if (!TicketGet(server, "/api/v1/wfc/replays/" + std::to_string(ticket.match) + "/" + std::to_string(ticket.game),
+                   ticket, "application/octet-stream", 1u << 20, timeout, answer, error))
+        return false;
+    if (answer.status != 200)
+    {
+        error = answer.status == 404
+            ? "The server keeps no replay of game " + std::to_string(ticket.game) + " of this match."
+            : answer.status == 401 || answer.status == 403
+            ? "The server does not take this ticket (a ticket lasts four hours, on the server that made it)."
+            : "The server answered HTTP " + std::to_string(answer.status) + ".";
+        return false;
+    }
+    if (const char* value = answer.Field("x-next-game"))
     {
         const long next = std::strtol(value, nullptr, 10);
         if (next > ticket.game && next <= 9) next_game = int(next);
     }
-    const auto* body = reinterpret_cast<const std::uint8_t*>(answer.data() + end + 4);
-    file.assign(body, body + length);
+    file.assign(answer.body.begin(), answer.body.end());
     return true;
+}
+
+std::pair<int, int> WatchedMatch::WinsBefore(int game) const
+{
+    std::pair<int, int> wins{0, 0};
+    for (const auto& played : games)
+    {
+        if (played.number >= game) continue;
+        if (played.home > played.away) ++wins.first;
+        else if (played.away > played.home) ++wins.second;
+    }
+    return wins;
+}
+
+bool ReadWatchedMatch(const std::string& json, WatchedMatch& match, std::string& error)
+{
+    try
+    {
+        const JsonValue root = ParseJson(json);
+        if (!root.IsObject() || !root["home"].IsObject() || !root["away"].IsObject())
+        {
+            error = "The match's details are not an object with both sides.";
+            return false;
+        }
+        WatchedMatch read;
+        // Names as long as the menus take them; a flag only as two capital letters.
+        constexpr std::size_t kMostName = 64;
+        const auto side = [&](const JsonValue& value, WatchedMatch::Side& out) {
+            out.name = Text(value["name"], kMostName);
+            if (out.name.empty()) out.name = Text(value["mii"], kMostName);
+            const std::string country = Text(value["country"], 2);
+            if (country.size() == 2 && country[0] >= 'A' && country[0] <= 'Z' && country[1] >= 'A'
+                && country[1] <= 'Z')
+                out.country = country;
+        };
+        side(root["home"], read.home);
+        side(root["away"], read.away);
+        const auto best_of = root["best_of"].Integer();
+        read.best_of = best_of && *best_of >= 1 && *best_of <= 9 ? int(*best_of) : 1;
+        for (const auto& game : root["games"].Items())
+        {
+            const auto number = game["number"].Integer();
+            const auto home = game["score"]["home"].Integer();
+            const auto away = game["score"]["away"].Integer();
+            if (!number || !home || !away || *number < 1 || *number > 9) continue;
+            read.games.push_back({int(*number), int(std::clamp<std::int64_t>(*home, 0, 99)),
+                                  int(std::clamp<std::int64_t>(*away, 0, 99))});
+            if (read.games.size() >= 9) break;
+        }
+        match = std::move(read);
+        return true;
+    }
+    catch (const std::exception& failure)
+    {
+        error = std::string("The match's details cannot be read: ") + failure.what();
+        return false;
+    }
+}
+
+bool FetchWatchedMatch(const std::string& server, const WatchTicket& ticket, WatchedMatch& match, bool& absent,
+                       std::string& error, std::chrono::milliseconds timeout)
+{
+    absent = false;
+    TicketAnswer answer;
+    if (!TicketGet(server, "/api/v1/wfc/streams/" + std::to_string(ticket.match) + "/info", ticket,
+                   "application/json", 64u << 10, timeout, answer, error))
+        return false;
+    if (answer.status != 200)
+    {
+        absent = answer.status == 404;
+        error = absent ? "The server tells no details of this match (servers before 1.3.7 tell none)."
+            : answer.status == 401 || answer.status == 403
+            ? "The server does not take this ticket (a ticket lasts four hours, on the server that made it)."
+            : "The server answered HTTP " + std::to_string(answer.status) + ".";
+        return false;
+    }
+    return ReadWatchedMatch(answer.body, match, error);
 }
 
 LiveWatch::LiveWatch(std::string server, WatchTicket ticket, Log log)

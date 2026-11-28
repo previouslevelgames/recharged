@@ -643,7 +643,8 @@
     "watch_waiting": "Game over: waiting for the match's next game",
     "watch_next_game": "The next game begins: following the match",
     "watch_over": "The match is over",
-    "watch_broke_off": "The match's stream broke off"
+    "watch_broke_off": "The match's stream broke off",
+    "watch_set_game": "GAME {{game}} · BEST OF {{best_of}}"
   },
   "notices": {
     "challenge_sent": "Challenge sent",

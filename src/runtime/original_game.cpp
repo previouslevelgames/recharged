@@ -171,6 +171,8 @@ std::unique_ptr<mscharged::platform::CompetitiveHost>* sCompetitive=nullptr;
 std::function<void()>* sReplayExit=nullptr;
 std::atomic<ChargedSetReplaySpeedFunction> sReplaySpeedSetter{nullptr};
 std::atomic<int> sReplaySpeed{0};
+// O presses while a replay plays: a watched match's players and set shown or hidden.
+std::atomic<int> sPlayersToggles{0};
 // Clicks on the CANCEL of the box that shows what the player waits for (taken
 // out of the game's events by the hotkey filter), for the host loop.
 std::atomic<int> sStatusCancels{0};
@@ -202,7 +204,8 @@ constexpr unsigned kReplayViewerTweaks=mscharged::GameTweakBit(mscharged::GameTw
     |mscharged::GameTweakBit(mscharged::GameTweak::FastMenus)|mscharged::GameTweakBit(mscharged::GameTweak::NoHud)
     |mscharged::GameTweakBit(mscharged::GameTweak::OverrideRetailMenus);
 // A replay's speed keys: Right (or a gamepad's D-pad right) faster, Left
-// slower, and from normal speed paused.
+// slower, and from normal speed paused. O shows or hides the players of a
+// match watched from the online server.
 bool SDLCALL ReplaySpeedKeys(void*,SDL_Event* event) {
     const auto setter=sReplaySpeedSetter.load();
     if(!setter)return true;
@@ -211,6 +214,7 @@ bool SDLCALL ReplaySpeedKeys(void*,SDL_Event* event) {
        && !(event->key.mod&(SDL_KMOD_CTRL|SDL_KMOD_ALT|SDL_KMOD_GUI|SDL_KMOD_SHIFT))) {
         if(event->key.scancode==SDL_SCANCODE_RIGHT)step=1;
         else if(event->key.scancode==SDL_SCANCODE_LEFT)step=-1;
+        else if(event->key.scancode==SDL_SCANCODE_O)sPlayersToggles.fetch_add(1);
     } else if(event->type==SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
         if(event->gbutton.button==SDL_GAMEPAD_BUTTON_DPAD_RIGHT)step=1;
         else if(event->gbutton.button==SDL_GAMEPAD_BUTTON_DPAD_LEFT)step=-1;
@@ -675,6 +679,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         mscharged::platform::WatchTicket watchTicket;
         std::vector<std::uint8_t> replayBytes;
         std::string replayError;
+        // The match a ticket names and the game watched of it (live, or a game
+        // the server kept, from the launcher): the server tells its players
+        // and its set so far, shown over it.
+        std::optional<mscharged::replay::WatchTicket> playersTicket;
+        int playersGame=0;
         const bool watching=!launch.replay_path.empty()
             && mscharged::replay::ReadReplayFile(launch.replay_path,replayBytes,replayError)
             && mscharged::platform::ReadWatchTicket(replayBytes,watchTicket,replayError);
@@ -698,6 +707,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             Check(liveWatch->WaitForGame(std::chrono::seconds(90),game,replayStream,error)
                   && mscharged::replay::ReadSetup(replayStream.data(),replayStream.size(),replaySetup,error),
                   ("Cannot watch this match: "+error).c_str());
+            playersTicket=watchTicket;
+            playersGame=game;
 #else
             Check(false,"Watching a match is not in this build.");
 #endif
@@ -713,6 +724,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                   ("This replay was recorded with "+info.game_id+" (revision "+std::to_string(info.revision)
                    +"). Start it with that game image; this one is "+release->game_id+" (revision "
                    +std::to_string(release->revision)+").").c_str());
+            if(launch.replay_match>0 && launch.replay_game>0) {
+                mscharged::replay::WatchTicket kept;
+                kept.match=launch.replay_match;
+                kept.game=launch.replay_game;
+                kept.ticket=launch.replay_ticket;
+                kept.release=std::string(release->game_id,4);
+                playersTicket=kept;
+                playersGame=kept.game;
+            }
             std::string line="Replay: "+mscharged::PathUtf8(launch.replay_path)+", "
                 +mscharged::replay::MatchLength(replaySetup.steps)+", recorded by "+info.build;
             if(info.build!=mscharged::build::version)line+=" (another build: the match may play differently)";
@@ -3722,6 +3742,121 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // stopped hiding (that frame drew nothing yet), last updated.
         bool catchUpShown=false,catchUpHeld=false;
         std::chrono::steady_clock::time_point catchUpAt{};
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+        // A match watched from the online server: its players (name and
+        // flag) and its set so far at the bottom, unless O hid them ([replays]
+        // show_players, kept for the match's next games). The server is
+        // asked as the replay starts, then every half minute while it does
+        // not know every game before this one yet; a server that tells none
+        // (before 1.3.7) is not asked again.
+        struct PlayersAnswer {
+            std::optional<mscharged::platform::WatchedMatch> match;
+            bool absent=false;
+            std::string error;
+        };
+        struct {
+            std::future<PlayersAnswer> asking;
+            std::optional<mscharged::platform::WatchedMatch> known;
+            std::chrono::steady_clock::time_point askedAt{};
+            bool asked=false,absent=false,failureLogged=false,atlasMade=false;
+            int toggles=0;
+        } players;
+        auto observePlayers=[&](std::chrono::steady_clock::time_point now) {
+            if(!playersTicket || !hostOverlay) return;
+            if(const int toggles=sPlayersToggles.load(); toggles!=players.toggles) {
+                const bool flip=((toggles-players.toggles)&1)!=0;
+                players.toggles=toggles;
+                if(flip) {
+                    const bool on=!launch.settings.replays_show_players;
+                    launch.settings.replays_show_players=on;
+                    try {
+                        mscharged::SaveSettings(launch.config.path,[on](mscharged::Settings& s) {
+                            s.replays_show_players=on;
+                        });
+                    } catch(const std::exception& error) {
+                        mscharged::platform::SessionLogLine(
+                            std::string("Watching: whether the players show is not saved: ")+error.what());
+                    }
+                    mscharged::platform::SessionLogLine(std::string("Watching: the players ")
+                                                        +(on ? "show" : "are hidden")+" (O)");
+                }
+            }
+            if(players.asking.valid()
+               && players.asking.wait_for(std::chrono::seconds(0))==std::future_status::ready) {
+                auto answer=players.asking.get();
+                if(answer.match) {
+                    const auto& match=*answer.match;
+                    mscharged::platform::NoteNameGlyphs(match.home.name);
+                    mscharged::platform::NoteNameGlyphs(match.away.name);
+                    if(!players.known)
+                        mscharged::platform::SessionLogLine("Watching: "+match.home.name+" ("
+                            +(match.home.country.empty() ? "no flag" : match.home.country)+") against "
+                            +match.away.name+" ("+(match.away.country.empty() ? "no flag" : match.away.country)
+                            +"), game "+std::to_string(playersGame)+" of a best of "+std::to_string(match.best_of));
+                    players.known=std::move(answer.match);
+                } else {
+                    players.absent=answer.absent;
+                    if(!players.failureLogged)
+                        mscharged::platform::SessionLogLine("Watching: no players shown: "+answer.error);
+                    players.failureLogged=true;
+                }
+            }
+            const auto complete=[&] {
+                if(!players.known) return false;
+                for(int number=1;number<playersGame;++number)
+                    if(std::none_of(players.known->games.begin(),players.known->games.end(),
+                                    [&](const auto& game) { return game.number==number; }))
+                        return false;
+                return true;
+            };
+            if(!players.asking.valid() && !players.absent && !complete()
+               && (!players.asked || now-players.askedAt>=std::chrono::seconds(30))) {
+                players.asked=true;
+                players.askedAt=now;
+                players.asking=std::async(std::launch::async,
+                    [server=launch.settings.online_server,ticket=*playersTicket] {
+                        PlayersAnswer answer;
+                        mscharged::platform::WatchedMatch match;
+                        if(mscharged::platform::FetchWatchedMatch(server,ticket,match,answer.absent,answer.error))
+                            answer.match=std::move(match);
+                        return answer;
+                    });
+            }
+            if(!players.known || !launch.settings.replays_show_players) {
+                hostOverlay->SetScorebug(std::nullopt);
+                return;
+            }
+            // The flags' atlas, once (the overlay cannot free a texture).
+            if(!players.atlasMade) {
+                players.atlasMade=true;
+                const auto path=mscharged::PathUtf8(executableDirectory/"assets"/"flags"/"flags.png");
+                SDL_Surface* png=SDL_LoadPNG(path.c_str());
+                SDL_Surface* rgba=png ? SDL_ConvertSurface(png,SDL_PIXELFORMAT_RGBA32) : nullptr;
+                if(png) SDL_DestroySurface(png);
+                if(rgba && rgba->w>0 && rgba->h>0) {
+                    std::vector<unsigned char> pixels(std::size_t(rgba->w)*std::size_t(rgba->h)*4);
+                    for(int row=0;row<rgba->h;++row)
+                        std::memcpy(pixels.data()+std::size_t(row)*std::size_t(rgba->w)*4,
+                                    static_cast<const unsigned char*>(rgba->pixels)+std::size_t(row)*std::size_t(rgba->pitch),
+                                    std::size_t(rgba->w)*4);
+                    hostOverlay->SetFlagAtlas(reinterpret_cast<void*>(
+                        aurora_imgui_add_texture(std::uint32_t(rgba->w),std::uint32_t(rgba->h),pixels.data())));
+                } else
+                    mscharged::platform::SessionLogLine("Watching: no flags ("+path+" cannot be read): "+SDL_GetError());
+                if(rgba) SDL_DestroySurface(rgba);
+            }
+            const auto& match=*players.known;
+            const auto [homeWins,awayWins]=match.WinsBefore(playersGame);
+            mscharged::runtime::HostOverlay::Scorebug scorebug;
+            scorebug.home={match.home.name,match.home.country,homeWins};
+            scorebug.away={match.away.name,match.away.country,awayWins};
+            scorebug.set=match.best_of>1;
+            if(scorebug.set)
+                scorebug.caption=texts::T("menus.messages.watch_set_game",
+                    {{"game",std::to_string(playersGame)},{"best_of",std::to_string(match.best_of)}});
+            hostOverlay->SetScorebug(std::move(scorebug));
+        };
+#endif
         auto observeReplays=[&] {
             takeReplays();
             if(replayStream.empty() || !replayStatus)return;
@@ -3738,6 +3873,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             ChargedReplayStatus status{};
             if(!replayStatus(&status,sizeof status))return;
             const auto now=std::chrono::steady_clock::now();
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+            observePlayers(now);
+#endif
             // Live, more than a second behind the stream: catching up (twice
             // as fast, or turbo), until back within its usual half second.
             const bool catchingUp=status.live && (status.behind>50 || (liveCatchingUp && status.behind>30));

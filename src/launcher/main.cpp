@@ -3688,10 +3688,18 @@ private:
         {
             frontend_launch_->disc_path = pending_replay_->image;
             frontend_launch_->replay_path = pending_replay_->path;
-            // A kept game of a match: the game follows the match's next one.
-            if (pending_replay_->path == kept_file_) frontend_launch_->replay_next_link = kept_next_link_;
+            // A kept game of a match: the game shows its players and the set
+            // over it, then follows the match's next one.
+            if (pending_replay_->path == kept_file_)
+            {
+                frontend_launch_->replay_next_link = kept_next_link_;
+                frontend_launch_->replay_match = kept_ticket_.match;
+                frontend_launch_->replay_game = kept_ticket_.game;
+                frontend_launch_->replay_ticket = kept_ticket_.ticket;
+            }
             kept_file_.clear();
             kept_next_link_.clear();
+            kept_ticket_ = {};
             platform::SessionLogLine("Replay: starting with " + PathUtf8(pending_replay_->image));
             pending_replay_.reset();
             quit = true;
@@ -3756,11 +3764,13 @@ private:
     {
         fs::path file; // empty when it failed
         std::string next_link;
+        replay::WatchTicket ticket;
         std::string error;
     };
     BackgroundJob<KeptDownload> kept_download_;
     fs::path kept_file_;
     std::string kept_next_link_;
+    replay::WatchTicket kept_ticket_; // the kept game's
 
     void FetchKept(const replay::WatchTicket& ticket)
     {
@@ -3779,6 +3789,7 @@ private:
         Notice(texts::T("launcher.replay.starting", {{"name", name}}), NoticeKind::Info);
         kept_download_.Start([server, ticket] {
             KeptDownload result;
+            result.ticket = ticket;
             std::vector<std::uint8_t> bytes;
             int next = 0;
             if (!platform::FetchKeptReplay(server, ticket, bytes, next, result.error)) return result;
@@ -3816,6 +3827,7 @@ private:
         }
         kept_file_ = kept->file;
         kept_next_link_ = kept->next_link;
+        kept_ticket_ = kept->ticket;
         AskReplay(kept->file);
     }
 

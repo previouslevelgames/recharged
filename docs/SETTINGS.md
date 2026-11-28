@@ -527,6 +527,7 @@ replays** is `record`.
 [replays]
 record = true   # false keeps no replays on this PC
 keep = 100      # the newest 100 stay, older ones are deleted; 0 keeps all
+show_players = true  # a watched online match shows its players (O switches it)
 ```
 
 Online games go to the server whatever `record` says: it streams them to

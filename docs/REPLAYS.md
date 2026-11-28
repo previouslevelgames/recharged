@@ -55,6 +55,7 @@ The game goes straight into the match, without the menus. While it plays:
 | --- | --- | --- |
 | **Right** | D-pad right | Faster: twice, then four times the normal speed |
 | **Left** | D-pad left | Slower again; at normal speed it pauses the replay |
+| **O** | | Hides or shows the players of a match from the online server |
 
 The speed shows in the corner for a few seconds as the match begins and after
 each change; while the replay is paused it stays, and **Right** goes on. The
@@ -88,6 +89,13 @@ and after ten seconds plays on at normal speed until it has loaded.
 Cutscenes play as the players saw them: a part of one a player skipped
 (a goal's celebration, its replay) is skipped in the replay too, at the same
 moment.
+
+A match from the online server (its **Watch** link, or **Replay** of a game it
+kept) shows who plays it in a bar at the bottom: each player's name and flag,
+and in a set the games each has won so far, with which game of how many this
+is (*GAME 2 · BEST OF 3*). **O** hides the bar and shows it again; Recharged
+remembers it for the next games you watch (`show_players` below). The bar needs
+an online server of version 1.3.7 or later; with an older one it stays away.
 
 ## Match stats
 
@@ -145,6 +153,7 @@ changed it, still switches it).
 [replays]
 record = true   # false: no new replays are kept
 keep = 100      # the newest 100 stay, older ones are deleted; 0 keeps all
+show_players = true  # a watched online match shows its players (O switches it)
 ```
 
 **Keep replays** in **Replays** is `record`. It decides only what

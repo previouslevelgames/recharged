@@ -37,6 +37,38 @@ bool FetchKeptReplay(const std::string& server, const WatchTicket& ticket, std::
                      int& next_game, std::string& error,
                      std::chrono::milliseconds timeout = std::chrono::seconds(30));
 
+// Who plays a watched match and how far its set is, as the server says
+// (GET /api/v1/wfc/streams/<match>/info, its docs/reports.md, "Watching"):
+// what a spectator shows over the match.
+struct WatchedMatch
+{
+    struct Side
+    {
+        std::string name;    // the Recharged player, else the Mii
+        std::string country; // the player's flag: two capital letters, or empty
+    };
+    Side home, away;
+    int best_of = 1;
+    // The games that count so far: their numbers and goals (home, away).
+    struct Game
+    {
+        int number = 0;
+        int home = 0, away = 0;
+    };
+    std::vector<Game> games;
+
+    // The games each side won before game `game` (home, away): a game's
+    // replay shows the set as it stood when the game began.
+    std::pair<int, int> WinsBefore(int game) const;
+};
+// The server's answer read; false with `error` set for one that is not one.
+bool ReadWatchedMatch(const std::string& json, WatchedMatch& match, std::string& error);
+// Asks `server` (online.server) with `ticket`; waits at most `timeout`. False
+// with `error` set; `absent` too when the server has no such answer (one
+// before 1.3.7: it says 404 to every match), which asking again won't change.
+bool FetchWatchedMatch(const std::string& server, const WatchTicket& ticket, WatchedMatch& match, bool& absent,
+                       std::string& error, std::chrono::milliseconds timeout = std::chrono::seconds(10));
+
 class LiveWatch
 {
 public:

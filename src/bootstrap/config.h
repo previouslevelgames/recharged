@@ -259,6 +259,9 @@ struct Settings
     bool replays_record = true;
     // replays.keep: the replays the folder keeps, the oldest going first; 0 keeps all.
     int replays_keep = 100;
+    // replays.show_players: a match watched from the online server shows its
+    // players and the set so far at the bottom; O switches it while watching.
+    bool replays_show_players = true;
     // discord.rich_presence: show what is being played as the Discord status
     // (issue #71), when the Discord app runs on this computer.
     bool discord_status = true;
