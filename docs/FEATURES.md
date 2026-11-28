@@ -316,6 +316,7 @@ server instead. It is set up already; only a private instance of the server
 ([recharged-wfc-srv](https://github.com/previouslevelgames/recharged-wfc-srv))
 needs `[online] server` ([settings](SETTINGS.md#online)). Friend
 codes are typed on the game's friend code screen, as described under Controls.
+The main menu's NINTENDO Wi-Fi CONNECTION button says **PLAY ONLINE**.
 
 The launcher's Play page shows the server's message when it has one (a
 restart, an event: its admins post it; the close button hides it until they

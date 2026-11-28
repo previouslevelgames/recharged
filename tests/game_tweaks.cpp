@@ -7,6 +7,7 @@
 #include "bootstrap/sound_groups.h"
 #include "mscharged_tweaks.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -538,6 +539,15 @@ int main()
         Check(!mscharged_tweak_online_locked(), "A check that ended open kept Online closed");
         verdict.join();
         Check(!mscharged_tweak_take_online_lock_message(), "An open Online left a message");
+
+        // The main menu's Online button (NINTENDO Wi-Fi CONNECTION) says PLAY
+        // ONLINE; every other localized text stays the game's.
+        const unsigned short* button = mscharged_tweak_loc_text(0x1455335CUL);
+        const char16_t expected[] = u"PLAY ONLINE";
+        Check(button && std::equal(expected, expected + sizeof(expected) / sizeof(expected[0]), button),
+            "The Online button does not say PLAY ONLINE");
+        Check(!mscharged_tweak_loc_text(0x4256773AUL) && !mscharged_tweak_loc_text(0),
+            "Another localized text was replaced");
 
         // Back to the original rate and to no tweaks: the original game again.
         charged_configure_frame_pacing(nullptr);

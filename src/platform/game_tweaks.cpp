@@ -65,6 +65,10 @@ const char16_t kOnlineUncheckedText[] =
     u"Recharged could not check for updates, so online play is off for now. Close the game and start the launcher "
     u"to check again.";
 static_assert(sizeof(char16_t) == sizeof(unsigned short), "The game's text is UTF-16");
+// The main menu's Online button (tweak patch 0097): its localization key (the
+// hash of the key's name) and its text.
+constexpr unsigned long kOnlineButtonKey = 0x1455335C;
+const char16_t kOnlineButtonText[] = u"PLAY ONLINE";
 // Wider view (display.wider_view, issue #91): the window's picture shape
 // divided by 16:9 while the wider view fills it, 1 otherwise; and whether the
 // match's stadium was drawn since the host last asked (it fills the window
@@ -453,6 +457,14 @@ const unsigned short* mscharged_tweak_take_online_lock_message(void)
     const unsigned short* message = sOnlineLockMessage;
     sOnlineLockMessage = nullptr;
     return message;
+}
+
+const unsigned short* mscharged_tweak_loc_text(unsigned long key)
+{
+    // The main menu's Online button (NINTENDO Wi-Fi CONNECTION): Nintendo's
+    // service is gone, the button opens Recharged's online play.
+    if (key == kOnlineButtonKey) return reinterpret_cast<const unsigned short*>(kOnlineButtonText);
+    return nullptr;
 }
 
 float mscharged_tweak_view_shape(void)
